@@ -1,0 +1,91 @@
+# Architecture Overview
+
+## System Boundary
+
+Workspace OS is a local-first orchestration layer for AI-assisted work. It coordinates repositories, cloud deliverables, and agents without becoming the owner of all content.
+
+## Core Components
+
+```text
+Workspace CLI
+  -> Source Registry
+  -> Librarian Search
+  -> Content Classifier
+  -> Capture and Promotion Workflows
+  -> Connector Interfaces
+  -> Agent Router
+```
+
+## Responsibilities
+
+### Workspace CLI
+
+Provides the operator-facing command surface.
+
+Initial commands:
+- `workspace status`
+- `workspace search`
+- `workspace classify`
+- `workspace capture`
+- `workspace promote`
+- `workspace housekeeping`
+- `workspace validate`
+
+### Source Registry
+
+Defines known sources and their responsibilities.
+
+Examples:
+- doctrine repository
+- evidence repository
+- execution repository
+- product repository
+- cloud deliverable index
+
+### Librarian Search
+
+Searches existing content before new content is added.
+
+Initial implementation should use plain text search before adding vector search.
+
+### Content Classifier
+
+Classifies content into doctrine, evidence, execution, deliverable, product, or temporary.
+
+### Capture and Promotion Workflows
+
+Creates sanitized evidence and promotes reusable rules to doctrine.
+
+### Connector Interfaces
+
+Connectors should be read-only by default. Write operations require explicit approval.
+
+### Agent Router
+
+Routes tasks to agents under allowlisted commands and approval rules.
+
+## Deployment Model
+
+Start local.
+
+Later deployment targets:
+- local workstation
+- private server
+- container runtime
+- Kubernetes or OpenShift
+- cloud VM
+
+## Storage Model
+
+- Git repositories store code, doctrine, product docs, and sanitized evidence.
+- Google Workspace stores final office deliverables.
+- Local indexes store derived search data and can be rebuilt.
+
+## Security Model
+
+- Deny arbitrary command execution.
+- Use allowlists for automation.
+- Keep secrets outside repositories.
+- Sanitize logs and evidence.
+- Prefer private network access for remote control.
+

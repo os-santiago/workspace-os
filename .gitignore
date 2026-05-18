@@ -1,0 +1,29 @@
+# Local runtime state
+.env
+.env.*
+!.env.example
+
+# Generated artifacts
+dist/
+build/
+out/
+tmp/
+temp/
+.cache/
+
+# Local indexes and databases
+*.db
+*.sqlite
+*.sqlite3
+indexes/
+
+# Logs
+*.log
+logs/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
