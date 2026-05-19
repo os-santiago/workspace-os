@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import sys
 
+from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
@@ -33,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
         return _housekeeping(sources, args.max_results)
     if args.command == "context":
         return _context(sources, args.topic, args.max_matches, args.max_doctrine_lines)
+    if args.command == "classify":
+        return _classify(args.value, args.path)
 
     parser.print_help()
     return 2
@@ -73,6 +76,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=80,
         help="Maximum lines to include from the doctrine source.",
     )
+
+    classify_parser = subparsers.add_parser(
+        "classify",
+        help="Classify text or a file path into the workspace responsibility model.",
+    )
+    classify_parser.add_argument("value", help="Text or file path to classify.")
+    classify_parser.add_argument("--path", action="store_true", help="Treat value as a file path.")
 
     return parser
 
@@ -133,6 +143,14 @@ def _context(sources: list[Source], topic: str, max_matches: int, max_doctrine_l
         max_doctrine_lines=max_doctrine_lines,
     )
     print(pack.render_markdown(), end="")
+    return 0
+
+
+def _classify(value: str, is_path: bool) -> int:
+    classification = classify_content(value, is_path=is_path)
+    print(f"target={classification.target}")
+    print(f"confidence={classification.confidence}")
+    print(f"reason={classification.reason}")
     return 0
 
 

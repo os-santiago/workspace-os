@@ -64,6 +64,11 @@ Initial implementation:
 
 Classifies content into doctrine, evidence, execution, deliverable, product, or temporary.
 
+Initial implementation:
+- Classifies supplied text or file content without writing files.
+- Uses explicit keyword rules as the first deterministic baseline.
+- Returns target, confidence, and reason so agents can explain placement decisions.
+
 ### Capture and Promotion Workflows
 
 Creates sanitized evidence and promotes reusable rules to doctrine.

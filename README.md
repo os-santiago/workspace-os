@@ -34,8 +34,9 @@ The first product is a command-line workspace controller:
 ```text
 workspace status
 workspace search <query>
-workspace capture --type <daily|incident|session|decision>
+workspace context <topic>
 workspace classify <path-or-text>
+workspace capture --type <daily|incident|session|decision>
 workspace promote --to <adev|scanales-kb|homedir|google>
 workspace housekeeping
 workspace validate
@@ -71,6 +72,7 @@ python -m pip install -e .
 python -m workspace_os --config config/workspace.sources.example.json status
 python -m workspace_os --config config/workspace.sources.example.json search ADEV --source-type doctrine
 python -m workspace_os --config config/workspace.sources.example.json context "agent alignment"
+python -m workspace_os --config config/workspace.sources.example.json classify "Agents must validate scripts before release."
 python -m workspace_os --config config/workspace.sources.example.json housekeeping
 ```
 

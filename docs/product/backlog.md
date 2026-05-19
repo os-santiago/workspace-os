@@ -63,6 +63,20 @@ Acceptance criteria:
 
 ## In Progress
 
+### WSOS-014: Implement `workspace classify`
+
+As an agent, the system needs deterministic content classification before capture or promotion.
+
+Acceptance criteria:
+- Classifies supplied text or file content.
+- Supports doctrine, evidence, execution, deliverable, product, temporary, and unknown targets.
+- Returns a reason and confidence.
+
+Initial implementation:
+- `python -m workspace_os classify <text>` classifies text.
+- `python -m workspace_os classify --path <file>` classifies file content when available.
+- The classifier is read-only and does not create durable content.
+
 ### WSOS-004: Implement Workspace Source Registry
 
 As the workspace controller, the system needs to know which repositories and folders are part of the workspace.
