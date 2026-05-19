@@ -28,6 +28,34 @@ Acceptance criteria:
 - Content classification rules are documented.
 - Duplicate avoidance is documented.
 
+### WSOS-010: Define Agent Alignment Context Pack
+
+As the operator, the system needs agents to start work with the right doctrine, evidence, tone, constraints, and known mistakes.
+
+Acceptance criteria:
+- Context pack structure is documented.
+- ADEV rules are included by reference.
+- Relevant scanales-kb evidence can be attached by topic.
+- The pack lists assumptions, constraints, and forbidden behaviors.
+
+### WSOS-011: Define Consulting Estimate Workflow
+
+As the operator, the system needs repeatable estimation support for platform and modernization work.
+
+Acceptance criteria:
+- Estimate workflow captures scope, assumptions, exclusions, risks, and confidence.
+- The workflow flags unrealistic assumptions.
+- Output destination is Google Workspace, with source logic in Git.
+
+### WSOS-012: Define Integrated Tool Environment MVP
+
+As the operator, the system needs one local entrypoint for repositories, agents, and workspace state.
+
+Acceptance criteria:
+- MVP entrypoint is documented.
+- It connects ADEV, scanales-kb, homedir, and workspace-os.
+- It supports status, search, and agent context preparation before implementation expands.
+
 ## Next
 
 ### WSOS-004: Implement Workspace Source Registry
@@ -79,4 +107,3 @@ Acceptance criteria:
 - Works through private network access.
 - Does not expose arbitrary command execution.
 - Provides audit logs and a kill switch.
-
