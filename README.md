@@ -74,6 +74,7 @@ python -m workspace_os --config config/workspace.sources.example.json search ADE
 python -m workspace_os --config config/workspace.sources.example.json context "agent alignment"
 python -m workspace_os --config config/workspace.sources.example.json classify "Agents must validate scripts before release."
 python -m workspace_os --config config/workspace.sources.example.json housekeeping
+python -m workspace_os --config config/workspace.sources.example.json validate --skip-housekeeping
 ```
 
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.

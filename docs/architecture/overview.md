@@ -12,6 +12,7 @@ Workspace CLI
   -> Librarian Search
   -> Agent Context Pack
   -> Content Classifier
+  -> Workspace Validator
   -> Capture and Promotion Workflows
   -> Connector Interfaces
   -> Agent Router
@@ -68,6 +69,16 @@ Initial implementation:
 - Classifies supplied text or file content without writing files.
 - Uses explicit keyword rules as the first deterministic baseline.
 - Returns target, confidence, and reason so agents can explain placement decisions.
+
+### Workspace Validator
+
+Validates local workspace configuration and source health without mutating repositories.
+
+Initial implementation:
+- Confirms at least one source is configured.
+- Confirms each configured source exists and is a Git repository.
+- Reports source Git state.
+- Optionally checks temporary artifacts through the housekeeping scanner.
 
 ### Capture and Promotion Workflows
 

@@ -11,6 +11,7 @@ from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
+from workspace_os.validation import validate_workspace, validation_failed
 
 
 DEFAULT_CONFIG = Path("config/workspace.sources.example.json")
@@ -36,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
         return _context(sources, args.topic, args.max_matches, args.max_doctrine_lines)
     if args.command == "classify":
         return _classify(args.value, args.path)
+    if args.command == "validate":
+        return _validate(sources, args.skip_housekeeping)
 
     parser.print_help()
     return 2
@@ -83,6 +86,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     classify_parser.add_argument("value", help="Text or file path to classify.")
     classify_parser.add_argument("--path", action="store_true", help="Treat value as a file path.")
+
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate workspace configuration and source health.",
+    )
+    validate_parser.add_argument(
+        "--skip-housekeeping",
+        action="store_true",
+        help="Skip temporary artifact checks.",
+    )
 
     return parser
 
@@ -152,6 +165,14 @@ def _classify(value: str, is_path: bool) -> int:
     print(f"confidence={classification.confidence}")
     print(f"reason={classification.reason}")
     return 0
+
+
+def _validate(sources: list[Source], skip_housekeeping: bool) -> int:
+    results = validate_workspace(sources=sources, include_housekeeping=not skip_housekeeping)
+    for result in results:
+        state = "PASS" if result.passed else "FAIL"
+        print(f"{state} {result.name}: {result.detail}")
+    return 1 if validation_failed(results) else 0
 
 
 if __name__ == "__main__":
