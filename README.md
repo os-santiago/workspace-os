@@ -76,6 +76,7 @@ python -m workspace_os --config config/workspace.sources.example.json search ADE
 python -m workspace_os --config config/workspace.sources.example.json context "agent alignment"
 python -m workspace_os --config config/workspace.sources.example.json classify "Agents must validate scripts before release."
 python -m workspace_os --config config/workspace.sources.example.json capture --type session --title "Agent checkpoint" --text "Sanitized session note."
+python -m workspace_os --config config/workspace.sources.example.json promote --to adev --rule "Agents must validate scripts before release." --evidence "scanales-kb:captures/session/example.md"
 python -m workspace_os --config config/workspace.sources.example.json housekeeping
 python -m workspace_os --config config/workspace.sources.example.json validate --skip-housekeeping
 ```
