@@ -2,7 +2,7 @@ const qs = (selector) => document.querySelector(selector);
 const qsa = (selector) => Array.from(document.querySelectorAll(selector));
 
 const state = {
-  action: "validate",
+  action: "check",
 };
 
 const getJson = async (url) => {
@@ -49,24 +49,32 @@ const runValidate = async () => {
     const status = result.passed ? "PASS" : "FAIL";
     return `${status} ${result.name}\n  ${result.detail}`;
   });
-  setOutput("Workspace validation", lines.join("\n\n"));
+  setOutput("Check result", lines.join("\n\n"));
 };
 
 const runSearch = async (value) => {
   const query = value.trim() || "ADEV";
   const data = await getJson(`/api/search?query=${encodeURIComponent(query)}&max_results=10`);
   if (data.matches.length === 0) {
-    setOutput("Knowledge search", `No matches found for "${query}".`);
+    setOutput("Ask result", `No matches found for "${query}".`);
     return;
   }
   const lines = data.matches.map((match) => `${match.source}:${match.path}:${match.line}\n  ${match.text}`);
-  setOutput("Knowledge search", lines.join("\n\n"));
+  setOutput("Ask result", lines.join("\n\n"));
 };
 
 const runContext = async (value) => {
   const topic = value.trim() || "agent alignment";
   const data = await getJson(`/api/context?topic=${encodeURIComponent(topic)}&max_matches=6&max_doctrine_lines=16`);
-  setOutput("Agent context", data.markdown);
+  const header = [
+    "DELEGATION BRIEF",
+    "",
+    `Task: ${topic}`,
+    "Mode: prepare context only",
+    "Execution: no agent command was launched from the browser",
+    "",
+  ].join("\n");
+  setOutput("Delegate brief", `${header}${data.markdown}`);
 };
 
 const setAction = (action) => {
@@ -77,18 +85,22 @@ const setAction = (action) => {
 
   const input = qs("#workspaceInput");
   const label = qs("#inputLabel");
-  if (action === "validate") {
+  const runButton = qs("#runButton");
+  if (action === "check") {
     label.textContent = "Input not required";
     input.value = "";
     input.placeholder = "Validation uses the configured sources";
-  } else if (action === "search") {
-    label.textContent = "Search term";
+    runButton.textContent = "Check";
+  } else if (action === "ask") {
+    label.textContent = "Question or keyword";
     input.value = input.value || "ADEV";
     input.placeholder = "Example: validation";
+    runButton.textContent = "Ask";
   } else {
-    label.textContent = "Agent topic";
+    label.textContent = "Task to delegate";
     input.value = input.value || "agent alignment";
-    input.placeholder = "Example: software delivery";
+    input.placeholder = "Example: implement a safe capture workflow";
+    runButton.textContent = "Prepare brief";
   }
   qs("#activeAction").textContent = action;
 };
@@ -96,9 +108,9 @@ const setAction = (action) => {
 const runActiveAction = async () => {
   const value = qs("#workspaceInput").value;
   qs("#mainOutput").textContent = "Running...";
-  if (state.action === "validate") {
+  if (state.action === "check") {
     await runValidate();
-  } else if (state.action === "search") {
+  } else if (state.action === "ask") {
     await runSearch(value);
   } else {
     await runContext(value);
@@ -121,7 +133,7 @@ const bindActions = () => {
 
 const init = async () => {
   bindActions();
-  setAction("validate");
+  setAction("check");
   await Promise.all([renderStatus(), renderRoadmap()]);
   await runValidate();
 };

@@ -118,6 +118,15 @@ h1 {
   font-size: 1.45rem;
 }
 
+.action-button small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--tp-gray);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-transform: none;
+}
+
 .action-button:hover,
 .action-button.is-active {
   color: var(--tp-black);
@@ -126,7 +135,9 @@ h1 {
 }
 
 .action-button:hover span,
-.action-button.is-active span {
+.action-button.is-active span,
+.action-button:hover small,
+.action-button.is-active small {
   color: var(--tp-blue-dark);
 }
 
