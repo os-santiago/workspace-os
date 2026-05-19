@@ -1,6 +1,6 @@
 # Product Backlog
 
-## Now
+## Done
 
 ### WSOS-001: Define Repository Responsibilities
 
@@ -43,15 +43,6 @@ Initial implementation:
 - The pack includes source state, ADEV excerpt, task-relevant existing knowledge, and required agent behavior.
 - Output avoids local machine paths and redacts common secret-like assignments.
 
-### WSOS-011: Define Consulting Estimate Workflow
-
-As the operator, the system needs repeatable estimation support for platform and modernization work.
-
-Acceptance criteria:
-- Estimate workflow captures scope, assumptions, exclusions, risks, and confidence.
-- The workflow flags unrealistic assumptions.
-- Output destination is Google Workspace, with source logic in Git.
-
 ### WSOS-012: Define Integrated Tool Environment MVP
 
 As the operator, the system needs one local entrypoint for repositories, agents, and workspace state.
@@ -60,8 +51,6 @@ Acceptance criteria:
 - MVP entrypoint is documented.
 - It connects ADEV, scanales-kb, homedir, and workspace-os.
 - It supports status, search, and agent context preparation before implementation expands.
-
-## In Progress
 
 ### WSOS-014: Implement `workspace classify`
 
@@ -146,6 +135,45 @@ Initial implementation:
 - `python -m workspace_os housekeeping` reports likely scratch, backup, log, and temporary files.
 
 ## Next
+
+### WSOS-016: Implement Capture Workflow
+
+As an operator, the system needs a safe way to capture session, incident, decision, and daily notes.
+
+Acceptance criteria:
+- Capture writes only to configured knowledge destinations.
+- Capture applies sanitization before write.
+- Capture requires explicit type selection.
+- Capture keeps generated content in English.
+
+### WSOS-017: Implement Promotion Workflow
+
+As an operator, the system needs a controlled way to promote reusable lessons into doctrine.
+
+Acceptance criteria:
+- Promotion creates a clear proposed diff.
+- Promotion links back to evidence when available.
+- Promotion does not write secrets or sensitive raw output.
+- Promotion can be validated before commit.
+
+### WSOS-018: Define Homedir-Based UI Foundation
+
+As an operator, the system needs a UI shell that reflects the proven homedir operating style.
+
+Acceptance criteria:
+- UI scope is documented before implementation.
+- UI reads from Workspace OS commands or API instead of duplicating business logic.
+- UI shows source status, search, context, classify, validate, and roadmap progress.
+- Mutating workflows require explicit approval.
+
+### WSOS-011: Define Consulting Estimate Workflow
+
+As the operator, the system needs repeatable estimation support for platform and modernization work.
+
+Acceptance criteria:
+- Estimate workflow captures scope, assumptions, exclusions, risks, and confidence.
+- The workflow flags unrealistic assumptions.
+- Output destination is Google Workspace, with source logic in Git.
 
 ## Later
 
