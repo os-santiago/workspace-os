@@ -14,6 +14,7 @@ Workspace CLI
   -> Content Classifier
   -> Workspace Validator
   -> Capture and Promotion Workflows
+  -> Local Web Pilot
   -> Connector Interfaces
   -> Agent Router
 ```
@@ -89,6 +90,17 @@ Initial implementation:
 - Capture is dry-run by default and writes only with explicit `--write`.
 - Promotion creates proposal-only Markdown output and does not mutate doctrine.
 - Promotion includes related existing content so doctrine edits can consolidate instead of duplicate.
+
+### Local Web Pilot
+
+Provides a local browser interface for operator supervision.
+
+Initial implementation:
+- Runs from `python -m workspace_os web`.
+- Serves static assets from the Workspace OS package.
+- Exposes only allowlisted local endpoints.
+- Does not expose arbitrary shell execution.
+- Uses homedir-inspired visual patterns adapted for Workspace OS.
 
 ### Connector Interfaces
 

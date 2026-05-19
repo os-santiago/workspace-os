@@ -36,7 +36,7 @@ const renderStatus = async () => {
       <span class="eyebrow">${source.type}</span>
       <strong>${source.name}</strong>
       <span>${source.state} on ${source.branch || "n/a"}</span>
-      <small class="muted">changes ${source.changes} · untracked ${source.untracked}</small>
+      <small class="muted">changes ${source.changes} | untracked ${source.untracked}</small>
     `;
     metrics.appendChild(item);
   }
@@ -112,7 +112,7 @@ const bindClassify = () => {
     event.preventDefault();
     const value = new FormData(event.target).get("value");
     const data = await getJson(`/api/classify?value=${encodeURIComponent(value)}`);
-    qs("#classificationResult").textContent = `${data.target} · ${data.confidence} · ${data.reason}`;
+    qs("#classificationResult").textContent = `${data.target} | ${data.confidence} | ${data.reason}`;
   });
 };
 
