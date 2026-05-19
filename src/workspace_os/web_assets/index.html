@@ -14,27 +14,30 @@
 
     <main class="shell">
       <section class="start-panel">
-        <p class="section-label">Start here</p>
-        <h1>Choose one action.</h1>
-        <p class="intro">The pilot now starts with the three actions that matter most: check the workspace, find existing knowledge, or prepare context for an agent.</p>
+        <p class="section-label">Operator flow</p>
+        <h1>Check. Ask. Delegate.</h1>
+        <p class="intro">Start by checking local state, ask the knowledge base when you need context, then prepare a governed brief before handing work to an agent.</p>
 
         <div class="action-grid" aria-label="Primary actions">
-          <button class="action-button" type="button" data-action="validate">
+          <button class="action-button" type="button" data-action="check">
             <span>1</span>
-            Validate workspace
+            Check
+            <small>Validate local sources</small>
           </button>
-          <button class="action-button" type="button" data-action="search">
+          <button class="action-button" type="button" data-action="ask">
             <span>2</span>
-            Search knowledge
+            Ask
+            <small>Search existing knowledge</small>
           </button>
-          <button class="action-button" type="button" data-action="context">
+          <button class="action-button" type="button" data-action="delegate">
             <span>3</span>
-            Build agent context
+            Delegate
+            <small>Build an agent brief</small>
           </button>
         </div>
 
         <form class="command-line" id="workspaceForm">
-          <label for="workspaceInput" id="inputLabel">Search term</label>
+          <label for="workspaceInput" id="inputLabel">Task</label>
           <input id="workspaceInput" name="value" value="ADEV" autocomplete="off">
           <button type="submit" id="runButton">Run</button>
         </form>
