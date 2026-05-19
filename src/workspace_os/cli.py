@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+from workspace_os.config import Source, load_sources
+from workspace_os.git_status import inspect_source
+from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.search import search_sources
+
+
+DEFAULT_CONFIG = Path("config/workspace.sources.example.json")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        sources = load_sources(args.config)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.command == "status":
+        return _status(sources)
+    if args.command == "search":
+        return _search(sources, args.query, args.source_type, args.max_results)
+    if args.command == "housekeeping":
+        return _housekeeping(sources, args.max_results)
+
+    parser.print_help()
+    return 2
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="workspace", description="Workspace OS local controller.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="Path to the workspace source registry.",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("status", help="Report source repository status without mutation.")
+
+    search_parser = subparsers.add_parser("search", help="Search configured workspace sources.")
+    search_parser.add_argument("query", help="Text to search for.")
+    search_parser.add_argument("--source-type", help="Limit search to a source type.")
+    search_parser.add_argument("--max-results", type=int, default=100, help="Maximum matches to print.")
+
+    housekeeping_parser = subparsers.add_parser(
+        "housekeeping",
+        help="Report temporary artifacts without deleting files.",
+    )
+    housekeeping_parser.add_argument("--max-results", type=int, default=100, help="Maximum findings to print.")
+
+    return parser
+
+
+def _status(sources: list[Source]) -> int:
+    for status in [inspect_source(source) for source in sources]:
+        source = status.source
+        if status.state == "missing":
+            print(f"{source.name:16} {source.type:10} missing    {source.path}")
+            continue
+        if status.state == "not-git":
+            print(f"{source.name:16} {source.type:10} not-git    {source.path}")
+            continue
+        if status.state == "error":
+            print(f"{source.name:16} {source.type:10} error      {status.error}")
+            continue
+
+        divergence = ""
+        if status.ahead or status.behind:
+            divergence = f" ahead={status.ahead} behind={status.behind}"
+
+        print(
+            f"{source.name:16} {source.type:10} {status.state:8} "
+            f"branch={status.branch} changes={status.dirty_count} "
+            f"untracked={status.untracked_count}{divergence}"
+        )
+    return 0
+
+
+def _search(sources: list[Source], query: str, source_type: str | None, max_results: int) -> int:
+    matches = search_sources(
+        sources=sources,
+        query=query,
+        source_type=source_type,
+        max_results=max_results,
+    )
+    for match in matches:
+        print(f"{match.source_name}:{match.path}:{match.line_number}: {match.line}")
+    if not matches:
+        print("No matches found.")
+    return 0
+
+
+def _housekeeping(sources: list[Source], max_results: int) -> int:
+    findings = find_temporary_artifacts(sources=sources, max_results=max_results)
+    for finding in findings:
+        print(f"{finding.source_name}:{finding.path}: matches {finding.pattern}")
+    if not findings:
+        print("No temporary artifacts found.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
