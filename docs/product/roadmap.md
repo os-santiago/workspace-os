@@ -1,5 +1,91 @@
 # Roadmap
 
+## Progress Map
+
+Status legend:
+
+```text
+[DONE]  implemented or documented enough to use
+[NEXT]  next implementation batch
+[TODO]  planned but not started
+[LATER] later stage after the MVP proves value
+```
+
+Current path to the first UI:
+
+```text
+GOAL
+  Workspace OS UI based on the homedir experience
+  |
+  +-- [DONE] Stage 0 - Product definition
+  |      +-- Repository responsibilities
+  |      +-- Vision, roadmap, backlog, operating model
+  |      +-- Local-first architecture boundaries
+  |
+  +-- [DONE] Stage 1 - Local CLI foundation
+  |      +-- workspace status
+  |      +-- workspace search
+  |      +-- workspace context
+  |      +-- workspace classify
+  |      +-- workspace housekeeping
+  |      +-- workspace validate
+  |
+  +-- [NEXT] Stage 2 - Learning loop
+  |      +-- capture session, incident, decision, and daily notes
+  |      +-- sanitize before write
+  |      +-- promote reusable rules to ADEV
+  |      +-- link evidence back to scanales-kb
+  |
+  +-- [TODO] Stage 3 - Operator workspace API
+  |      +-- expose read-only workspace state
+  |      +-- expose context and search endpoints
+  |      +-- expose governed capture and promote workflows
+  |      +-- keep shell execution out of the API
+  |
+  +-- [TODO] Stage 4 - Homedir-based UI shell
+  |      +-- reuse homedir visual and navigation patterns
+  |      +-- show status, search, context, classify, validate
+  |      +-- show batch progress and active roadmap
+  |      +-- keep mutation flows behind explicit approval
+  |
+  +-- [LATER] Stage 5 - Delivery workflows
+  |      +-- consulting estimates
+  |      +-- proposals
+  |      +-- presentations
+  |      +-- software delivery plans
+  |
+  +-- [LATER] Stage 6 - Secure remote operation
+         +-- phone supervision
+         +-- allowlisted task launch
+         +-- approval workflow
+         +-- sanitized audit trail
+```
+
+Current batch sequence:
+
+```text
+Batch 01 [DONE] Local CLI foundation
+  status | search | housekeeping
+
+Batch 02 [DONE] Agent context pack
+  context | sanitized search output
+
+Batch 03 [DONE] Classify and validate
+  classify | validate
+
+Batch 04 [NEXT] Capture and promotion loop
+  capture | sanitize | promote | evidence links
+
+Batch 05 [TODO] Workspace read API
+  local API | read-only state | command boundary
+
+Batch 06 [TODO] UI foundation based on homedir
+  app shell | navigation | dashboard | CLI-backed views
+
+Batch 07 [TODO] UI workflow depth
+  capture flow | promotion flow | roadmap progress | agent context flow
+```
+
 ## Stage 0: Product Definition
 
 Goal: define the operating model, roadmap, repository responsibilities, and first backlog.
