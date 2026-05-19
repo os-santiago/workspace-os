@@ -4,11 +4,13 @@ import argparse
 from pathlib import Path
 import sys
 
+from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.promotion import build_promotion_proposal
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.validation import validate_workspace, validation_failed
@@ -39,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
         return _classify(args.value, args.path)
     if args.command == "validate":
         return _validate(sources, args.skip_housekeeping)
+    if args.command == "capture":
+        return _capture(sources, args.capture_type, args.title, args.text, args.file, args.write)
+    if args.command == "promote":
+        return _promote(sources, args.target, args.rule, args.evidence, args.max_matches)
 
     parser.print_help()
     return 2
@@ -96,6 +102,26 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip temporary artifact checks.",
     )
+
+    capture_parser = subparsers.add_parser(
+        "capture",
+        help="Create a sanitized knowledge capture draft.",
+    )
+    capture_parser.add_argument("--type", dest="capture_type", required=True, help="Capture type.")
+    capture_parser.add_argument("--title", required=True, help="Capture title.")
+    capture_input = capture_parser.add_mutually_exclusive_group(required=True)
+    capture_input.add_argument("--text", help="Capture body text.")
+    capture_input.add_argument("--file", type=Path, help="Read capture body from a text file.")
+    capture_parser.add_argument("--write", action="store_true", help="Write to the configured evidence source.")
+
+    promote_parser = subparsers.add_parser(
+        "promote",
+        help="Generate a non-mutating promotion proposal.",
+    )
+    promote_parser.add_argument("--to", dest="target", required=True, help="Promotion target.")
+    promote_parser.add_argument("--rule", required=True, help="Proposed reusable rule or learning.")
+    promote_parser.add_argument("--evidence", required=True, help="Evidence reference supporting the rule.")
+    promote_parser.add_argument("--max-matches", type=int, default=10, help="Maximum related matches to include.")
 
     return parser
 
@@ -173,6 +199,55 @@ def _validate(sources: list[Source], skip_housekeeping: bool) -> int:
         state = "PASS" if result.passed else "FAIL"
         print(f"{state} {result.name}: {result.detail}")
     return 1 if validation_failed(results) else 0
+
+
+def _capture(
+    sources: list[Source],
+    capture_type: str,
+    title: str,
+    text: str | None,
+    file_path: Path | None,
+    write: bool,
+) -> int:
+    try:
+        body = _read_capture_body(text, file_path)
+        draft = build_capture_draft(sources, capture_type, title, body)
+        if write:
+            write_capture(draft)
+            print(f"written={draft.source_name}:{draft.relative_path}")
+            return 0
+        print(f"dry_run=true")
+        print(f"target={draft.source_name}:{draft.relative_path}")
+        print("")
+        print(draft.content, end="")
+        return 0
+    except (OSError, ValueError, FileExistsError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _read_capture_body(text: str | None, file_path: Path | None) -> str:
+    if text is not None:
+        return text
+    if file_path is None:
+        raise ValueError("Capture requires text or file input.")
+    return file_path.read_text(encoding="utf-8")
+
+
+def _promote(sources: list[Source], target: str, rule: str, evidence: str, max_matches: int) -> int:
+    try:
+        proposal = build_promotion_proposal(
+            sources=sources,
+            target=target,
+            rule=rule,
+            evidence=evidence,
+            max_matches=max_matches,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(proposal.render_markdown(), end="")
+    return 0
 
 
 if __name__ == "__main__":

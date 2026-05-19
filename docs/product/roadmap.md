@@ -30,13 +30,13 @@ GOAL
   |      +-- workspace housekeeping
   |      +-- workspace validate
   |
-  +-- [NEXT] Stage 2 - Learning loop
+  +-- [DONE] Stage 2 - Learning loop
   |      +-- capture session, incident, decision, and daily notes
   |      +-- sanitize before write
   |      +-- promote reusable rules to ADEV
   |      +-- link evidence back to scanales-kb
   |
-  +-- [TODO] Stage 3 - Operator workspace API
+  +-- [NEXT] Stage 3 - Operator workspace API
   |      +-- expose read-only workspace state
   |      +-- expose context and search endpoints
   |      +-- expose governed capture and promote workflows
@@ -73,10 +73,10 @@ Batch 02 [DONE] Agent context pack
 Batch 03 [DONE] Classify and validate
   classify | validate
 
-Batch 04 [NEXT] Capture and promotion loop
+Batch 04 [DONE] Capture and promotion loop
   capture | sanitize | promote | evidence links
 
-Batch 05 [TODO] Workspace read API
+Batch 05 [NEXT] Workspace read API
   local API | read-only state | command boundary
 
 Batch 06 [TODO] UI foundation based on homedir
