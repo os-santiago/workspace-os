@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import sys
 
+from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources
 from workspace_os.context_pack import build_context_pack
@@ -39,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         return _classify(args.value, args.path)
     if args.command == "validate":
         return _validate(sources, args.skip_housekeeping)
+    if args.command == "capture":
+        return _capture(sources, args.capture_type, args.title, args.text, args.file, args.write)
 
     parser.print_help()
     return 2
@@ -96,6 +99,17 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip temporary artifact checks.",
     )
+
+    capture_parser = subparsers.add_parser(
+        "capture",
+        help="Create a sanitized knowledge capture draft.",
+    )
+    capture_parser.add_argument("--type", dest="capture_type", required=True, help="Capture type.")
+    capture_parser.add_argument("--title", required=True, help="Capture title.")
+    capture_input = capture_parser.add_mutually_exclusive_group(required=True)
+    capture_input.add_argument("--text", help="Capture body text.")
+    capture_input.add_argument("--file", type=Path, help="Read capture body from a text file.")
+    capture_parser.add_argument("--write", action="store_true", help="Write to the configured evidence source.")
 
     return parser
 
@@ -173,6 +187,39 @@ def _validate(sources: list[Source], skip_housekeeping: bool) -> int:
         state = "PASS" if result.passed else "FAIL"
         print(f"{state} {result.name}: {result.detail}")
     return 1 if validation_failed(results) else 0
+
+
+def _capture(
+    sources: list[Source],
+    capture_type: str,
+    title: str,
+    text: str | None,
+    file_path: Path | None,
+    write: bool,
+) -> int:
+    try:
+        body = _read_capture_body(text, file_path)
+        draft = build_capture_draft(sources, capture_type, title, body)
+        if write:
+            write_capture(draft)
+            print(f"written={draft.source_name}:{draft.relative_path}")
+            return 0
+        print(f"dry_run=true")
+        print(f"target={draft.source_name}:{draft.relative_path}")
+        print("")
+        print(draft.content, end="")
+        return 0
+    except (OSError, ValueError, FileExistsError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _read_capture_body(text: str | None, file_path: Path | None) -> str:
+    if text is not None:
+        return text
+    if file_path is None:
+        raise ValueError("Capture requires text or file input.")
+    return file_path.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":
