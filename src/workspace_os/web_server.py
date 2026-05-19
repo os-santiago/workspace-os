@@ -5,11 +5,13 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.promotion import build_promotion_proposal
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.validation import validate_workspace, validation_failed
@@ -67,8 +69,36 @@ def _build_handler(sources: list[Source]):
 
             self.send_error(404, "Not found")
 
+        def do_POST(self) -> None:  # noqa: N802 - http.server method name
+            parsed = urlparse(self.path)
+            payload = self._read_json_body()
+
+            if parsed.path == "/api/capture-preview":
+                self._send_json(_capture_preview_payload(sources, payload))
+                return
+            if parsed.path == "/api/promote-preview":
+                self._send_json(_promote_preview_payload(sources, payload))
+                return
+
+            self.send_error(404, "Not found")
+
         def log_message(self, format: str, *args: object) -> None:
             return
+
+        def _read_json_body(self) -> dict[str, object]:
+            raw_length = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw_length)
+            except ValueError:
+                length = 0
+            if length <= 0:
+                return {}
+            body = self.rfile.read(length).decode("utf-8")
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                return {}
+            return payload if isinstance(payload, dict) else {}
 
         def _send_json(self, payload: object, status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -164,6 +194,37 @@ def _validate_payload(sources: list[Source], query: dict[str, list[str]]) -> dic
     }
 
 
+def _capture_preview_payload(sources: list[Source], payload: dict[str, object]) -> dict[str, object]:
+    try:
+        draft = build_capture_draft(
+            sources=sources,
+            capture_type=_string_payload(payload, "type") or "session",
+            title=_string_payload(payload, "title") or "Untitled capture",
+            body=_string_payload(payload, "body"),
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "target": f"{draft.source_name}:{draft.relative_path}",
+        "content": draft.content,
+    }
+
+
+def _promote_preview_payload(sources: list[Source], payload: dict[str, object]) -> dict[str, object]:
+    try:
+        proposal = build_promotion_proposal(
+            sources=sources,
+            target=_string_payload(payload, "target") or "adev",
+            rule=_string_payload(payload, "rule"),
+            evidence=_string_payload(payload, "evidence"),
+            max_matches=8,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "markdown": proposal.render_markdown()}
+
+
 def _roadmap_payload() -> dict[str, object]:
     roadmap = Path.cwd() / "docs" / "product" / "roadmap.md"
     if not roadmap.exists():
@@ -196,3 +257,8 @@ def _int_query(query: dict[str, list[str]], name: str, default: int) -> int:
         return int(_first(query, name) or default)
     except ValueError:
         return default
+
+
+def _string_payload(payload: dict[str, object], name: str) -> str:
+    value = payload.get(name, "")
+    return value.strip() if isinstance(value, str) else ""

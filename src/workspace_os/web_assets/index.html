@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Workspace OS</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <header class="top-nav">
+      <a class="brand" href="/">
+        <span class="brand-mark">WS</span>
+        <span>
+          <strong>Workspace OS</strong>
+          <small>Governed human-AI workspace</small>
+        </span>
+      </a>
+      <div class="header-metrics">
+        <span id="governanceMetric">Governance: loading</span>
+        <span id="knowledgeMetric">Knowledge: loading</span>
+      </div>
+    </header>
+
+    <nav class="context-nav" aria-label="Workspace contexts">
+      <button class="context-tab is-active" data-context="software">Software</button>
+      <button class="context-tab" data-context="documents">Documents</button>
+      <button class="context-tab" data-context="presentations">Presentations</button>
+      <button class="context-tab" data-context="learning">Learning engine</button>
+    </nav>
+
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Pilot console</p>
+          <h1>Coordinate agents with doctrine, evidence, and validation.</h1>
+          <p class="lead">This pilot is backed by local Workspace OS commands and repositories. It does not use mocked task state.</p>
+        </div>
+        <div class="hero-panel" id="healthPanel">
+          <span class="panel-label">System health</span>
+          <strong>Loading</strong>
+          <small>Reading local workspace state</small>
+        </div>
+      </section>
+
+      <section class="grid metrics" id="status"></section>
+
+      <section class="context-panel is-active" data-panel="software">
+        <div class="workspace-grid">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Software guardrail</p>
+                <h2>Validate workspace</h2>
+              </div>
+            </div>
+            <button class="wide-action" id="validateButton" type="button">Run validation</button>
+            <div class="result-list" id="validationResults"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Placement</p>
+                <h2>Classify work</h2>
+              </div>
+            </div>
+            <form class="tool-form stacked" id="classifyForm">
+              <textarea name="value" aria-label="Content to classify">Agents must validate scripts before release.</textarea>
+              <button type="submit">Classify</button>
+            </form>
+            <div class="classification" id="classificationResult"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="context-panel" data-panel="documents">
+        <div class="workspace-grid">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Sanitized capture</p>
+                <h2>Document preview</h2>
+              </div>
+            </div>
+            <form class="tool-form stacked" id="captureForm">
+              <input name="title" value="Agent checkpoint" aria-label="Capture title">
+              <select name="type" aria-label="Capture type">
+                <option value="session">Session</option>
+                <option value="decision">Decision</option>
+                <option value="incident">Incident</option>
+                <option value="daily">Daily</option>
+              </select>
+              <textarea name="body" aria-label="Capture body">A sanitized note for the knowledge base.</textarea>
+              <button type="submit">Preview capture</button>
+            </form>
+            <pre class="terminal" id="captureOutput"></pre>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Secret scanner</p>
+                <h2>Live sanitization</h2>
+              </div>
+            </div>
+            <textarea id="sanitizeInput" aria-label="Text to sanitize">password: example-value</textarea>
+            <div class="result-item" id="sanitizeStatus"></div>
+            <pre class="terminal compact" id="sanitizeOutput"></pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="context-panel" data-panel="presentations">
+        <div class="workspace-grid">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Business delivery</p>
+                <h2>Promotion proposal</h2>
+              </div>
+            </div>
+            <form class="tool-form stacked" id="promoteForm">
+              <select name="target" aria-label="Promotion target">
+                <option value="adev">ADEV doctrine</option>
+                <option value="scanales-kb">scanales-kb evidence</option>
+                <option value="homedir">homedir execution</option>
+                <option value="google">Google Workspace deliverable</option>
+              </select>
+              <textarea name="rule" aria-label="Proposed rule">Agents must validate scripts before release.</textarea>
+              <input name="evidence" value="scanales-kb:captures/session/example.md" aria-label="Evidence reference">
+              <button type="submit">Build proposal</button>
+            </form>
+            <pre class="terminal" id="promoteOutput"></pre>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Delivery rule</p>
+                <h2>Presentation guardrails</h2>
+              </div>
+            </div>
+            <div class="result-list">
+              <div class="result-item">Use source evidence instead of invented claims.</div>
+              <div class="result-item">Keep final office deliverables in Google Workspace.</div>
+              <div class="result-item">Expose assumptions, exclusions, risks, and confidence.</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="context-panel" data-panel="learning">
+        <div class="workspace-grid">
+          <article class="card" id="search">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Librarian</p>
+                <h2>Search knowledge</h2>
+              </div>
+            </div>
+            <form class="tool-form" id="searchForm">
+              <input name="query" value="ADEV" aria-label="Search query">
+              <button type="submit">Search</button>
+            </form>
+            <div class="result-list" id="searchResults"></div>
+          </article>
+
+          <article class="card" id="context">
+            <div class="card-header">
+              <div>
+                <p class="eyebrow">Agent brief</p>
+                <h2>Context pack</h2>
+              </div>
+            </div>
+            <form class="tool-form" id="contextForm">
+              <input name="topic" value="agent alignment" aria-label="Context topic">
+              <button type="submit">Build</button>
+            </form>
+            <pre class="terminal" id="contextOutput"></pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="card roadmap" id="roadmap">
+        <div class="card-header">
+          <div>
+            <p class="eyebrow">Progress</p>
+            <h2>Batch roadmap</h2>
+          </div>
+        </div>
+        <pre class="terminal" id="roadmapOutput"></pre>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
