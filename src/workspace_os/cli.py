@@ -14,6 +14,7 @@ from workspace_os.promotion import build_promotion_proposal
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.validation import validate_workspace, validation_failed
+from workspace_os.web_server import serve_web_app
 
 
 DEFAULT_CONFIG = Path("config/workspace.sources.example.json")
@@ -45,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         return _capture(sources, args.capture_type, args.title, args.text, args.file, args.write)
     if args.command == "promote":
         return _promote(sources, args.target, args.rule, args.evidence, args.max_matches)
+    if args.command == "web":
+        return _web(args.config, args.host, args.port)
 
     parser.print_help()
     return 2
@@ -122,6 +125,13 @@ def _build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--rule", required=True, help="Proposed reusable rule or learning.")
     promote_parser.add_argument("--evidence", required=True, help="Evidence reference supporting the rule.")
     promote_parser.add_argument("--max-matches", type=int, default=10, help="Maximum related matches to include.")
+
+    web_parser = subparsers.add_parser(
+        "web",
+        help="Run the local Workspace OS web pilot.",
+    )
+    web_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    web_parser.add_argument("--port", type=int, default=8765, help="Bind port.")
 
     return parser
 
@@ -247,6 +257,11 @@ def _promote(sources: list[Source], target: str, rule: str, evidence: str, max_m
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(proposal.render_markdown(), end="")
+    return 0
+
+
+def _web(config_path: Path, host: str, port: int) -> int:
+    serve_web_app(config_path=config_path, host=host, port=port)
     return 0
 
 
