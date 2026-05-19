@@ -38,6 +38,11 @@ Acceptance criteria:
 - Relevant scanales-kb evidence can be attached by topic.
 - The pack lists assumptions, constraints, and forbidden behaviors.
 
+Initial implementation:
+- `python -m workspace_os context <topic>` emits a governed Markdown context pack.
+- The pack includes source state, ADEV excerpt, task-relevant existing knowledge, and required agent behavior.
+- Output avoids local machine paths and redacts common secret-like assignments.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.

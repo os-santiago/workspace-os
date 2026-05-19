@@ -10,6 +10,7 @@ Workspace OS is a local-first orchestration layer for AI-assisted work. It coord
 Workspace CLI
   -> Source Registry
   -> Librarian Search
+  -> Agent Context Pack
   -> Content Classifier
   -> Capture and Promotion Workflows
   -> Connector Interfaces
@@ -25,6 +26,7 @@ Provides the operator-facing command surface.
 Initial commands:
 - `workspace status`
 - `workspace search`
+- `workspace context`
 - `workspace classify`
 - `workspace capture`
 - `workspace promote`
@@ -47,6 +49,16 @@ Examples:
 Searches existing content before new content is added.
 
 Initial implementation should use plain text search before adding vector search.
+
+### Agent Context Pack
+
+Builds a governed Markdown context pack before an agent starts work.
+
+Initial implementation:
+- Includes source repository state without machine-specific paths.
+- Includes an ADEV doctrine excerpt from configured doctrine sources.
+- Includes existing knowledge matches for the task topic.
+- Redacts common secret-like assignments in emitted text.
 
 ### Content Classifier
 
@@ -88,4 +100,3 @@ Later deployment targets:
 - Keep secrets outside repositories.
 - Sanitize logs and evidence.
 - Prefer private network access for remote control.
-
