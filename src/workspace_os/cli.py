@@ -5,8 +5,10 @@ from pathlib import Path
 import sys
 
 from workspace_os.config import Source, load_sources
+from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 
 
@@ -29,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
         return _search(sources, args.query, args.source_type, args.max_results)
     if args.command == "housekeeping":
         return _housekeeping(sources, args.max_results)
+    if args.command == "context":
+        return _context(sources, args.topic, args.max_matches, args.max_doctrine_lines)
 
     parser.print_help()
     return 2
@@ -56,6 +60,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Report temporary artifacts without deleting files.",
     )
     housekeeping_parser.add_argument("--max-results", type=int, default=100, help="Maximum findings to print.")
+
+    context_parser = subparsers.add_parser(
+        "context",
+        help="Build a governed Markdown context pack for an agent task.",
+    )
+    context_parser.add_argument("topic", help="Task topic used to search existing knowledge.")
+    context_parser.add_argument("--max-matches", type=int, default=20, help="Maximum knowledge matches to include.")
+    context_parser.add_argument(
+        "--max-doctrine-lines",
+        type=int,
+        default=80,
+        help="Maximum lines to include from the doctrine source.",
+    )
 
     return parser
 
@@ -93,7 +110,7 @@ def _search(sources: list[Source], query: str, source_type: str | None, max_resu
         max_results=max_results,
     )
     for match in matches:
-        print(f"{match.source_name}:{match.path}:{match.line_number}: {match.line}")
+        print(f"{match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}")
     if not matches:
         print("No matches found.")
     return 0
@@ -105,6 +122,17 @@ def _housekeeping(sources: list[Source], max_results: int) -> int:
         print(f"{finding.source_name}:{finding.path}: matches {finding.pattern}")
     if not findings:
         print("No temporary artifacts found.")
+    return 0
+
+
+def _context(sources: list[Source], topic: str, max_matches: int, max_doctrine_lines: int) -> int:
+    pack = build_context_pack(
+        sources=sources,
+        topic=topic,
+        max_matches=max_matches,
+        max_doctrine_lines=max_doctrine_lines,
+    )
+    print(pack.render_markdown(), end="")
     return 0
 
 

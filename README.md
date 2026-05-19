@@ -70,6 +70,7 @@ Run from the repository root:
 python -m pip install -e .
 python -m workspace_os --config config/workspace.sources.example.json status
 python -m workspace_os --config config/workspace.sources.example.json search ADEV --source-type doctrine
+python -m workspace_os --config config/workspace.sources.example.json context "agent alignment"
 python -m workspace_os --config config/workspace.sources.example.json housekeeping
 ```
 
