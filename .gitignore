@@ -7,6 +7,9 @@
 dist/
 build/
 out/
+*.egg-info/
+__pycache__/
+.pytest_cache/
 tmp/
 temp/
 .cache/
@@ -26,4 +29,3 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
-

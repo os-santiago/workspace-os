@@ -56,7 +56,7 @@ Acceptance criteria:
 - It connects ADEV, scanales-kb, homedir, and workspace-os.
 - It supports status, search, and agent context preparation before implementation expands.
 
-## Next
+## In Progress
 
 ### WSOS-004: Implement Workspace Source Registry
 
@@ -67,6 +67,11 @@ Acceptance criteria:
 - Local paths can be configured without committing sensitive machine-specific details.
 - Registry supports repository type, responsibility, and search scope.
 
+Initial implementation:
+- Example JSON registry exists at `config/workspace.sources.example.json`.
+- Relative paths are resolved from the registry file location.
+- Source records include name, type, responsibility, path, and search scope.
+
 ### WSOS-005: Implement `workspace status`
 
 As the operator, the system needs a quick status across core repositories.
@@ -76,6 +81,10 @@ Acceptance criteria:
 - Does not mutate repositories.
 - Output is concise and suitable for chat summaries.
 
+Initial implementation:
+- `python -m workspace_os status` reports repository branch, clean or dirty state, untracked count, and upstream divergence.
+- Missing paths and non-Git paths are reported without mutation.
+
 ### WSOS-006: Implement `workspace search`
 
 As an agent, the system needs localized search across doctrine and evidence.
@@ -84,6 +93,25 @@ Acceptance criteria:
 - Searches configured repositories.
 - Supports scoped search by source type.
 - Returns file paths and line numbers.
+
+Initial implementation:
+- `python -m workspace_os search <query>` searches configured text files.
+- `--source-type` limits search to one source type.
+- Results include source, relative path, line number, and matching text.
+
+### WSOS-013: Implement `workspace housekeeping`
+
+As an operator, the system needs a non-destructive way to find temporary artifacts before handoff.
+
+Acceptance criteria:
+- Reports likely temporary files across configured sources.
+- Does not delete files.
+- Excludes VCS and common generated directories.
+
+Initial implementation:
+- `python -m workspace_os housekeeping` reports likely scratch, backup, log, and temporary files.
+
+## Next
 
 ## Later
 

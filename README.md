@@ -52,12 +52,25 @@ docs/
 
 ## Current Status
 
-Stage: product discovery and MVP planning.
+Stage: first local CLI foundation.
 
-No runtime implementation exists yet.
+Runtime implementation exists for source registry loading, repository status, librarian search, and non-destructive housekeeping reports.
 
 ## First MVP Direction
 
 The first MVP is an integrated local tool environment, not a broad knowledge base.
 
 It should connect the core repositories, expose workspace status, support librarian search, and prepare governed context for agents before delegated work starts.
+
+## Local Usage
+
+Run from the repository root:
+
+```bash
+python -m pip install -e .
+python -m workspace_os --config config/workspace.sources.example.json status
+python -m workspace_os --config config/workspace.sources.example.json search ADEV --source-type doctrine
+python -m workspace_os --config config/workspace.sources.example.json housekeeping
+```
+
+The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
