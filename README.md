@@ -56,3 +56,8 @@ Stage: product discovery and MVP planning.
 
 No runtime implementation exists yet.
 
+## First MVP Direction
+
+The first MVP is an integrated local tool environment, not a broad knowledge base.
+
+It should connect the core repositories, expose workspace status, support librarian search, and prepare governed context for agents before delegated work starts.

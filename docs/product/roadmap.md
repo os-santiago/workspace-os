@@ -11,39 +11,60 @@ Exit criteria:
 - Initial backlog documented.
 - Architecture boundaries documented.
 
-## Stage 1: Local Workspace CLI
+## Stage 1: Integrated Local Workspace Foundation
 
-Goal: create a small local CLI that reports workspace state and supports librarian searches.
+Goal: create an integrated local environment that connects the core repositories and gives agents governed access to status, search, and librarian context.
 
 Capabilities:
 - Show status across ADEV, scanales-kb, homedir, and this repository.
 - Search local doctrine and evidence.
 - Classify whether new content belongs in doctrine, evidence, execution, or deliverables.
 - Run housekeeping checks for temporary artifacts.
+- Prepare minimal context packs for agents before delegated work begins.
 
 Exit criteria:
 - `workspace status` works locally.
 - `workspace search` can search configured repositories.
 - `workspace housekeeping` reports temporary or untracked artifacts.
+- Agent context includes relevant ADEV rules and scanales-kb evidence.
 - Validation is documented and repeatable.
 
-## Stage 2: Capture and Promotion
+## Stage 2: Agent Alignment and Learning Loop
 
-Goal: turn daily work into durable evidence and doctrine with minimal friction.
+Goal: make assistants behave consistently with accumulated doctrine, decisions, style, and lessons.
 
 Capabilities:
 - Capture daily notes, incidents, sessions, and decisions into scanales-kb.
 - Promote reusable rules into ADEV.
 - Link evidence to doctrine.
 - Enforce sanitization before write.
+- Create task-specific agent briefs from doctrine and evidence.
+- Capture mistakes and corrections after each delegated task.
 
 Exit criteria:
 - New entries use templates.
 - Content is sanitized by default.
 - Similar content is searched before creating new files.
 - Promotion creates clear diffs.
+- Delegated tasks include a traceable context source list.
+- Repeated mistakes become rules, tests, checklists, or evidence.
 
-## Stage 3: Connectors
+## Stage 3: Consulting Delivery Workflows
+
+Goal: support high-value outputs: estimates, proposals, presentations, and software delivery plans.
+
+Capabilities:
+- Generate estimate drafts from reusable assumptions and delivery patterns.
+- Produce proposal outlines and presentation structures.
+- Link deliverables to source evidence without copying sensitive content into Git.
+- Flag unrealistic assumptions or missing inputs.
+
+Exit criteria:
+- Estimate drafts list assumptions, exclusions, risks, and confidence.
+- Proposal drafts map to known capabilities and evidence.
+- Presentation outlines can be exported to Google Workspace.
+
+## Stage 4: Connectors
 
 Goal: connect external sources without losing ownership boundaries.
 
@@ -58,7 +79,7 @@ Exit criteria:
 - Local source registry exists.
 - Indexed content has source, owner, type, and freshness metadata.
 
-## Stage 4: Agent Router
+## Stage 5: Agent Router
 
 Goal: let Codex, Claude, Gemini, and future agents operate through the same governed workspace.
 
@@ -73,7 +94,7 @@ Exit criteria:
 - Command allowlist exists.
 - Approvals are required for mutation, deployment, and elevated execution.
 
-## Stage 5: Secure Remote Access
+## Stage 6: Secure Remote Access
 
 Goal: interact with the workspace from a phone or remote device safely.
 
@@ -87,4 +108,3 @@ Exit criteria:
 - No arbitrary shell execution from chat.
 - All remote actions use allowlisted commands.
 - Logs are sanitized and searchable.
-
