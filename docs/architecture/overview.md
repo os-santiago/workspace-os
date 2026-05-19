@@ -84,6 +84,12 @@ Initial implementation:
 
 Creates sanitized evidence and promotes reusable rules to doctrine.
 
+Initial implementation:
+- Capture creates sanitized drafts for daily, incident, session, and decision entries.
+- Capture is dry-run by default and writes only with explicit `--write`.
+- Promotion creates proposal-only Markdown output and does not mutate doctrine.
+- Promotion includes related existing content so doctrine edits can consolidate instead of duplicate.
+
 ### Connector Interfaces
 
 Connectors should be read-only by default. Write operations require explicit approval.

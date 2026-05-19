@@ -134,8 +134,6 @@ Acceptance criteria:
 Initial implementation:
 - `python -m workspace_os housekeeping` reports likely scratch, backup, log, and temporary files.
 
-## Next
-
 ### WSOS-016: Implement Capture Workflow
 
 As an operator, the system needs a safe way to capture session, incident, decision, and daily notes.
@@ -146,6 +144,12 @@ Acceptance criteria:
 - Capture requires explicit type selection.
 - Capture keeps generated content in English.
 
+Initial implementation:
+- `python -m workspace_os capture --type <type> --title <title> --text <text>` creates a sanitized dry-run draft.
+- `--write` writes to the configured evidence source.
+- Supported capture types are daily, incident, session, and decision.
+- Output uses source-relative references instead of local machine paths.
+
 ### WSOS-017: Implement Promotion Workflow
 
 As an operator, the system needs a controlled way to promote reusable lessons into doctrine.
@@ -155,6 +159,13 @@ Acceptance criteria:
 - Promotion links back to evidence when available.
 - Promotion does not write secrets or sensitive raw output.
 - Promotion can be validated before commit.
+
+Initial implementation:
+- `python -m workspace_os promote --to <target> --rule <rule> --evidence <ref>` emits a proposal-only Markdown brief.
+- Promotion output includes related existing content found through librarian search.
+- Promotion does not mutate doctrine or evidence.
+
+## Next
 
 ### WSOS-018: Define Homedir-Based UI Foundation
 
