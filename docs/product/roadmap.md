@@ -36,13 +36,13 @@ GOAL
   |      +-- promote reusable rules to ADEV
   |      +-- link evidence back to scanales-kb
   |
-  +-- [NEXT] Stage 3 - Operator workspace API
+  +-- [DONE] Stage 3 - Direct web pilot
   |      +-- expose read-only workspace state
   |      +-- expose context and search endpoints
   |      +-- expose governed capture and promote workflows
   |      +-- keep shell execution out of the API
   |
-  +-- [TODO] Stage 4 - Homedir-based UI shell
+  +-- [NEXT] Stage 4 - Homedir-based UI workflow depth
   |      +-- reuse homedir visual and navigation patterns
   |      +-- show status, search, context, classify, validate
   |      +-- show batch progress and active roadmap
@@ -76,14 +76,14 @@ Batch 03 [DONE] Classify and validate
 Batch 04 [DONE] Capture and promotion loop
   capture | sanitize | promote | evidence links
 
-Batch 05 [NEXT] Workspace read API
-  local API | read-only state | command boundary
+Batch 05 [DONE] Direct web pilot
+  local web app | allowlisted endpoints | homedir-inspired shell
 
-Batch 06 [TODO] UI foundation based on homedir
-  app shell | navigation | dashboard | CLI-backed views
-
-Batch 07 [TODO] UI workflow depth
+Batch 06 [NEXT] UI workflow depth
   capture flow | promotion flow | roadmap progress | agent context flow
+
+Batch 07 [TODO] Pilot hardening
+  approvals | write workflows | local auth boundary | mobile access design
 ```
 
 ## Stage 0: Product Definition

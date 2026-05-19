@@ -177,6 +177,22 @@ Acceptance criteria:
 - UI shows source status, search, context, classify, validate, and roadmap progress.
 - Mutating workflows require explicit approval.
 
+Initial implementation:
+- `python -m workspace_os web` starts the local web pilot.
+- The pilot uses allowlisted local endpoints instead of arbitrary shell execution.
+- The UI includes software, documents, presentations, and learning contexts inspired by homedir.
+- Capture and promotion actions are preview-only from the browser.
+
+### WSOS-019: Deepen Web Pilot Workflows
+
+As an operator, the system needs browser workflows that move from preview to reviewed action without losing governance.
+
+Acceptance criteria:
+- Capture preview can become an approved write.
+- Promotion proposals can become reviewed PR tasks.
+- UI state clearly separates dry-run, preview, and mutation.
+- Mobile viewport remains usable for supervision.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.
