@@ -7,10 +7,13 @@ from workspace_os.config import Source
 from workspace_os.web_server import (
     _agent_command,
     _capture_preview_payload,
+    _chat_payload,
     _conscience_preview_payload,
     _delegate_launch_payload,
     _extract_progress_map,
     _promote_preview_payload,
+    _recent_docs_payload,
+    _recent_software_payload,
 )
 
 
@@ -144,6 +147,52 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(123, result["pid"])
         self.assertEqual("ALLOW_WITH_LIMITS", result["conscience"]["decision"])
         self.assertIn("Operational Conscience Decision", captured["command"][-1])
+
+    def test_recent_software_returns_most_recent_projects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "older"
+            newer = root / "newer"
+            older.mkdir()
+            newer.mkdir()
+            older_time = 1_700_000_000
+            newer_time = 1_800_000_000
+            older.touch()
+            newer.touch()
+            import os
+
+            os.utime(older, (older_time, older_time))
+            os.utime(newer, (newer_time, newer_time))
+
+            result = _recent_software_payload(root=root, limit=2)
+
+        self.assertEqual(["newer", "older"], [item["name"] for item in result["items"]])
+
+    def test_recent_docs_returns_recent_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "older.txt"
+            newer = root / "newer.txt"
+            older.write_text("older", encoding="utf-8")
+            newer.write_text("newer", encoding="utf-8")
+            import os
+
+            os.utime(older, (1_700_000_000, 1_700_000_000))
+            os.utime(newer, (1_800_000_000, 1_800_000_000))
+
+            result = _recent_docs_payload(root=root, limit=2)
+
+        self.assertEqual(["newer.txt", "older.txt"], [item["name"] for item in result["items"]])
+
+    def test_chat_payload_reports_engines(self):
+        result = _chat_payload(
+            [],
+            {"message": "Remember this lesson about validation."},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["learning"]["activated"])
+        self.assertIn("conscience", result)
 
 
 if __name__ == "__main__":

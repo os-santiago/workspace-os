@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -68,6 +69,12 @@ def _build_handler(sources: list[Source]):
             if parsed.path == "/api/roadmap":
                 self._send_json(_roadmap_payload())
                 return
+            if parsed.path == "/api/recent-software":
+                self._send_json(_recent_software_payload())
+                return
+            if parsed.path == "/api/recent-docs":
+                self._send_json(_recent_docs_payload())
+                return
 
             self.send_error(404, "Not found")
 
@@ -83,6 +90,9 @@ def _build_handler(sources: list[Source]):
                 return
             if parsed.path == "/api/conscience-preview":
                 self._send_json(_conscience_preview_payload(payload))
+                return
+            if parsed.path == "/api/chat":
+                self._send_json(_chat_payload(sources, payload))
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload))
@@ -242,6 +252,39 @@ def _conscience_preview_payload(payload: dict[str, object]) -> dict[str, object]
     return {"ok": True, "conscience": decision.to_dict()}
 
 
+def _chat_payload(sources: list[Source], payload: dict[str, object]) -> dict[str, object]:
+    message = _string_payload(payload, "message")
+    if not message:
+        return {"ok": False, "error": "Message is required."}
+
+    conscience = evaluate_request(message, destination="software")
+    learning = _learning_signal(message)
+    matches = search_sources(sources, message, max_results=5)
+    personal_context = _operator_principles_summary()
+    lines = [
+        "Request received.",
+        "",
+        f"Conscience: {conscience.decision} ({conscience.risk_level})",
+        f"Strategy: {conscience.response_strategy}",
+        f"Rationale: {conscience.rationale}",
+        "",
+        f"Learning engine: {'activated' if learning['activated'] else 'standby'}",
+        learning["summary"],
+        "",
+        f"Operator principles source: {personal_context['state']}",
+    ]
+    if matches:
+        lines.extend(["", "Related knowledge:"])
+        lines.extend([f"- {match.source_name}:{match.path}:{match.line_number}" for match in matches[:3]])
+    return {
+        "ok": True,
+        "reply": sanitize_text("\n".join(lines)),
+        "conscience": conscience.to_dict(),
+        "learning": learning,
+        "personal_context": personal_context,
+    }
+
+
 def _delegate_launch_payload(
     payload: dict[str, object],
     launcher: object | None = None,
@@ -349,6 +392,127 @@ def _roadmap_payload() -> dict[str, object]:
     if not roadmap.exists():
         return {"progress": "Roadmap not found."}
     return {"progress": _extract_progress_map(roadmap.read_text(encoding="utf-8"))}
+
+
+def _recent_software_payload(root: Path | None = None, limit: int = 10) -> dict[str, object]:
+    workspace_root = root or _git_workspace_root()
+    if not workspace_root.exists():
+        return {"root": "local-git-workspace", "items": []}
+    projects = [_project_summary(path) for path in workspace_root.iterdir() if path.is_dir()]
+    projects.sort(key=lambda item: item["updated_epoch"], reverse=True)
+    return {"root": "local-git-workspace", "items": [_public_item(item) for item in projects[:limit]]}
+
+
+def _recent_docs_payload(root: Path | None = None, limit: int = 10, scan_limit: int = 5000) -> dict[str, object]:
+    drive_root = root or _drive_root()
+    if not drive_root.exists():
+        return {"root": "google-drive", "items": []}
+
+    files = []
+    scanned = 0
+    for current_root, dirnames, filenames in os.walk(drive_root):
+        dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+            path = Path(current_root) / filename
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append(
+                {
+                    "name": path.name,
+                    "relative_path": _safe_relative(path, drive_root),
+                    "updated_epoch": stat.st_mtime,
+                    "updated": _format_epoch(stat.st_mtime),
+                }
+            )
+            scanned += 1
+            if scanned >= scan_limit:
+                break
+        if scanned >= scan_limit:
+            break
+    files.sort(key=lambda item: item["updated_epoch"], reverse=True)
+    return {"root": "google-drive", "items": [_public_item(item) for item in files[:limit]]}
+
+
+def _project_summary(path: Path) -> dict[str, object]:
+    updated_epoch = _git_last_commit_epoch(path) if (path / ".git").exists() else path.stat().st_mtime
+    return {
+        "name": path.name,
+        "relative_path": path.name,
+        "updated_epoch": updated_epoch,
+        "updated": _format_epoch(updated_epoch),
+    }
+
+
+def _git_last_commit_epoch(path: Path) -> float:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "log", "-1", "--format=%ct"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return path.stat().st_mtime
+    if result.returncode != 0:
+        return path.stat().st_mtime
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return path.stat().st_mtime
+
+
+def _operator_principles_summary(root: Path | None = None) -> dict[str, object]:
+    principles_root = root or (_git_workspace_root() / "all-about-me")
+    if not principles_root.exists():
+        return {"state": "not configured", "items": 0}
+    try:
+        count = sum(1 for path in principles_root.rglob("*") if path.is_file())
+    except OSError:
+        return {"state": "unavailable", "items": 0}
+    return {"state": "available", "items": count}
+
+
+def _learning_signal(message: str) -> dict[str, object]:
+    text = message.casefold()
+    keywords = ("learn", "remember", "lesson", "decision", "mistake", "preference", "principle")
+    activated = any(keyword in text for keyword in keywords)
+    if not activated:
+        return {"activated": False, "summary": "No durable learning candidate detected."}
+    return {
+        "activated": True,
+        "summary": "Potential learning detected. Capture requires explicit destination and approval.",
+        "candidate_destinations": ["ADEV", "scanales-kb", "operator-principles"],
+    }
+
+
+def _git_workspace_root() -> Path:
+    return Path(os.environ.get("WORKSPACE_OS_GIT_ROOT", str(Path.home() / "git")))
+
+
+def _drive_root() -> Path:
+    return Path(os.environ.get("WORKSPACE_OS_DRIVE_ROOT", "G:/Mi unidad"))
+
+
+def _public_item(item: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in item.items() if key != "updated_epoch"}
+
+
+def _safe_relative(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
+def _format_epoch(value: float) -> str:
+    from datetime import datetime
+
+    return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M")
 
 
 def _extract_progress_map(content: str) -> str:
