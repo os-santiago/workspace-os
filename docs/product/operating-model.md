@@ -9,13 +9,39 @@ Workspace OS consumes ADEV rules and implements workflows around them. It does n
 ## Knowledge Flow
 
 ```text
-Work happens
+Operator request
+  -> consciousness engine interprets intent, values, risk, and decision boundaries
+  -> learning engine applies ADEV doctrine and scanales-kb evidence
+  -> Workspace OS selects destination and execution path
+  -> software and infrastructure work goes to Git
+  -> document, deck, sheet, proposal, and estimate deliverables go to Google Workspace
   -> evidence is captured in scanales-kb
   -> reusable lessons are promoted to ADEV
-  -> execution improvements are implemented in homedir
-  -> final deliverables are produced in Google Workspace
-  -> Workspace OS indexes and orchestrates the flow
 ```
+
+## Consciousness Engine
+
+The consciousness engine is the operator-facing judgment layer. It decides what the request means before work is routed.
+
+Responsibilities:
+- Interpret operator intent and desired outcome.
+- Identify urgency, risk, and required checkpoints.
+- Decide whether the request needs clarification, research, delegation, or direct execution.
+- Preserve operator values, tone, decision style, and quality bar.
+- Prevent action when the request conflicts with safety, privacy, or repository rules.
+
+The current external definition is referenced by the operator through a shared ChatGPT link. That page was not accessible without authentication during this update, so the durable definition must be captured later as sanitized repository content before implementation depends on it.
+
+## Learning Engine
+
+The learning engine is grounded in ADEV and scanales-kb.
+
+Responsibilities:
+- Load applicable ADEV doctrine, guardrails, and validation rules.
+- Search scanales-kb for reusable evidence, mistakes, decisions, and lessons.
+- Prevent repeated errors by turning prior failures into checks, tests, prompts, or backlog items.
+- Classify new learning before capture so doctrine and evidence stay organized.
+- Feed concise context into Workspace OS before an agent or connector acts.
 
 ## Librarian Rule
 
@@ -46,4 +72,3 @@ Before adding durable content:
 - No arbitrary remote shell execution.
 - Mutating actions require explicit approval.
 - Temporary files must not survive completion unless promoted.
-

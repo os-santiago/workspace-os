@@ -8,6 +8,8 @@ Work is distributed across repositories, local folders, Google Workspace, and mu
 
 Workspace OS provides one governed workspace model for AI-assisted work. It connects local repositories, knowledge bases, cloud deliverables, and agent tools while preserving clear ownership and rules.
 
+Workspace OS should act as the bridge between operator requests and execution. Requests pass first through a consciousness engine that interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents.
+
 The long-term ambition is to let one operator execute work at organizational scale by delegating toil, preserving experience, and leading multiple product or delivery streams through checkpoints instead of constant manual execution.
 
 ## Outcomes
@@ -20,6 +22,7 @@ The long-term ambition is to let one operator execute work at organizational sca
 - Reduce repeated work, duplicated notes, and forgotten decisions.
 - Produce consulting estimates, proposals, presentations, and software with higher speed and quality.
 - Let agents apply accumulated doctrine and daily learning by default.
+- Convert raw requests into conscious, learned, governed actions before execution.
 
 ## Primary Work Domains
 
@@ -38,6 +41,7 @@ The long-term ambition is to let one operator execute work at organizational sca
 - Store secrets or sensitive raw outputs.
 - Train a model directly from private work in the MVP.
 - Execute arbitrary commands from chat.
+- Treat unverified external chat links as durable product definitions without capturing the sanitized definition in Git.
 
 ## Users
 
