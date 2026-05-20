@@ -394,7 +394,7 @@ def _roadmap_payload() -> dict[str, object]:
     return {"progress": _extract_progress_map(roadmap.read_text(encoding="utf-8"))}
 
 
-def _recent_software_payload(root: Path | None = None, limit: int = 10) -> dict[str, object]:
+def _recent_software_payload(root: Path | None = None, limit: int = 5) -> dict[str, object]:
     workspace_root = root or _git_workspace_root()
     if not workspace_root.exists():
         return {"root": "local-git-workspace", "items": []}
@@ -421,7 +421,7 @@ DOCUMENT_ACTIVITY_EXTENSIONS = {
 IGNORED_ACTIVITY_FILES = {"desktop.ini", "thumbs.db", "~$"}
 
 
-def _recent_docs_payload(root: Path | None = None, limit: int = 10, scan_limit: int = 5000) -> dict[str, object]:
+def _recent_docs_payload(root: Path | None = None, limit: int = 5, scan_limit: int = 5000) -> dict[str, object]:
     drive_root = root or _drive_root()
     if not drive_root.exists():
         return {"root": "google-drive", "items": []}

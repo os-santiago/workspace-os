@@ -168,6 +168,20 @@ Batch 02 [NEXT] Web pilot
 
         self.assertEqual(["newer", "older"], [item["name"] for item in result["items"]])
 
+    def test_recent_software_defaults_to_five_projects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            import os
+
+            for index in range(6):
+                project = root / f"project-{index}"
+                project.mkdir()
+                os.utime(project, (1_700_000_000 + index, 1_700_000_000 + index))
+
+            result = _recent_software_payload(root=root)
+
+        self.assertEqual(5, len(result["items"]))
+
     def test_recent_docs_returns_recent_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -186,6 +200,20 @@ Batch 02 [NEXT] Web pilot
             result = _recent_docs_payload(root=root, limit=2)
 
         self.assertEqual(["newer.pdf", "older.docx"], [item["name"] for item in result["items"]])
+
+    def test_recent_docs_defaults_to_five_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            import os
+
+            for index in range(6):
+                document = root / f"document-{index}.pdf"
+                document.write_text("document", encoding="utf-8")
+                os.utime(document, (1_700_000_000 + index, 1_700_000_000 + index))
+
+            result = _recent_docs_payload(root=root)
+
+        self.assertEqual(5, len(result["items"]))
 
     def test_chat_payload_reports_engines(self):
         result = _chat_payload(
