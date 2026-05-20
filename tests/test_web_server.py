@@ -4,7 +4,13 @@ from pathlib import Path
 import tempfile
 
 from workspace_os.config import Source
-from workspace_os.web_server import _capture_preview_payload, _extract_progress_map, _promote_preview_payload
+from workspace_os.web_server import (
+    _agent_command,
+    _capture_preview_payload,
+    _delegate_launch_payload,
+    _extract_progress_map,
+    _promote_preview_payload,
+)
 
 
 class WebServerTests(unittest.TestCase):
@@ -52,6 +58,39 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertIn("# Promotion Proposal", result["markdown"])
+
+    def test_delegate_launch_requires_approval(self):
+        result = _delegate_launch_payload(
+            {
+                "agent": "codex",
+                "destination": "software",
+                "task": "Implement a workflow.",
+                "brief": "Context pack.",
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("approval", result["error"])
+
+    def test_delegate_launch_blocks_google_destinations_until_connector_exists(self):
+        result = _delegate_launch_payload(
+            {
+                "agent": "claude",
+                "destination": "documents",
+                "task": "Draft a document.",
+                "brief": "Context pack.",
+                "approved": True,
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Google Drive connector", result["error"])
+
+    def test_agent_command_uses_allowlisted_agent_command(self):
+        command = _agent_command("codex", Path("workspace"), "Do the task.")
+
+        self.assertEqual(command[:2], ["codex", "exec"])
+        self.assertIn("--skip-git-repo-check", command)
 
 
 if __name__ == "__main__":

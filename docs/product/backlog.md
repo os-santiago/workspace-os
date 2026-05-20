@@ -182,6 +182,8 @@ Initial implementation:
 - The pilot uses allowlisted local endpoints instead of arbitrary shell execution.
 - The UI includes software, documents, presentations, and learning contexts inspired by homedir.
 - Capture and promotion actions are preview-only from the browser.
+- Software delegation can launch an approved Codex or Claude run from the local Git workspace.
+- Document and presentation delegation remain blocked until a real Google Drive connector exists.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 
@@ -192,6 +194,7 @@ Acceptance criteria:
 - Promotion proposals can become reviewed PR tasks.
 - UI state clearly separates dry-run, preview, and mutation.
 - Mobile viewport remains usable for supervision.
+- Agent launch requires explicit approval and uses allowlisted agents only.
 
 ### WSOS-011: Define Consulting Estimate Workflow
 

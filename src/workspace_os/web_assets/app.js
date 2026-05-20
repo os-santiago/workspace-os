@@ -3,10 +3,22 @@ const qsa = (selector) => Array.from(document.querySelectorAll(selector));
 
 const state = {
   action: "check",
+  lastBrief: "",
+  lastTask: "",
 };
 
 const getJson = async (url) => {
   const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  return response.json();
+};
+
+const postJson = async (url, payload) => {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json();
 };
@@ -74,7 +86,11 @@ const runContext = async (value) => {
     "Execution: no agent command was launched from the browser",
     "",
   ].join("\n");
-  setOutput("Delegate brief", `${header}${data.markdown}`);
+  state.lastTask = topic;
+  state.lastBrief = `${header}${data.markdown}`;
+  setOutput("Delegate brief", state.lastBrief);
+  qs("#launchPanel").classList.remove("is-hidden");
+  qs("#launchResult").textContent = "Review the brief, select an agent, approve, then launch.";
 };
 
 const setAction = (action) => {
@@ -91,11 +107,13 @@ const setAction = (action) => {
     input.value = "";
     input.placeholder = "Validation uses the configured sources";
     runButton.textContent = "Check";
+    qs("#launchPanel").classList.add("is-hidden");
   } else if (action === "ask") {
     label.textContent = "Question or keyword";
     input.value = input.value || "ADEV";
     input.placeholder = "Example: validation";
     runButton.textContent = "Ask";
+    qs("#launchPanel").classList.add("is-hidden");
   } else {
     label.textContent = "Task to delegate";
     input.value = input.value || "agent alignment";
@@ -103,6 +121,26 @@ const setAction = (action) => {
     runButton.textContent = "Prepare brief";
   }
   qs("#activeAction").textContent = action;
+};
+
+const bindLaunch = () => {
+  qs("#launchButton").addEventListener("click", async () => {
+    const approved = qs("#approvalCheckbox").checked;
+    const payload = {
+      agent: qs("#agentSelect").value,
+      destination: qs("#destinationSelect").value,
+      task: state.lastTask,
+      brief: state.lastBrief,
+      approved,
+    };
+    qs("#launchResult").textContent = "Launching...";
+    const data = await postJson("/api/delegate-launch", payload);
+    if (!data.ok) {
+      qs("#launchResult").textContent = data.error;
+      return;
+    }
+    qs("#launchResult").textContent = `${data.agent} launched for ${data.destination}. PID ${data.pid}.`;
+  });
 };
 
 const runActiveAction = async () => {
@@ -133,6 +171,7 @@ const bindActions = () => {
 
 const init = async () => {
   bindActions();
+  bindLaunch();
   setAction("check");
   await Promise.all([renderStatus(), renderRoadmap()]);
   await runValidate();
