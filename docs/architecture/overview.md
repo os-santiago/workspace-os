@@ -7,6 +7,9 @@ Workspace OS is a local-first orchestration layer for AI-assisted work. It coord
 ## Core Components
 
 ```text
+Operator Request
+  -> Consciousness Engine
+  -> Learning Engine
 Workspace CLI
   -> Source Registry
   -> Librarian Search
@@ -34,6 +37,31 @@ Initial commands:
 - `workspace promote`
 - `workspace housekeeping`
 - `workspace validate`
+
+### Consciousness Engine
+
+Interprets requests before routing them to execution.
+
+Initial scope:
+- Convert raw operator requests into explicit intent, outcome, risk, and checkpoint expectations.
+- Decide whether the request should be clarified, answered, converted to an agent brief, or executed.
+- Block or downgrade requests that conflict with privacy, safety, or repository rules.
+- Preserve operator preferences and decision style as explicit context rather than implicit chat memory.
+
+Implementation note:
+- The external shared definition provided by the operator was not accessible without authentication during this update.
+- A sanitized local definition must be captured before code depends on detailed consciousness-engine behavior.
+
+### Learning Engine
+
+Applies accumulated doctrine and evidence before execution.
+
+Initial scope:
+- Use ADEV as the doctrine source of truth.
+- Use scanales-kb as the evidence and learning source.
+- Search before writing or delegating.
+- Promote repeated lessons into durable rules, checks, tests, or backlog items.
+- Feed relevant context to agent briefs and connector workflows.
 
 ### Source Registry
 

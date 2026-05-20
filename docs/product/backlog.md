@@ -196,6 +196,17 @@ Acceptance criteria:
 - Mobile viewport remains usable for supervision.
 - Agent launch requires explicit approval and uses allowlisted agents only.
 
+### WSOS-020: Define Request Bridge Engines
+
+As the operator, the system needs every request to pass through a consciousness engine and learning engine before execution.
+
+Acceptance criteria:
+- Consciousness engine captures intent, desired outcome, risk, priority, timing, and checkpoint needs.
+- Learning engine applies ADEV doctrine and scanales-kb evidence before routing.
+- Routing output identifies destination: Git, Google Workspace, agent brief, answer, clarification, or refusal.
+- External definitions are captured as sanitized local documentation before implementation depends on them.
+- The UI exposes the bridge state without overwhelming the first-use flow.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.
