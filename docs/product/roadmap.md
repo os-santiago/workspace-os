@@ -87,7 +87,7 @@ Batch 07 [TODO] Pilot hardening
   approvals | write workflows | local auth boundary | mobile access design
 
 Batch 08 [TODO] Request bridge
-  consciousness intake | ADEV and scanales-kb learning engine | governed routing
+  operational conscience | ADEV and scanales-kb learning engine | governed routing
 ```
 
 ## Stage 0: Product Definition
@@ -125,13 +125,13 @@ Goal: make Workspace OS the bridge between raw operator requests and governed ex
 
 Capabilities:
 - Receive a request as input.
-- Run the request through a consciousness engine that extracts intent, outcome, priority, risk, and checkpoint needs.
+- Run the request through an Operational Conscience Layer that extracts intent, outcome, priority, risk, and checkpoint needs.
 - Run the interpreted request through a learning engine that applies ADEV and searches scanales-kb.
 - Route the result to software work in Git, deliverables in Google Workspace, or an agent brief.
 - Refuse or pause requests that conflict with privacy, safety, or repository rules.
 
 Exit criteria:
-- Consciousness-engine definition is captured in sanitized local documentation.
+- Operational Conscience Layer definition is captured in sanitized local documentation.
 - Learning-engine inputs are explicitly ADEV and scanales-kb.
 - Every delegated task includes intent, risk, relevant learning, destination, and approval requirements.
 - Google Workspace routing is blocked until a real connector exists.

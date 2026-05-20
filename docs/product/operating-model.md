@@ -23,14 +23,14 @@ Operator request
 
 The consciousness engine is the operator-facing judgment layer. It decides what the request means before work is routed.
 
+Workspace OS implements this as the Operational Conscience Layer defined in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
+
 Responsibilities:
 - Interpret operator intent and desired outcome.
 - Identify urgency, risk, and required checkpoints.
 - Decide whether the request needs clarification, research, delegation, or direct execution.
 - Preserve operator values, tone, decision style, and quality bar.
 - Prevent action when the request conflicts with safety, privacy, or repository rules.
-
-The current external definition is referenced by the operator through a shared ChatGPT link. That page was not accessible without authentication during this update, so the durable definition must be captured later as sanitized repository content before implementation depends on it.
 
 ## Learning Engine
 

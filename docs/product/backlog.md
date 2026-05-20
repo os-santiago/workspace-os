@@ -204,7 +204,7 @@ Acceptance criteria:
 - Consciousness engine captures intent, desired outcome, risk, priority, timing, and checkpoint needs.
 - Learning engine applies ADEV doctrine and scanales-kb evidence before routing.
 - Routing output identifies destination: Git, Google Workspace, agent brief, answer, clarification, or refusal.
-- External definitions are captured as sanitized local documentation before implementation depends on them.
+- Operational Conscience Layer is captured as sanitized local architecture documentation.
 - The UI exposes the bridge state without overwhelming the first-use flow.
 
 ### WSOS-011: Define Consulting Estimate Workflow

@@ -42,15 +42,13 @@ Initial commands:
 
 Interprets requests before routing them to execution.
 
+Workspace OS implements this concept as the Operational Conscience Layer defined in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
+
 Initial scope:
 - Convert raw operator requests into explicit intent, outcome, risk, and checkpoint expectations.
 - Decide whether the request should be clarified, answered, converted to an agent brief, or executed.
 - Block or downgrade requests that conflict with privacy, safety, or repository rules.
 - Preserve operator preferences and decision style as explicit context rather than implicit chat memory.
-
-Implementation note:
-- The external shared definition provided by the operator was not accessible without authentication during this update.
-- A sanitized local definition must be captured before code depends on detailed consciousness-engine behavior.
 
 ### Learning Engine
 
