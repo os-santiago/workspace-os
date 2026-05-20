@@ -5,6 +5,7 @@ const state = {
   action: "check",
   lastBrief: "",
   lastTask: "",
+  lastConscience: null,
 };
 
 const getJson = async (url) => {
@@ -89,8 +90,28 @@ const runContext = async (value) => {
   state.lastTask = topic;
   state.lastBrief = `${header}${data.markdown}`;
   setOutput("Delegate brief", state.lastBrief);
+  await previewConscience();
   qs("#launchPanel").classList.remove("is-hidden");
   qs("#launchResult").textContent = "Review the brief, select an agent, approve, then launch.";
+};
+
+const renderConscience = (conscience) => {
+  state.lastConscience = conscience;
+  qs("#conscienceResult").textContent = [
+    `Decision: ${conscience.decision}`,
+    `Risk: ${conscience.risk_level}`,
+    `Strategy: ${conscience.response_strategy}`,
+    `Rationale: ${conscience.rationale}`,
+  ].join("\n");
+};
+
+const previewConscience = async () => {
+  const data = await postJson("/api/conscience-preview", {
+    task: state.lastTask,
+    brief: state.lastBrief,
+    destination: qs("#destinationSelect").value,
+  });
+  if (data.ok) renderConscience(data.conscience);
 };
 
 const setAction = (action) => {
@@ -124,6 +145,7 @@ const setAction = (action) => {
 };
 
 const bindLaunch = () => {
+  qs("#destinationSelect").addEventListener("change", previewConscience);
   qs("#launchButton").addEventListener("click", async () => {
     const approved = qs("#approvalCheckbox").checked;
     const payload = {
@@ -137,8 +159,10 @@ const bindLaunch = () => {
     const data = await postJson("/api/delegate-launch", payload);
     if (!data.ok) {
       qs("#launchResult").textContent = data.error;
+      if (data.conscience) renderConscience(data.conscience);
       return;
     }
+    if (data.conscience) renderConscience(data.conscience);
     qs("#launchResult").textContent = `${data.agent} launched for ${data.destination}. PID ${data.pid}.`;
   });
 };

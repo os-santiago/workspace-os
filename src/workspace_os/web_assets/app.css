@@ -226,10 +226,19 @@ h1 {
   font-weight: 900;
 }
 
-.launch-result {
+.launch-result,
+.conscience-result {
   margin-top: 0.65rem;
   color: var(--tp-white);
   line-height: 1.4;
+}
+
+.conscience-result {
+  padding: 0.55rem;
+  color: var(--tp-yellow);
+  background: var(--tp-black);
+  border: 2px solid var(--tp-cyan);
+  white-space: pre-wrap;
 }
 
 .state-panel {

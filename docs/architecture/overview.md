@@ -50,6 +50,12 @@ Initial scope:
 - Block or downgrade requests that conflict with privacy, safety, or repository rules.
 - Preserve operator preferences and decision style as explicit context rather than implicit chat memory.
 
+Initial implementation:
+- Uses deterministic rules for low, medium, high, and critical software delegation risk.
+- Allows `ALLOW` and `ALLOW_WITH_LIMITS` decisions to proceed to approved agent launch.
+- Blocks `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions before agent launch.
+- Returns the decision to the web UI so the operator can inspect the bridge state.
+
 ### Learning Engine
 
 Applies accumulated doctrine and evidence before execution.

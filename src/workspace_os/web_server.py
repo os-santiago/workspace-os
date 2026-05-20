@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
+from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
 from workspace_os.config import Source, load_sources
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
@@ -79,6 +80,9 @@ def _build_handler(sources: list[Source]):
                 return
             if parsed.path == "/api/promote-preview":
                 self._send_json(_promote_preview_payload(sources, payload))
+                return
+            if parsed.path == "/api/conscience-preview":
+                self._send_json(_conscience_preview_payload(payload))
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload))
@@ -229,6 +233,15 @@ def _promote_preview_payload(sources: list[Source], payload: dict[str, object]) 
     return {"ok": True, "markdown": proposal.render_markdown()}
 
 
+def _conscience_preview_payload(payload: dict[str, object]) -> dict[str, object]:
+    decision = evaluate_request(
+        task=_string_payload(payload, "task"),
+        brief=_string_payload(payload, "brief"),
+        destination=_string_payload(payload, "destination") or "software",
+    )
+    return {"ok": True, "conscience": decision.to_dict()}
+
+
 def _delegate_launch_payload(
     payload: dict[str, object],
     launcher: object | None = None,
@@ -243,19 +256,28 @@ def _delegate_launch_payload(
         return {"ok": False, "error": "Delegation requires explicit approval."}
     if agent not in {"codex", "claude"}:
         return {"ok": False, "error": "Allowed agents are codex and claude."}
+    if not task or not brief:
+        return {"ok": False, "error": "Delegation requires both task and brief."}
+
+    conscience = evaluate_request(task=task, brief=brief, destination=destination)
     if destination != "software":
         return {
             "ok": False,
             "error": "Document and presentation delegations require a Google Drive connector first.",
+            "conscience": conscience.to_dict(),
         }
-    if not task or not brief:
-        return {"ok": False, "error": "Delegation requires both task and brief."}
+    if not conscience.allows_execution():
+        return {
+            "ok": False,
+            "error": f"Operational Conscience blocked launch with decision {conscience.decision}.",
+            "conscience": conscience.to_dict(),
+        }
 
     workspace_root = Path.home() / "git"
     if not workspace_root.exists():
         return {"ok": False, "error": "Local Git workspace root was not found."}
 
-    prompt = _build_delegate_prompt(task, brief)
+    prompt = _build_delegate_prompt(task, brief, conscience)
     command = _agent_command(agent, workspace_root, prompt)
     start_process = launcher or _launch_process
     pid = start_process(command, workspace_root)
@@ -265,10 +287,11 @@ def _delegate_launch_payload(
         "destination": destination,
         "pid": pid,
         "cwd": "local-git-workspace",
+        "conscience": conscience.to_dict(),
     }
 
 
-def _build_delegate_prompt(task: str, brief: str) -> str:
+def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision) -> str:
     return sanitize_text(
         "\n".join(
             [
@@ -277,9 +300,12 @@ def _build_delegate_prompt(task: str, brief: str) -> str:
                 "Follow ADEV rules and preserve unrelated local changes.",
                 "Use Git repositories for software and infrastructure work.",
                 "Do not store secrets, personal data, or company-specific data.",
+                "Apply the Operational Conscience decision below before acting.",
                 "",
                 "Task:",
                 task,
+                "",
+                render_decision_for_prompt(conscience),
                 "",
                 "Workspace OS brief:",
                 brief,
