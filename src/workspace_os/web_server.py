@@ -403,6 +403,24 @@ def _recent_software_payload(root: Path | None = None, limit: int = 10) -> dict[
     return {"root": "local-git-workspace", "items": [_public_item(item) for item in projects[:limit]]}
 
 
+DOCUMENT_ACTIVITY_EXTENSIONS = {
+    ".csv",
+    ".doc",
+    ".docx",
+    ".md",
+    ".ods",
+    ".odt",
+    ".pdf",
+    ".ppt",
+    ".pptx",
+    ".rtf",
+    ".txt",
+    ".xls",
+    ".xlsx",
+}
+IGNORED_ACTIVITY_FILES = {"desktop.ini", "thumbs.db", "~$"}
+
+
 def _recent_docs_payload(root: Path | None = None, limit: int = 10, scan_limit: int = 5000) -> dict[str, object]:
     drive_root = root or _drive_root()
     if not drive_root.exists():
@@ -413,9 +431,16 @@ def _recent_docs_payload(root: Path | None = None, limit: int = 10, scan_limit: 
     for current_root, dirnames, filenames in os.walk(drive_root):
         dirnames[:] = [name for name in dirnames if not name.startswith(".")]
         for filename in filenames:
-            if filename.startswith("."):
+            normalized_name = filename.lower()
+            if (
+                filename.startswith(".")
+                or normalized_name in IGNORED_ACTIVITY_FILES
+                or normalized_name.startswith("~$")
+            ):
                 continue
             path = Path(current_root) / filename
+            if path.suffix.lower() not in DOCUMENT_ACTIVITY_EXTENSIONS:
+                continue
             try:
                 stat = path.stat()
             except OSError:

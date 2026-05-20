@@ -171,18 +171,21 @@ Batch 02 [NEXT] Web pilot
     def test_recent_docs_returns_recent_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            older = root / "older.txt"
-            newer = root / "newer.txt"
+            older = root / "older.docx"
+            newer = root / "newer.pdf"
+            ignored = root / "desktop.ini"
             older.write_text("older", encoding="utf-8")
             newer.write_text("newer", encoding="utf-8")
+            ignored.write_text("system", encoding="utf-8")
             import os
 
             os.utime(older, (1_700_000_000, 1_700_000_000))
             os.utime(newer, (1_800_000_000, 1_800_000_000))
+            os.utime(ignored, (1_900_000_000, 1_900_000_000))
 
             result = _recent_docs_payload(root=root, limit=2)
 
-        self.assertEqual(["newer.txt", "older.txt"], [item["name"] for item in result["items"]])
+        self.assertEqual(["newer.pdf", "older.docx"], [item["name"] for item in result["items"]])
 
     def test_chat_payload_reports_engines(self):
         result = _chat_payload(
