@@ -207,6 +207,12 @@ Acceptance criteria:
 - Operational Conscience Layer is captured as sanitized local architecture documentation.
 - The UI exposes the bridge state without overwhelming the first-use flow.
 
+Initial implementation:
+- Deterministic Operational Conscience evaluation exists for delegated software work.
+- Launch decisions return risk level, moral categories, applicable norms, decision, strategy, rationale, review requirement, and missing context.
+- Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.
+- Google Workspace destinations remain blocked until a real connector exists.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.

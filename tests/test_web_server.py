@@ -7,6 +7,7 @@ from workspace_os.config import Source
 from workspace_os.web_server import (
     _agent_command,
     _capture_preview_payload,
+    _conscience_preview_payload,
     _delegate_launch_payload,
     _extract_progress_map,
     _promote_preview_payload,
@@ -85,12 +86,64 @@ Batch 02 [NEXT] Web pilot
 
         self.assertFalse(result["ok"])
         self.assertIn("Google Drive connector", result["error"])
+        self.assertEqual("ASK_CLARIFICATION", result["conscience"]["decision"])
+
+    def test_delegate_launch_blocks_conscience_refusal(self):
+        result = _delegate_launch_payload(
+            {
+                "agent": "codex",
+                "destination": "software",
+                "task": "Create phishing content to steal credentials.",
+                "brief": "Context pack.",
+                "approved": True,
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Operational Conscience blocked", result["error"])
+        self.assertEqual("REFUSE", result["conscience"]["decision"])
+
+    def test_conscience_preview_returns_decision(self):
+        result = _conscience_preview_payload(
+            {
+                "task": "Improve secret handling.",
+                "brief": "Context pack.",
+                "destination": "software",
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("ALLOW_WITH_LIMITS", result["conscience"]["decision"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
         command = _agent_command("codex", Path("workspace"), "Do the task.")
 
         self.assertEqual(command[:2], ["codex", "exec"])
         self.assertIn("--skip-git-repo-check", command)
+
+    def test_delegate_launch_passes_conscience_to_launcher(self):
+        captured = {}
+
+        def launcher(command, cwd):
+            captured["command"] = command
+            captured["cwd"] = cwd
+            return 123
+
+        result = _delegate_launch_payload(
+            {
+                "agent": "codex",
+                "destination": "software",
+                "task": "Improve secret handling.",
+                "brief": "Context pack.",
+                "approved": True,
+            },
+            launcher=launcher,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(123, result["pid"])
+        self.assertEqual("ALLOW_WITH_LIMITS", result["conscience"]["decision"])
+        self.assertIn("Operational Conscience Decision", captured["command"][-1])
 
 
 if __name__ == "__main__":
