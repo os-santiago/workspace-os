@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -78,6 +79,9 @@ def _build_handler(sources: list[Source]):
                 return
             if parsed.path == "/api/promote-preview":
                 self._send_json(_promote_preview_payload(sources, payload))
+                return
+            if parsed.path == "/api/delegate-launch":
+                self._send_json(_delegate_launch_payload(payload))
                 return
 
             self.send_error(404, "Not found")
@@ -223,6 +227,95 @@ def _promote_preview_payload(sources: list[Source], payload: dict[str, object]) 
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "markdown": proposal.render_markdown()}
+
+
+def _delegate_launch_payload(
+    payload: dict[str, object],
+    launcher: object | None = None,
+) -> dict[str, object]:
+    agent = _string_payload(payload, "agent").casefold()
+    destination = _string_payload(payload, "destination").casefold()
+    task = _string_payload(payload, "task")
+    brief = _string_payload(payload, "brief")
+    approved = bool(payload.get("approved", False))
+
+    if not approved:
+        return {"ok": False, "error": "Delegation requires explicit approval."}
+    if agent not in {"codex", "claude"}:
+        return {"ok": False, "error": "Allowed agents are codex and claude."}
+    if destination != "software":
+        return {
+            "ok": False,
+            "error": "Document and presentation delegations require a Google Drive connector first.",
+        }
+    if not task or not brief:
+        return {"ok": False, "error": "Delegation requires both task and brief."}
+
+    workspace_root = Path.home() / "git"
+    if not workspace_root.exists():
+        return {"ok": False, "error": "Local Git workspace root was not found."}
+
+    prompt = _build_delegate_prompt(task, brief)
+    command = _agent_command(agent, workspace_root, prompt)
+    start_process = launcher or _launch_process
+    pid = start_process(command, workspace_root)
+    return {
+        "ok": True,
+        "agent": agent,
+        "destination": destination,
+        "pid": pid,
+        "cwd": "local-git-workspace",
+    }
+
+
+def _build_delegate_prompt(task: str, brief: str) -> str:
+    return sanitize_text(
+        "\n".join(
+            [
+                "You are receiving an approved Workspace OS delegation.",
+                "Work from the local Git workspace root.",
+                "Follow ADEV rules and preserve unrelated local changes.",
+                "Use Git repositories for software and infrastructure work.",
+                "Do not store secrets, personal data, or company-specific data.",
+                "",
+                "Task:",
+                task,
+                "",
+                "Workspace OS brief:",
+                brief,
+            ]
+        )
+    )
+
+
+def _agent_command(agent: str, workspace_root: Path, prompt: str) -> list[str]:
+    if agent == "codex":
+        return [
+            "codex",
+            "exec",
+            "--cd",
+            str(workspace_root),
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "on-request",
+            prompt,
+        ]
+    return ["claude", "-p", prompt]
+
+
+def _launch_process(command: list[str], cwd: Path) -> int:
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
+    return process.pid
 
 
 def _roadmap_payload() -> dict[str, object]:

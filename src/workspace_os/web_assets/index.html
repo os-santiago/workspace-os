@@ -41,6 +41,33 @@
           <input id="workspaceInput" name="value" value="ADEV" autocomplete="off">
           <button type="submit" id="runButton">Run</button>
         </form>
+
+        <section class="launch-panel is-hidden" id="launchPanel" aria-label="Approved delegation launch">
+          <p class="section-label">Approved launch</p>
+          <div class="launch-grid">
+            <label>
+              Agent
+              <select id="agentSelect">
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+              </select>
+            </label>
+            <label>
+              Destination
+              <select id="destinationSelect">
+                <option value="software">Git software workspace</option>
+                <option value="documents">Google Drive documents</option>
+                <option value="presentations">Google Drive presentations</option>
+              </select>
+            </label>
+          </div>
+          <label class="approval-line">
+            <input id="approvalCheckbox" type="checkbox">
+            I approve launching this prepared brief.
+          </label>
+          <button class="launch-button" type="button" id="launchButton">Launch agent</button>
+          <div class="launch-result" id="launchResult">Software launches run from the local Git workspace. Google Drive destinations are blocked until the connector exists.</div>
+        </section>
       </section>
 
       <aside class="state-panel" aria-label="Workspace state">

@@ -100,6 +100,8 @@ Initial implementation:
 - Serves static assets from the Workspace OS package.
 - Exposes only allowlisted local endpoints.
 - Does not expose arbitrary shell execution.
+- Can launch approved software delegations only through allowlisted agent commands.
+- Blocks Google Drive destinations until a real connector exists.
 - Uses homedir-inspired visual patterns adapted for Workspace OS.
 
 ### Connector Interfaces
@@ -109,6 +111,12 @@ Connectors should be read-only by default. Write operations require explicit app
 ### Agent Router
 
 Routes tasks to agents under allowlisted commands and approval rules.
+
+Initial implementation:
+- Supports approved local software delegation to Codex or Claude.
+- Starts agents from the local Git workspace root.
+- Does not accept free-form shell commands from the browser.
+- Keeps document and presentation delegation blocked until Google Drive support is real.
 
 ## Deployment Model
 
