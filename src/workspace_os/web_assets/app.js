@@ -8,6 +8,8 @@ const state = {
   chatContextExpanded: false,
 };
 
+const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
+
 const getJson = async (url) => {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
@@ -121,13 +123,36 @@ const loadContext = async () => {
   renderContextSnapshot(data);
 };
 
-const toggleChatContext = () => {
-  state.chatContextExpanded = !state.chatContextExpanded;
+const readChatContextPreference = () => {
+  try {
+    return window.localStorage.getItem(CHAT_CONTEXT_STORAGE_KEY) === "expanded";
+  } catch {
+    return false;
+  }
+};
+
+const saveChatContextPreference = (expanded) => {
+  try {
+    window.localStorage.setItem(CHAT_CONTEXT_STORAGE_KEY, expanded ? "expanded" : "collapsed");
+  } catch {
+    return;
+  }
+};
+
+const setChatContextExpanded = (expanded, persist = true) => {
+  state.chatContextExpanded = expanded;
   const section = qs(".chat-context");
   const button = qs("#chatContextToggle");
   section.classList.toggle("is-expanded", state.chatContextExpanded);
   section.classList.toggle("is-collapsed", !state.chatContextExpanded);
   button.textContent = state.chatContextExpanded ? "Collapse" : "Expand";
+  if (persist) {
+    saveChatContextPreference(state.chatContextExpanded);
+  }
+};
+
+const toggleChatContext = () => {
+  setChatContextExpanded(!state.chatContextExpanded);
   loadContext().catch((error) => {
     qs("#chatContextOutput").textContent = error.message;
   });
@@ -219,7 +244,7 @@ const init = async () => {
     }
   });
   await loadSidebar();
-  qs(".chat-context").classList.add("is-collapsed");
+  setChatContextExpanded(readChatContextPreference(), false);
   await loadContext();
   await loadHandoff();
 };

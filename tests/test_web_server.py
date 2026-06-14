@@ -57,6 +57,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("scrollChatToBottom", app)
         self.assertIn("data.context_snapshot", app)
         self.assertIn("chatContextExpanded", app)
+        self.assertIn("workspace-os.chat-context-expanded", app)
+        self.assertIn("localStorage", app)
 
     def test_capture_preview_returns_source_relative_target(self):
         with tempfile.TemporaryDirectory() as directory:
