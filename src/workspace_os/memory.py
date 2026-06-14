@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -109,6 +109,15 @@ class WorkspaceMemoryStore:
                     objective TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     ended_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS process_checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    process_id INTEGER NOT NULL,
+                    label TEXT NOT NULL,
+                    note TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (process_id) REFERENCES process_runs(id)
                 );
                 """
             )
@@ -566,6 +575,92 @@ class WorkspaceMemoryStore:
                 for row in rows
             ]
 
+    def record_process_checkpoint(
+        self,
+        label: str,
+        note: str | None = None,
+        process_id: int | None = None,
+        created_at: str | None = None,
+    ) -> int:
+        active_process_id = process_id
+        if active_process_id is None:
+            with self._connection() as conn:
+                active_process_id = self.active_process_id(conn)
+        if active_process_id is None:
+            raise ValueError("No active process found.")
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO process_checkpoints (process_id, label, note, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    active_process_id,
+                    label.strip(),
+                    note.strip() if note else None,
+                    created_at or _utc_now(),
+                ),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def process_checkpoints(self, process_id: int, limit: int = 20) -> list[dict[str, str | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, process_id, label, note, created_at
+                FROM process_checkpoints
+                WHERE process_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (process_id, limit),
+            )
+            return [
+                {
+                    "id": str(row["id"]),
+                    "process_id": str(row["process_id"]),
+                    "label": str(row["label"]),
+                    "note": row["note"],
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def process_checkpoint_count(self, process_id: int) -> int:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM process_checkpoints
+                WHERE process_id = ?
+                """,
+                (process_id,),
+            ).fetchone()
+            return int(row["count"] or 0) if row else 0
+
+    def latest_process_checkpoint(self, process_id: int) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, process_id, label, note, created_at
+                FROM process_checkpoints
+                WHERE process_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (process_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "process_id": str(row["process_id"]),
+                "label": str(row["label"]),
+                "note": row["note"],
+                "created_at": str(row["created_at"]),
+            }
+
     def process_metrics(self, process_id: int | None = None, now: str | None = None) -> dict[str, object] | None:
         process = self.get_process(process_id) if process_id is not None else self.active_process()
         if process is None:
@@ -595,6 +690,8 @@ class WorkspaceMemoryStore:
             "batch_count": batch_count,
             "delegations": delegations,
             "defect_iterations": defects,
+            "checkpoint_count": self.process_checkpoint_count(process_id_value),
+            "latest_checkpoint": self.latest_process_checkpoint(process_id_value),
         }
 
     def _ensure_batch_column(self, conn: sqlite3.Connection, table: str) -> None:

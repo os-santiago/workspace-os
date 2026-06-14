@@ -116,14 +116,17 @@ class ShellTests(unittest.TestCase):
 
             with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_process("start iteration-1 ten-batch window")
+                shell.do_process("checkpoint milestone-1 first checkpoint")
                 shell.do_process("summary")
                 shell.do_process("stop")
 
             rendered = buffer.getvalue()
 
         self.assertIn("process_started=", rendered)
+        self.assertIn("checkpoint_recorded=", rendered)
         self.assertIn("Process summary", rendered)
         self.assertIn("batch_count=", rendered)
+        self.assertIn("Process:", shell.intro)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

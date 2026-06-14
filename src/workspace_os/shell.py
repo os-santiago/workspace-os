@@ -36,9 +36,11 @@ class WorkspaceShell(cmd.Cmd):
         self.active_workspace: str | None = self.profile.default_workspace
         if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
             self.active_workspace = None
+        self.active_process = self.memory_store.active_process()
         self.active_batch = self.memory_store.active_batch()
         self.intro = (
             f"Workspace OS shell. {self.habits.render_summary()}\n"
+            f"{self._render_process_banner()}"
             f"{self._render_batch_banner()}"
             "Type /help for commands, /exit to leave."
         )
@@ -87,7 +89,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, status, summary, or list batches",
-                    "/process ...        start, stop, report, status, summary, or list processes",
+                    "/process ...        start, stop, report, status, summary, checkpoint, or list processes",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
@@ -316,10 +318,12 @@ class WorkspaceShell(cmd.Cmd):
             except ValueError as exc:
                 print(f"error: {exc}")
                 return
+            self.active_process = self.memory_store.active_process()
             print(f"process_started={process_id}")
             return
         if command == "stop":
             report = stop_process(self.memory_store)
+            self.active_process = self.memory_store.active_process()
             if report is None:
                 print("No active process found.")
                 return
@@ -342,7 +346,10 @@ class WorkspaceShell(cmd.Cmd):
         if command == "history":
             self._print_process_history()
             return
-        print("Usage: /process <start|stop|report|status|history|summary>")
+        if command == "checkpoint":
+            self._process_checkpoint(parts[1:])
+            return
+        print("Usage: /process <start|stop|report|status|history|summary|checkpoint>")
 
     def do_codex(self, arg: str) -> None:
         self._launch_agent("codex", arg)
@@ -467,6 +474,22 @@ class WorkspaceShell(cmd.Cmd):
             f"{batch['label']} | objective={batch['objective']} | started={batch['started_at']}\n"
         )
 
+    def _render_process_banner(self) -> str:
+        report = current_process_report(self.memory_store)
+        if report is None:
+            return "Process: none\n"
+        checkpoint = f" | checkpoints={report.checkpoint_count}"
+        latest = ""
+        if report.latest_checkpoint_label:
+            latest = f" | latest={report.latest_checkpoint_label}"
+            if report.latest_checkpoint_note:
+                latest += f" ({report.latest_checkpoint_note})"
+        return (
+            "Process: "
+            f"{report.label} | objective={report.objective} | started={report.started_at}"
+            f"{checkpoint}{latest}\n"
+        )
+
     def _print_batch_status(self) -> None:
         report = current_batch_report(self.memory_store)
         if report is None:
@@ -525,6 +548,28 @@ class WorkspaceShell(cmd.Cmd):
             )
         if not processes:
             print("No processes found.")
+
+    def _process_checkpoint(self, args: list[str]) -> None:
+        if not args:
+            print("Usage: /process checkpoint <label> [note]")
+            return
+        label = args[0]
+        note = " ".join(args[1:]).strip() or None
+        process = self.memory_store.active_process()
+        if process is None:
+            print("No active process found.")
+            return
+        try:
+            checkpoint_id = self.memory_store.record_process_checkpoint(
+                label=label,
+                note=note,
+                process_id=int(process["id"]),
+            )
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return
+        self.active_process = self.memory_store.active_process()
+        print(f"checkpoint_recorded={checkpoint_id}")
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()

@@ -157,6 +157,9 @@ class ProcessSummary:
     batch_count: int
     delegations: int
     defect_iterations: int
+    checkpoint_count: int
+    latest_checkpoint_label: str | None
+    latest_checkpoint_note: str | None
 
     def render(self) -> str:
         lines = [
@@ -170,7 +173,11 @@ class ProcessSummary:
             f"batch_count={self.batch_count}",
             f"delegations={self.delegations}",
             f"defect_iterations={self.defect_iterations}",
+            f"checkpoint_count={self.checkpoint_count}",
+            f"latest_checkpoint={self.latest_checkpoint_label or 'n/a'}",
         ]
+        if self.latest_checkpoint_note:
+            lines.append(f"latest_checkpoint_note={self.latest_checkpoint_note}")
         return "\n".join(lines) + "\n"
 
 
@@ -190,6 +197,9 @@ def process_summary(memory_store: WorkspaceMemoryStore, process_id: int | None =
         batch_count=int(metrics["batch_count"]),
         delegations=int(metrics["delegations"]),
         defect_iterations=int(metrics["defect_iterations"]),
+        checkpoint_count=int(metrics["checkpoint_count"]),
+        latest_checkpoint_label=str(metrics["latest_checkpoint"]["label"]) if metrics["latest_checkpoint"] else None,
+        latest_checkpoint_note=str(metrics["latest_checkpoint"]["note"]) if metrics["latest_checkpoint"] and metrics["latest_checkpoint"]["note"] else None,
     )
 
 
@@ -228,6 +238,9 @@ def _build_process_report(memory_store: WorkspaceMemoryStore, process_id: int, n
         batch_count=int(metrics["batch_count"]),
         delegations=int(metrics["delegations"]),
         defect_iterations=int(metrics["defect_iterations"]),
+        checkpoint_count=int(metrics["checkpoint_count"]),
+        latest_checkpoint_label=str(metrics["latest_checkpoint"]["label"]) if metrics["latest_checkpoint"] else None,
+        latest_checkpoint_note=str(metrics["latest_checkpoint"]["note"]) if metrics["latest_checkpoint"] and metrics["latest_checkpoint"]["note"] else None,
     )
 
 

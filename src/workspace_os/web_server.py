@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from workspace_os.capture import build_capture_draft
-from workspace_os.batch import current_batch_report
+from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
@@ -284,6 +284,7 @@ def _chat_payload(
         detail_level=profile_detail,
     )
     personal_context = _operator_principles_summary(root=workspace_root)
+    process_report = current_process_report(store) if store else None
     batch_report = current_batch_report(store) if store else None
     return {
         "ok": True,
@@ -291,6 +292,7 @@ def _chat_payload(
         "conscience": reply.conscience.to_dict(),
         "learning": reply.learning,
         "personal_context": personal_context,
+        "process": _process_summary(process_report),
         "batch": _batch_summary(batch_report),
     }
 
@@ -537,6 +539,23 @@ def _batch_summary(batch: object | None) -> dict[str, object] | None:
         "delegations": batch.delegations,
         "defect_iterations": batch.defect_iterations,
         "conversation_turns": batch.conversation_turns,
+    }
+
+
+def _process_summary(process: object | None) -> dict[str, object] | None:
+    if process is None:
+        return None
+    return {
+        "process_id": process.process_id,
+        "label": process.label,
+        "objective": process.objective,
+        "duration_seconds": process.duration_seconds,
+        "batch_count": process.batch_count,
+        "delegations": process.delegations,
+        "defect_iterations": process.defect_iterations,
+        "checkpoint_count": process.checkpoint_count,
+        "latest_checkpoint_label": process.latest_checkpoint_label,
+        "latest_checkpoint_note": process.latest_checkpoint_note,
     }
 
 

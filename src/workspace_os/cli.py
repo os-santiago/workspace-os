@@ -236,6 +236,9 @@ def _build_parser() -> argparse.ArgumentParser:
     process_summary_parser.add_argument("--id", type=int, help="Process identifier.")
     process_history = process_subparsers.add_parser("history", help="List recent process windows.")
     process_history.add_argument("--limit", type=int, default=5, help="Maximum processes to list.")
+    process_checkpoint = process_subparsers.add_parser("checkpoint", help="Record a milestone in the active process window.")
+    process_checkpoint.add_argument("--label", required=True, help="Checkpoint label.")
+    process_checkpoint.add_argument("--note", default="", help="Optional checkpoint note.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -566,6 +569,19 @@ def _process(memory_path: Path, command: str, args: argparse.Namespace) -> int:
             print("No process found.")
             return 0
         print(report.render(), end="")
+        return 0
+
+    if command == "checkpoint":
+        process = store.active_process()
+        if process is None:
+            print("No active process found.")
+            return 0
+        checkpoint_id = store.record_process_checkpoint(
+            label=args.label,
+            note=args.note,
+            process_id=int(process["id"]),
+        )
+        print(f"checkpoint_recorded={checkpoint_id}")
         return 0
 
     if command == "history":

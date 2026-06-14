@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from workspace_os.batch import start_batch
+from workspace_os.batch import start_batch, start_process
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
@@ -52,6 +52,26 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Active batch:", reply.reply)
         self.assertIn("batch-1", reply.reply)
+
+    def test_workspace_reply_includes_active_process_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            start_process(store, "process-1", "keep process visible", started_at="2026-06-14T10:00:00+00:00")
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "Remember the active process.",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Active process:", reply.reply)
+        self.assertIn("process-1", reply.reply)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 from workspace_os.conscience import ConscienceDecision, evaluate_request
-from workspace_os.batch import current_batch_report
+from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
 from workspace_os.sanitization import sanitize_text
@@ -72,7 +72,16 @@ def build_workspace_reply(
         )
 
     if memory_store:
+        process = current_process_report(memory_store)
         batch = current_batch_report(memory_store)
+        if process is not None:
+            lines.extend(
+                [
+                    "",
+                    "Active process:",
+                    f"- {process.label}: objective={process.objective} checkpoints={process.checkpoint_count} delegations={process.delegations} defects={process.defect_iterations}",
+                ]
+            )
         if batch is not None:
             lines.extend(
                 [
