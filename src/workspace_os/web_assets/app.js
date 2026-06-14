@@ -5,6 +5,7 @@ const state = {
   learningCount: 0,
   contextCount: 0,
   handoffCount: 0,
+  chatContextExpanded: false,
 };
 
 const getJson = async (url) => {
@@ -76,25 +77,29 @@ const renderHandoff = (data) => {
   output.textContent = data.markdown || "No handoff available.";
 };
 
-const renderContext = (data, selector = "#contextOutput") => {
+const renderContext = (data, selector = "#contextOutput", expanded = false) => {
   const output = qs(selector);
   if (!data.ok) {
     output.textContent = data.error || "Unable to load context.";
     return;
   }
   const snapshot = data.snapshot;
-  output.textContent = [
+  const lines = [
     `Reason: ${snapshot.reason}`,
     `Created: ${snapshot.created_at}`,
-    "",
-    snapshot.summary,
-  ].join("\n");
+  ];
+  if (expanded) {
+    lines.push("", snapshot.markdown || snapshot.summary);
+  } else {
+    lines.push("", snapshot.summary);
+  }
+  output.textContent = lines.join("\n");
 };
 
 const renderContextSnapshot = (data) => {
   state.contextCount += 1;
-  renderContext(data, "#contextOutput");
-  renderContext(data, "#chatContextOutput");
+  renderContext(data, "#contextOutput", true);
+  renderContext(data, "#chatContextOutput", state.chatContextExpanded);
 };
 
 const loadSidebar = async () => {
@@ -114,6 +119,18 @@ const loadHandoff = async () => {
 const loadContext = async () => {
   const data = await getJson("/api/context-snapshot");
   renderContextSnapshot(data);
+};
+
+const toggleChatContext = () => {
+  state.chatContextExpanded = !state.chatContextExpanded;
+  const section = qs(".chat-context");
+  const button = qs("#chatContextToggle");
+  section.classList.toggle("is-expanded", state.chatContextExpanded);
+  section.classList.toggle("is-collapsed", !state.chatContextExpanded);
+  button.textContent = state.chatContextExpanded ? "Collapse" : "Expand";
+  loadContext().catch((error) => {
+    qs("#chatContextOutput").textContent = error.message;
+  });
 };
 
 const bindChat = () => {
@@ -173,6 +190,7 @@ const init = async () => {
   qs("#handoffDownload").addEventListener("click", () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
   });
+  qs("#chatContextToggle").addEventListener("click", toggleChatContext);
   qs("#chatContextRefresh").addEventListener("click", async () => {
     qs("#chatContextOutput").textContent = "Loading context...";
     try {
@@ -201,6 +219,7 @@ const init = async () => {
     }
   });
   await loadSidebar();
+  qs(".chat-context").classList.add("is-collapsed");
   await loadContext();
   await loadHandoff();
 };

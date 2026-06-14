@@ -92,6 +92,10 @@ textarea {
   background: var(--tp-black);
 }
 
+.chat-context.is-collapsed {
+  grid-template-rows: auto auto;
+}
+
 .chat-context-body {
   overflow: hidden;
   display: grid;
@@ -108,6 +112,11 @@ textarea {
   white-space: pre-wrap;
   overflow: auto;
   min-height: 0;
+  max-height: 8.5rem;
+}
+
+.chat-context.is-expanded .chat-context-output {
+  max-height: 20rem;
 }
 
 .chat-stream {
