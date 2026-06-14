@@ -94,6 +94,31 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("shell-exit", reply.reply)
         self.assertIn("compact context", reply.reply)
 
+    def test_workspace_reply_summarizes_projects_in_flight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            start_process(store, "process-1", "keep process visible", started_at="2026-06-14T10:00:00+00:00")
+            start_batch(store, "batch-1", "keep batch visible", started_at="2026-06-14T10:05:00+00:00")
+            store.record_agent_launch("codex", "review the workspace summary", "source", launched_at="2026-06-14T10:06:00+00:00")
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "que proyectos tenemos en curso",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Projects in flight:", reply.reply)
+        self.assertIn("process-1", reply.reply)
+        self.assertIn("batch-1", reply.reply)
+        self.assertIn("next step=", reply.reply)
+        self.assertIn("codex", reply.reply)
+
 
 if __name__ == "__main__":
     unittest.main()

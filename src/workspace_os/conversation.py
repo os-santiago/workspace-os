@@ -7,6 +7,7 @@ from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
+from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import SearchMatch, search_sources
 
@@ -57,6 +58,9 @@ def build_workspace_reply(
         f"Learning engine: {'activated' if learning['activated'] else 'standby'}",
         learning["summary"],
     ]
+
+    if memory_store and _is_workspace_status_query(clean_message):
+        lines.extend(["", *_workspace_status_lines(memory_store)])
 
     if memory_hits:
         lines.extend(["", "Memory signals:"])
@@ -138,3 +142,67 @@ def _detail_limit(detail_level: str) -> int:
     if detail_level == "comprehensive":
         return 8
     return 5
+
+
+def _is_workspace_status_query(message: str) -> bool:
+    text = message.casefold()
+    keywords = (
+        "que proyectos",
+        "proyectos en curso",
+        "proyectos",
+        "projects in flight",
+        "current projects",
+        "working on",
+        "work in progress",
+        "wip",
+        "en curso",
+        "estado",
+        "status",
+        "qué proyectos",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
+def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
+    profile = load_profile(memory_store)
+    process = current_process_report(memory_store)
+    batch = current_batch_report(memory_store)
+    launches = memory_store.recent_launches(limit=3)
+
+    lines = ["Projects in flight:"]
+    lines.append(f"- workspace={profile.default_workspace or 'all workspaces'}")
+    if process is None:
+        lines.append("- process=none")
+    else:
+        lines.append(
+            f"- process={process.label}: objective={process.objective} batches={process.batch_count} "
+            f"checkpoints={process.checkpoint_count} delegations={process.delegations} defects={process.defect_iterations}"
+        )
+    if batch is None:
+        lines.append("- batch=none")
+    else:
+        lines.append(
+            f"- batch={batch.label}: objective={batch.objective} duration={batch.duration_seconds}s "
+            f"delegations={batch.delegations} defects={batch.defect_iterations}"
+        )
+    if launches:
+        lines.append("- recent launches:")
+        for launch in launches:
+            workspace = launch["workspace"] or "all"
+            lines.append(f"  - {launch['agent']} {workspace}: {launch['task']}")
+    else:
+        lines.append("- recent launches=none")
+    lines.append(f"- next step={_next_step(process, batch)}")
+    return lines
+
+
+def _next_step(process, batch) -> str:
+    if process is not None:
+        if process.checkpoint_count == 0:
+            return "record the first process checkpoint"
+        if batch is None:
+            return "start a batch inside the active process"
+        return "continue with the next batch checkpoint or close the process when complete"
+    if batch is not None:
+        return "start or close the process window around the active batch work"
+    return "start a new process window before the next batch"
