@@ -622,10 +622,10 @@ class WorkspaceMemoryStore:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def _duration_seconds(started_at: str, ended_at: str) -> int:
+def _duration_seconds(started_at: str, ended_at: str) -> float:
     start = datetime.fromisoformat(started_at)
     end = datetime.fromisoformat(ended_at)
-    return max(0, int((end - start).total_seconds()))
+    return max(0.0, (end - start).total_seconds())

@@ -68,7 +68,12 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(1, summary.items[1].defect_iterations)
         self.assertEqual(300, summary.items[0].duration_seconds)
         self.assertEqual(1, summary.items[0].defect_iterations)
+        self.assertEqual("2026-06-14T10:00:00+00:00", summary.process_started_at)
+        self.assertEqual("2026-06-14T11:05:00+00:00", summary.process_ended_at)
+        self.assertEqual(3900, summary.process_duration_seconds)
+        self.assertEqual(2, summary.total_defect_iterations)
         self.assertIn("batches=2", summary.render())
+        self.assertIn("process_started_at=2026-06-14T10:00:00+00:00", summary.render())
 
 
 if __name__ == "__main__":

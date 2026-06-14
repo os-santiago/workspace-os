@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from datetime import timedelta
 
 from workspace_os.memory import WorkspaceMemoryStore
@@ -13,7 +14,7 @@ class BatchReport:
     objective: str
     started_at: str
     ended_at: str
-    duration_seconds: int
+    duration_seconds: float
     delegations: int
     defect_iterations: int
     task_success_count: int
@@ -64,7 +65,7 @@ def current_batch_report(memory_store: WorkspaceMemoryStore, batch_id: int | Non
 class BatchSummaryItem:
     batch_id: int
     label: str
-    duration_seconds: int
+    duration_seconds: float
     defect_iterations: int
 
     def render(self) -> str:
@@ -75,21 +76,37 @@ class BatchSummaryItem:
 @dataclass(frozen=True)
 class BatchSummary:
     total_batches: int
+    process_started_at: str | None
+    process_ended_at: str | None
+    process_duration_seconds: float
+    total_defect_iterations: int
     items: tuple[BatchSummaryItem, ...]
 
     def render(self) -> str:
-        lines = [f"batches={self.total_batches}"]
+        lines = [
+            f"batches={self.total_batches}",
+            f"process_started_at={self.process_started_at or 'n/a'}",
+            f"process_ended_at={self.process_ended_at or 'n/a'}",
+            f"process_duration={_format_duration(self.process_duration_seconds)}",
+            f"defect_iterations_total={self.total_defect_iterations}",
+        ]
         lines.extend(item.render() for item in self.items)
         return "\n".join(lines) + "\n"
 
 
 def batch_summary(memory_store: WorkspaceMemoryStore, limit: int = 10) -> BatchSummary:
     items = []
+    process_started_at: str | None = None
+    process_ended_at: str | None = None
+    total_defects = 0
     for batch in memory_store.batch_history(limit=limit):
         batch_id = int(batch["id"])
         report = current_batch_report(memory_store, batch_id=batch_id)
         if report is None:
             continue
+        total_defects += report.defect_iterations
+        process_started_at = _earliest_timestamp(process_started_at, report.started_at)
+        process_ended_at = _latest_timestamp(process_ended_at, report.ended_at)
         items.append(
             BatchSummaryItem(
                 batch_id=report.batch_id,
@@ -98,7 +115,17 @@ def batch_summary(memory_store: WorkspaceMemoryStore, limit: int = 10) -> BatchS
                 defect_iterations=report.defect_iterations,
             )
         )
-    return BatchSummary(total_batches=len(items), items=tuple(items))
+    process_duration = 0.0
+    if process_started_at and process_ended_at:
+        process_duration = _span_seconds(process_started_at, process_ended_at)
+    return BatchSummary(
+        total_batches=len(items),
+        process_started_at=process_started_at,
+        process_ended_at=process_ended_at,
+        process_duration_seconds=process_duration,
+        total_defect_iterations=total_defects,
+        items=tuple(items),
+    )
 
 
 def _build_report(data: dict[str, object]) -> BatchReport:
@@ -110,7 +137,7 @@ def _build_report(data: dict[str, object]) -> BatchReport:
         objective=str(batch["objective"]),
         started_at=str(batch["started_at"]),
         ended_at=str(data["window_end"]),
-        duration_seconds=int(data["duration_seconds"]),
+        duration_seconds=float(data["duration_seconds"]),
         delegations=int(data["delegations"]),
         defect_iterations=int(data["defect_iterations"]),
         task_success_count=int(data["task_success_count"]),
@@ -120,5 +147,23 @@ def _build_report(data: dict[str, object]) -> BatchReport:
     )
 
 
-def _format_duration(seconds: int) -> str:
+def _format_duration(seconds: float) -> str:
     return str(timedelta(seconds=max(0, seconds)))
+
+
+def _span_seconds(started_at: str, ended_at: str) -> float:
+    start = datetime.fromisoformat(started_at)
+    end = datetime.fromisoformat(ended_at)
+    return max(0.0, (end - start).total_seconds())
+
+
+def _earliest_timestamp(existing: str | None, candidate: str) -> str:
+    if existing is None:
+        return candidate
+    return candidate if datetime.fromisoformat(candidate) < datetime.fromisoformat(existing) else existing
+
+
+def _latest_timestamp(existing: str | None, candidate: str) -> str:
+    if existing is None:
+        return candidate
+    return candidate if datetime.fromisoformat(candidate) > datetime.fromisoformat(existing) else existing
