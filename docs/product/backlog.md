@@ -192,6 +192,7 @@ Initial implementation:
 - Batch summary output lists the recent batch count with duration and defect iterations per batch, and reports the global process window from first start to last end for accurate stopwatch-style measurement.
 - Process summary output gives a dedicated stopwatch for a long-running work window, including batch count, delegations, and defect iterations for the whole process.
 - Process checkpoints record milestones within the active process so the operator can mark progress without closing the window.
+- A read-only `inspect` surface condenses source status, memory, profile, habits, active process, active batch, and recent launches into one operator-facing summary.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 

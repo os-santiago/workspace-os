@@ -128,6 +128,23 @@ class ShellTests(unittest.TestCase):
         self.assertIn("batch_count=", rendered)
         self.assertIn("Process:", shell.intro)
 
+    def test_shell_inspect_reports_consolidated_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_inspect("2")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("Workspace overview:", rendered)
+        self.assertIn("Sources:", rendered)
+        self.assertIn("Memory:", rendered)
+
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
 

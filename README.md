@@ -75,6 +75,7 @@ python -m workspace_os --config config/workspace.sources.example.json status
 python -m workspace_os --config config/workspace.sources.example.json search ADEV --source-type doctrine
 python -m workspace_os --config config/workspace.sources.example.json context "agent alignment"
 python -m workspace_os --config config/workspace.sources.example.json chat "Remember to keep batches large but coherent."
+python -m workspace_os --config config/workspace.sources.example.json inspect
 python -m workspace_os --config config/workspace.sources.example.json memory status
 python -m workspace_os --config config/workspace.sources.example.json shell
 python -m workspace_os --config config/workspace.sources.example.json batch start --label sprint-1 --objective "keep batches large"
@@ -93,4 +94,5 @@ python -m workspace_os --config config/workspace.sources.example.json validate -
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
 
 Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
+`/inspect` renders a condensed workspace overview with sources, memory, profile, habits, active process, active batch, and recent launches.
 When a batch is active, `chat` and the web reply include a compact batch summary alongside the normal response. `batch summary` reports the recent batch window, and `process summary` reports the stopwatch-style global process window from first start to last end. `process checkpoint` records milestones inside the active process window.
