@@ -38,8 +38,13 @@ class HabitsTests(unittest.TestCase):
             save_shortcut(store, "s", "/status")
             store.record_agent_launch("claude", "refine shell", "adev")
             store.record_agent_launch("claude", "tighten memory", "adev")
-            store.record_agent_launch("codex", "write tests", "kb")
+            store.record_agent_launch(
+                "codex",
+                "write tests for src/workspace_os/shell.py L120 and verify the shell startup banner, habits summary, and prompt refresh behavior in a focused regression pass",
+                "kb",
+            )
             store.record_turn("session-1", "user", "Remember to batch work")
+            store.record_turn("session-1", "assistant", "Workspace review complete")
             store.record_task_outcome("chat", "ctx-1", "success", "note-1")
             store.record_task_outcome("chat", "ctx-2", "failure", "note-2")
             store.record_task_outcome("chat", "ctx-3", "partial", "note-3")
@@ -58,8 +63,10 @@ class HabitsTests(unittest.TestCase):
         self.assertEqual(2, habits.high_risk_decision_count)
         self.assertEqual(("missing_tests", "missing_scope"), habits.common_missing_context)
         self.assertEqual(1, habits.workspace_switch_count)
+        self.assertEqual("precise", habits.delegation_specificity)
+        self.assertGreaterEqual(len(habits.peak_activity_hours), 1)
         self.assertEqual(3, habits.recent_launch_count)
-        self.assertEqual(1, habits.conversation_turn_count)
+        self.assertEqual(2, habits.conversation_turn_count)
         self.assertEqual(1, habits.custom_shortcut_count)
         self.assertEqual("light", habits.activity_level)
 

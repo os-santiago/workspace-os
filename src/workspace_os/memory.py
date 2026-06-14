@@ -295,6 +295,27 @@ class WorkspaceMemoryStore:
                 for row in rows
             ]
 
+    def recent_conversation_turns(self, limit: int = 30) -> list[dict[str, str]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT session_id, role, message, created_at
+                FROM conversation_turns
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "session_id": str(row["session_id"]),
+                    "role": str(row["role"]),
+                    "message": str(row["message"]),
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
     def search(self, query: str, limit: int = 8) -> list[MemoryHit]:
         needle = f"%{query.strip()}%"
         if not query.strip():
