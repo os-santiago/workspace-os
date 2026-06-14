@@ -11,6 +11,7 @@ from workspace_os.web_server import (
     _conscience_preview_payload,
     _delegate_launch_payload,
     _extract_progress_map,
+    _handoff_payload,
     _promote_preview_payload,
     _recent_docs_payload,
     _recent_software_payload,
@@ -268,6 +269,31 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertIsNotNone(result["process"])
         self.assertEqual("process-1", result["process"]["label"])
+
+    def test_handoff_payload_renders_copyable_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = Source("example", "doctrine", "Example.", root)
+            memory = root / "memory.sqlite3"
+            from workspace_os.batch import start_batch, start_process
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_process(store, "process-1", "surface handoff summary", started_at="2026-06-14T10:00:00+00:00")
+            start_batch(store, "batch-1", "surface handoff summary", started_at="2026-06-14T10:05:00+00:00")
+            store.record_process_checkpoint(
+                "checkpoint-1",
+                note="first pass",
+                created_at="2026-06-14T10:06:00+00:00",
+            )
+
+            result = _handoff_payload([source], memory_path=memory, workspace_root=root)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Workspace handoff:", result["markdown"])
+        self.assertIn("Next:", result["markdown"])
+        self.assertIn("process-1", result["markdown"])
 
 
 if __name__ == "__main__":

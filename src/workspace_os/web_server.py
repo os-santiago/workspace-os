@@ -17,6 +17,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.overview import build_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -80,6 +81,9 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/recent-docs":
                 self._send_json(_recent_docs_payload())
+                return
+            if parsed.path == "/api/handoff":
+                self._send_json(_handoff_payload(sources, memory_path, workspace_root, query))
                 return
 
             self.send_error(404, "Not found")
@@ -294,6 +298,34 @@ def _chat_payload(
         "personal_context": personal_context,
         "process": _process_summary(process_report),
         "batch": _batch_summary(batch_report),
+    }
+
+
+def _handoff_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    launch_limit = 3
+    if query is not None:
+        launch_limit = _int_query(query, "launch_limit", 3)
+    profile = load_profile(store)
+    workspace = profile.default_workspace or None
+    handoff = build_workspace_handoff(
+        sources,
+        store,
+        workspace=workspace or _workspace_name_from_root(workspace_root),
+        launch_limit=launch_limit,
+    )
+    return {
+        "ok": True,
+        "workspace": handoff.workspace,
+        "markdown": handoff.render(),
     }
 
 
@@ -557,6 +589,12 @@ def _process_summary(process: object | None) -> dict[str, object] | None:
         "latest_checkpoint_label": process.latest_checkpoint_label,
         "latest_checkpoint_note": process.latest_checkpoint_note,
     }
+
+
+def _workspace_name_from_root(workspace_root: Path | None) -> str:
+    if workspace_root is None:
+        return "all workspaces"
+    return workspace_root.name or "all workspaces"
 
 
 def _git_workspace_root() -> Path:
