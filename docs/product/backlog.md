@@ -214,6 +214,21 @@ Initial implementation:
 - Google Workspace destinations remain blocked until a real connector exists.
 - The web UI exposes a chat-first workspace with engine activation indicators and recent local software and document activity.
 
+### WSOS-021: Persist Operator Memory
+
+As the operator, the system needs a persistent memory layer that captures preferences, lessons, outcomes, and conversation traces so repeated instructions do not have to be re-entered.
+
+Acceptance criteria:
+- Workspace memory is stored locally in SQLite.
+- Preferences, reusable lessons, outcomes, and decision traces can be recorded and retrieved.
+- Context packs and chat responses can consult prior memory entries.
+- The memory store remains local-first and portable across workspace roots.
+
+Initial implementation:
+- `python -m workspace_os chat` can record conversation turns in the memory store.
+- `python -m workspace_os memory status` reports memory store location and counts.
+- `python -m workspace_os memory preference set|get` can seed and retrieve operator preferences.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.

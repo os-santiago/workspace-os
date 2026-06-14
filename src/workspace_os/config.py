@@ -68,9 +68,29 @@ def load_workspace_root(config_path: Path) -> Path:
     if env_root:
         return Path(env_root).expanduser().resolve()
 
-    if len(resolved_config.parents) >= 3:
-        return resolved_config.parents[2].resolve()
-    return (Path.home() / "git").resolve()
+    return resolved_config.parent.resolve()
+
+
+def load_workspace_memory_path(config_path: Path) -> Path:
+    resolved_config = config_path.expanduser().resolve()
+    workspace_root = load_workspace_root(resolved_config)
+    payload = _load_payload(resolved_config)
+
+    raw_memory = payload.get("memory_db")
+    if isinstance(raw_memory, str) and raw_memory.strip():
+        memory_path = Path(raw_memory).expanduser()
+        if not memory_path.is_absolute():
+            memory_path = workspace_root / memory_path
+        return memory_path.resolve()
+
+    env_memory = os.environ.get("WORKSPACE_OS_MEMORY_DB", "").strip()
+    if env_memory:
+        memory_path = Path(env_memory).expanduser()
+        if not memory_path.is_absolute():
+            memory_path = workspace_root / memory_path
+        return memory_path.resolve()
+
+    return (workspace_root / ".workspace-os" / "workspace-memory.sqlite3").resolve()
 
 
 def _required_string(raw: dict[str, object], field: str, index: int) -> str:

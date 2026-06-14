@@ -6,10 +6,12 @@ import sys
 
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.classification import classify_content
-from workspace_os.config import Source, load_sources
+from workspace_os.config import Source, load_sources, load_workspace_memory_path
+from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
@@ -26,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         sources = load_sources(args.config)
+        memory_path = load_workspace_memory_path(args.config)
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -37,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "housekeeping":
         return _housekeeping(sources, args.max_results)
     if args.command == "context":
-        return _context(sources, args.topic, args.max_matches, args.max_doctrine_lines)
+        return _context(sources, memory_path, args.topic, args.max_matches, args.max_doctrine_lines)
     if args.command == "classify":
         return _classify(args.value, args.path)
     if args.command == "validate":
@@ -46,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
         return _capture(sources, args.capture_type, args.title, args.text, args.file, args.write)
     if args.command == "promote":
         return _promote(sources, args.target, args.rule, args.evidence, args.max_matches)
+    if args.command == "chat":
+        return _chat(sources, memory_path, args.message, args.session_id, args.interactive)
+    if args.command == "memory":
+        return _memory(memory_path, args.memory_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -126,6 +133,56 @@ def _build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--evidence", required=True, help="Evidence reference supporting the rule.")
     promote_parser.add_argument("--max-matches", type=int, default=10, help="Maximum related matches to include.")
 
+    chat_parser = subparsers.add_parser(
+        "chat",
+        help="Open a terminal conversation that records memory and returns governed replies.",
+    )
+    chat_parser.add_argument("message", nargs="?", help="Single message to process without entering interactive mode.")
+    chat_parser.add_argument("--session-id", default="default", help="Memory session identifier.")
+    chat_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Force interactive mode even when a single message is provided.",
+    )
+
+    memory_parser = subparsers.add_parser(
+        "memory",
+        help="Inspect or seed the persistent workspace memory store.",
+    )
+    memory_subparsers = memory_parser.add_subparsers(dest="memory_command", required=True)
+
+    memory_status = memory_subparsers.add_parser("status", help="Show memory store location and row counts.")
+    memory_status.add_argument("--limit", type=int, default=5, help="Reserved for future memory summaries.")
+
+    preference_parser = memory_subparsers.add_parser("preference", help="Read or write operator preferences.")
+    preference_subparsers = preference_parser.add_subparsers(dest="preference_command", required=True)
+    preference_set = preference_subparsers.add_parser("set", help="Store a preference key/value pair.")
+    preference_set.add_argument("key", help="Preference key.")
+    preference_set.add_argument("value", help="Preference value.")
+    preference_get = preference_subparsers.add_parser("get", help="Read a preference by key.")
+    preference_get.add_argument("key", help="Preference key.")
+
+    lesson_parser = memory_subparsers.add_parser("lesson", help="Store reusable lessons.")
+    lesson_subparsers = lesson_parser.add_subparsers(dest="lesson_command", required=True)
+    lesson_add = lesson_subparsers.add_parser("add", help="Add a reusable lesson.")
+    lesson_add.add_argument("--category", required=True, help="Lesson category.")
+    lesson_add.add_argument("--rule", required=True, help="Lesson or rule text.")
+    lesson_add.add_argument(
+        "--evidence",
+        action="append",
+        default=[],
+        help="Evidence reference supporting the lesson. Repeat for multiple references.",
+    )
+    lesson_add.add_argument("--confidence", type=float, default=0.7, help="Confidence between 0 and 1.")
+
+    outcome_parser = memory_subparsers.add_parser("outcome", help="Store task outcomes.")
+    outcome_subparsers = outcome_parser.add_subparsers(dest="outcome_command", required=True)
+    outcome_add = outcome_subparsers.add_parser("add", help="Add a task outcome.")
+    outcome_add.add_argument("--task-type", required=True, help="Task type.")
+    outcome_add.add_argument("--context-hash", required=True, help="Stable context hash.")
+    outcome_add.add_argument("--outcome", required=True, choices=["success", "failure", "partial"], help="Outcome.")
+    outcome_add.add_argument("--evidence-ref", help="Optional evidence reference.")
+
     web_parser = subparsers.add_parser(
         "web",
         help="Run the local Workspace OS web pilot.",
@@ -184,12 +241,19 @@ def _housekeeping(sources: list[Source], max_results: int) -> int:
     return 0
 
 
-def _context(sources: list[Source], topic: str, max_matches: int, max_doctrine_lines: int) -> int:
+def _context(
+    sources: list[Source],
+    memory_path: Path,
+    topic: str,
+    max_matches: int,
+    max_doctrine_lines: int,
+) -> int:
     pack = build_context_pack(
         sources=sources,
         topic=topic,
         max_matches=max_matches,
         max_doctrine_lines=max_doctrine_lines,
+        memory_path=memory_path,
     )
     print(pack.render_markdown(), end="")
     return 0
@@ -258,6 +322,68 @@ def _promote(sources: list[Source], target: str, rule: str, evidence: str, max_m
         return 2
     print(proposal.render_markdown(), end="")
     return 0
+
+
+def _chat(sources: list[Source], memory_path: Path, message: str | None, session_id: str, interactive: bool) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if message and not interactive:
+        reply = build_workspace_reply(sources, message, memory_store=store, session_id=session_id)
+        print(reply.reply)
+        return 0
+
+    print("Workspace OS chat. Type `exit` to leave.")
+    while True:
+        try:
+            prompt = input("> ").strip()
+        except EOFError:
+            break
+        if not prompt:
+            continue
+        if prompt.casefold() in {"exit", "quit"}:
+            break
+        reply = build_workspace_reply(sources, prompt, memory_store=store, session_id=session_id)
+        print(reply.reply)
+        print("")
+    return 0
+
+
+def _memory(memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if command == "status":
+        print(f"path={memory_path}")
+        for name, count in store.stats().items():
+            print(f"{name}={count}")
+        return 0
+
+    if command == "preference":
+        if args.preference_command == "set":
+            store.record_preference(args.key, args.value)
+            print(f"saved preference {args.key}")
+            return 0
+        if args.preference_command == "get":
+            value = store.get_preference(args.key)
+            if value is None:
+                print("No preference found.")
+                return 0
+            print(f"{args.key}={value}")
+            return 0
+
+    if command == "lesson" and args.lesson_command == "add":
+        store.record_lesson(args.category, args.rule, args.evidence, args.confidence)
+        print(f"saved lesson {args.category}")
+        return 0
+
+    if command == "outcome" and args.outcome_command == "add":
+        store.record_task_outcome(args.task_type, args.context_hash, args.outcome, args.evidence_ref)
+        print(f"saved outcome {args.task_type}")
+        return 0
+
+    print("error: unsupported memory command", file=sys.stderr)
+    return 2
 
 
 def _web(config_path: Path, host: str, port: int) -> int:

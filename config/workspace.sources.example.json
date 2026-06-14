@@ -1,5 +1,6 @@
 {
   "workspace_root": "../..",
+  "memory_db": ".workspace-os/workspace-memory.sqlite3",
   "sources": [
     {
       "name": "adev",

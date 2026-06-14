@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from workspace_os.config import Source
+from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
 from workspace_os.git_status import GitStatus, inspect_source
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import SearchMatch, search_sources
@@ -18,6 +19,7 @@ class ContextPack:
     statuses: list[GitStatus]
     doctrine_excerpt: list[str]
     matches: list[SearchMatch]
+    memory_hits: list[MemoryHit]
 
     def render_markdown(self) -> str:
         sections = [
@@ -43,6 +45,9 @@ class ContextPack:
             "",
             "## Relevant Existing Knowledge",
             *self._render_matches(),
+            "",
+            "## Recent Memory",
+            *self._render_memory_hits(),
             "",
             "## Handoff Expectations",
             "- Summarize changes, validation, residual risks, and repository state.",
@@ -89,21 +94,29 @@ class ContextPack:
             for match in self.matches
         ]
 
+    def _render_memory_hits(self) -> list[str]:
+        if not self.memory_hits:
+            return ["No memory entries found for the task topic."]
+        return [hit.render() for hit in self.memory_hits]
+
 
 def build_context_pack(
     sources: list[Source],
     topic: str,
     max_matches: int = 20,
     max_doctrine_lines: int = DEFAULT_DOCTRINE_LINES,
+    memory_path: Path | None = None,
 ) -> ContextPack:
     statuses = [inspect_source(source) for source in sources]
     doctrine_excerpt = _load_doctrine_excerpt(sources, max_doctrine_lines)
     matches = search_sources(sources=sources, query=topic, max_results=max_matches) if topic.strip() else []
+    memory_hits = _load_memory_excerpt(memory_path, topic, max_matches)
     return ContextPack(
         topic=topic,
         statuses=statuses,
         doctrine_excerpt=doctrine_excerpt,
         matches=matches,
+        memory_hits=memory_hits,
     )
 
 
@@ -132,3 +145,15 @@ def _read_first_lines(path: Path, max_lines: int) -> list[str]:
     except OSError:
         return []
     return lines
+
+
+def _load_memory_excerpt(memory_path: Path | None, topic: str, max_matches: int) -> list[MemoryHit]:
+    if memory_path is None:
+        return []
+    store = WorkspaceMemoryStore(memory_path)
+    if not memory_path.exists():
+        return []
+    try:
+        return store.search(topic, limit=max_matches) if topic.strip() else store.recent(limit=max_matches)
+    except OSError:
+        return []

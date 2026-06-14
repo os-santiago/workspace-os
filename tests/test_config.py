@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from workspace_os.config import load_sources, load_workspace_root
+from workspace_os.config import load_sources, load_workspace_memory_path, load_workspace_root
 
 
 class ConfigTests(unittest.TestCase):
@@ -72,6 +72,29 @@ class ConfigTests(unittest.TestCase):
                     os.environ["WORKSPACE_OS_GIT_ROOT"] = previous
 
         self.assertEqual((Path(directory) / "workspace-root").resolve(), workspace_root)
+
+    def test_load_workspace_memory_path_defaults_under_workspace_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "workspace.sources.json"
+            config.write_text(json.dumps({"sources": []}), encoding="utf-8")
+
+            memory_path = load_workspace_memory_path(config)
+
+        self.assertEqual((root / ".workspace-os" / "workspace-memory.sqlite3").resolve(), memory_path)
+
+    def test_load_workspace_memory_path_prefers_configured_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "workspace.sources.json"
+            config.write_text(
+                json.dumps({"memory_db": "state/memory.sqlite3", "sources": []}),
+                encoding="utf-8",
+            )
+
+            memory_path = load_workspace_memory_path(config)
+
+        self.assertEqual((root / "state" / "memory.sqlite3").resolve(), memory_path)
 
 
 if __name__ == "__main__":

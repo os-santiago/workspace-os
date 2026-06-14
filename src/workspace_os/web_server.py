@@ -10,10 +10,12 @@ from urllib.parse import parse_qs, urlparse
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
-from workspace_os.config import Source, load_sources, load_workspace_root
+from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
+from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
@@ -26,7 +28,8 @@ STATIC_ROOT = Path(__file__).parent / "web_assets"
 def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     sources = load_sources(config_path)
     workspace_root = load_workspace_root(config_path)
-    handler = _build_handler(sources, workspace_root)
+    memory_path = load_workspace_memory_path(config_path)
+    handler = _build_handler(sources, workspace_root, memory_path)
     server = ThreadingHTTPServer((host, port), handler)
     print(f"Workspace OS web app listening on http://{host}:{port}")
     try:
@@ -37,7 +40,7 @@ def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) 
         server.server_close()
 
 
-def _build_handler(sources: list[Source], workspace_root: Path):
+def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Path):
     class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - http.server method name
             parsed = urlparse(self.path)
@@ -93,7 +96,7 @@ def _build_handler(sources: list[Source], workspace_root: Path):
                 self._send_json(_conscience_preview_payload(payload))
                 return
             if parsed.path == "/api/chat":
-                self._send_json(_chat_payload(sources, payload, workspace_root))
+                self._send_json(_chat_payload(sources, payload, memory_path, workspace_root))
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
@@ -256,36 +259,23 @@ def _conscience_preview_payload(payload: dict[str, object]) -> dict[str, object]
 def _chat_payload(
     sources: list[Source],
     payload: dict[str, object],
+    memory_path: Path | None = None,
     workspace_root: Path | None = None,
 ) -> dict[str, object]:
     message = _string_payload(payload, "message")
     if not message:
         return {"ok": False, "error": "Message is required."}
-
-    conscience = evaluate_request(message, destination="software")
-    learning = _learning_signal(message)
-    matches = search_sources(sources, message, max_results=5)
+    store = None
+    if memory_path is not None:
+        store = WorkspaceMemoryStore(memory_path)
+        store.ensure_schema()
+    reply = build_workspace_reply(sources, message, memory_store=store)
     personal_context = _operator_principles_summary(root=workspace_root)
-    lines = [
-        "Request received.",
-        "",
-        f"Conscience: {conscience.decision} ({conscience.risk_level})",
-        f"Strategy: {conscience.response_strategy}",
-        f"Rationale: {conscience.rationale}",
-        "",
-        f"Learning engine: {'activated' if learning['activated'] else 'standby'}",
-        learning["summary"],
-        "",
-        f"Operator principles source: {personal_context['state']}",
-    ]
-    if matches:
-        lines.extend(["", "Related knowledge:"])
-        lines.extend([f"- {match.source_name}:{match.path}:{match.line_number}" for match in matches[:3]])
     return {
         "ok": True,
-        "reply": sanitize_text("\n".join(lines)),
-        "conscience": conscience.to_dict(),
-        "learning": learning,
+        "reply": reply.reply,
+        "conscience": reply.conscience.to_dict(),
+        "learning": reply.learning,
         "personal_context": personal_context,
     }
 
