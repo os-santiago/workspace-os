@@ -5,7 +5,7 @@ from pathlib import Path
 import shlex
 
 from workspace_os.agent_adapter import launch_agent
-from workspace_os.batch import current_batch_report, start_batch, stop_batch
+from workspace_os.batch import batch_summary, current_batch_report, start_batch, stop_batch
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.config import Source
@@ -86,7 +86,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/memory [query]     search persistent memory",
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
-                    "/batch ...          start, stop, report, status, or list batches",
+                    "/batch ...          start, stop, report, status, summary, or list batches",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
@@ -293,7 +293,10 @@ class WorkspaceShell(cmd.Cmd):
         if command == "history":
             self._print_batch_history()
             return
-        print("Usage: /batch <start|stop|report|status|history>")
+        if command == "summary":
+            self._print_batch_summary(parts[1:])
+            return
+        print("Usage: /batch <start|stop|report|status|history|summary>")
 
     def do_codex(self, arg: str) -> None:
         self._launch_agent("codex", arg)
@@ -434,6 +437,17 @@ class WorkspaceShell(cmd.Cmd):
             )
         if not batches:
             print("No batches found.")
+
+    def _print_batch_summary(self, args: list[str]) -> None:
+        limit = 5
+        if args:
+            try:
+                limit = max(1, int(args[0]))
+            except ValueError:
+                print("Usage: /batch summary [limit]")
+                return
+        summary = batch_summary(self.memory_store, limit=limit)
+        print(summary.render(), end="")
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()

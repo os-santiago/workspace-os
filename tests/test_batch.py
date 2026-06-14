@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from workspace_os.batch import current_batch_report, start_batch, stop_batch
+from workspace_os.batch import batch_summary, current_batch_report, start_batch, stop_batch
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -47,6 +47,28 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(2, len(history))
         self.assertEqual("batch-2", history[0]["label"])
         self.assertEqual("batch-1", history[1]["label"])
+
+    def test_batch_summary_lists_duration_and_defects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = WorkspaceMemoryStore(Path(directory) / "memory.sqlite3")
+            store.ensure_schema()
+            first = start_batch(store, "batch-1", "first batch", started_at="2026-06-14T10:00:00+00:00")
+            store.record_task_outcome("shell", "ctx-1", "failure", "note-1", created_at="2026-06-14T10:02:00+00:00")
+            store.finish_active_batch(ended_at="2026-06-14T10:10:00+00:00")
+            second = start_batch(store, "batch-2", "second batch", started_at="2026-06-14T11:00:00+00:00")
+            store.record_task_outcome("shell", "ctx-2", "partial", "note-2", created_at="2026-06-14T11:02:00+00:00")
+            store.finish_active_batch(ended_at="2026-06-14T11:05:00+00:00")
+
+            summary = batch_summary(store, limit=2)
+
+        self.assertEqual(2, summary.total_batches)
+        self.assertEqual(first, summary.items[1].batch_id)
+        self.assertEqual(second, summary.items[0].batch_id)
+        self.assertEqual(600, summary.items[1].duration_seconds)
+        self.assertEqual(1, summary.items[1].defect_iterations)
+        self.assertEqual(300, summary.items[0].duration_seconds)
+        self.assertEqual(1, summary.items[0].defect_iterations)
+        self.assertIn("batches=2", summary.render())
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 from workspace_os.capture import build_capture_draft, write_capture
-from workspace_os.batch import current_batch_report, start_batch, stop_batch
+from workspace_os.batch import batch_summary, current_batch_report, start_batch, stop_batch
 from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
@@ -214,6 +214,9 @@ def _build_parser() -> argparse.ArgumentParser:
     batch_status = batch_subparsers.add_parser("status", help="Show the active batch window.")
     batch_history = batch_subparsers.add_parser("history", help="List recent batch windows.")
     batch_history.add_argument("--limit", type=int, default=5, help="Maximum batches to list.")
+
+    batch_summary_parser = batch_subparsers.add_parser("summary", help="Summarize recent batch durations and defects.")
+    batch_summary_parser.add_argument("--limit", type=int, default=5, help="Maximum batches to summarize.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -490,6 +493,11 @@ def _batch(memory_path: Path, command: str, args: argparse.Namespace) -> int:
             )
         if not batches:
             print("No batches found.")
+        return 0
+
+    if command == "summary":
+        summary = batch_summary(store, limit=args.limit)
+        print(summary.render(), end="")
         return 0
 
     print("error: unsupported batch command", file=sys.stderr)

@@ -79,6 +79,7 @@ python -m workspace_os --config config/workspace.sources.example.json memory sta
 python -m workspace_os --config config/workspace.sources.example.json shell
 python -m workspace_os --config config/workspace.sources.example.json batch start --label sprint-1 --objective "keep batches large"
 python -m workspace_os --config config/workspace.sources.example.json batch report
+python -m workspace_os --config config/workspace.sources.example.json batch summary
 python -m workspace_os --config config/workspace.sources.example.json classify "Agents must validate scripts before release."
 python -m workspace_os --config config/workspace.sources.example.json capture --type session --title "Agent checkpoint" --text "Sanitized session note."
 python -m workspace_os --config config/workspace.sources.example.json promote --to adev --rule "Agents must validate scripts before release." --evidence "scanales-kb:captures/session/example.md"

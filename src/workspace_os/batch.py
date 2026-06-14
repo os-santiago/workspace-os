@@ -60,6 +60,47 @@ def current_batch_report(memory_store: WorkspaceMemoryStore, batch_id: int | Non
     return _build_report(report)
 
 
+@dataclass(frozen=True)
+class BatchSummaryItem:
+    batch_id: int
+    label: str
+    duration_seconds: int
+    defect_iterations: int
+
+    def render(self) -> str:
+        duration = _format_duration(self.duration_seconds)
+        return f"- {self.batch_id} {self.label}: duration={duration} defects={self.defect_iterations}"
+
+
+@dataclass(frozen=True)
+class BatchSummary:
+    total_batches: int
+    items: tuple[BatchSummaryItem, ...]
+
+    def render(self) -> str:
+        lines = [f"batches={self.total_batches}"]
+        lines.extend(item.render() for item in self.items)
+        return "\n".join(lines) + "\n"
+
+
+def batch_summary(memory_store: WorkspaceMemoryStore, limit: int = 10) -> BatchSummary:
+    items = []
+    for batch in memory_store.batch_history(limit=limit):
+        batch_id = int(batch["id"])
+        report = current_batch_report(memory_store, batch_id=batch_id)
+        if report is None:
+            continue
+        items.append(
+            BatchSummaryItem(
+                batch_id=report.batch_id,
+                label=report.label,
+                duration_seconds=report.duration_seconds,
+                defect_iterations=report.defect_iterations,
+            )
+        )
+    return BatchSummary(total_batches=len(items), items=tuple(items))
+
+
 def _build_report(data: dict[str, object]) -> BatchReport:
     batch = data["batch"]
     assert isinstance(batch, dict)

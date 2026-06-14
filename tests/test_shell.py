@@ -96,6 +96,7 @@ class ShellTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_batch("start sprint-1 keep batches large")
                 shell.do_batch("status")
+                shell.do_batch("summary")
                 shell.do_batch("stop")
 
             rendered = buffer.getvalue()
@@ -103,6 +104,7 @@ class ShellTests(unittest.TestCase):
         self.assertIn("batch_started=", rendered)
         self.assertIn("Batch report", rendered)
         self.assertIn("delegations=", rendered)
+        self.assertIn("batches=", rendered)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
