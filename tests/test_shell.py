@@ -152,15 +152,15 @@ class ShellTests(unittest.TestCase):
             source_root.mkdir()
             self._init_git_repo(source_root)
             shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+            output = root / "handoff.md"
 
             with redirect_stdout(io.StringIO()) as buffer:
-                shell.do_handoff("2")
+                shell.do_handoff(f"--output {output}")
 
             rendered = buffer.getvalue()
-
-        self.assertIn("Workspace handoff:", rendered)
-        self.assertIn("State:", rendered)
-        self.assertIn("Next:", rendered)
+            self.assertIn("written=", rendered)
+            self.assertTrue(output.exists())
+            self.assertIn("Workspace handoff:", output.read_text(encoding="utf-8"))
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

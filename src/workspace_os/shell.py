@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import cmd
 from pathlib import Path
 import shlex
@@ -14,7 +15,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -88,7 +89,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
                     "/inspect            show a condensed read-only workspace overview",
-                    "/handoff            show a concise copyable handoff summary",
+                    "/handoff [opts]     show or export a concise handoff summary",
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, status, summary, or list batches",
@@ -223,19 +224,27 @@ class WorkspaceShell(cmd.Cmd):
         print(overview.render(), end="")
 
     def do_handoff(self, arg: str) -> None:
-        parts = shlex.split(arg)
-        launch_limit = 3
-        if parts:
-            try:
-                launch_limit = max(1, int(parts[0]))
-            except ValueError:
-                print("Usage: /handoff [launch-limit]")
-                return
+        try:
+            options = self._parse_handoff_args(arg)
+        except ValueError as exc:
+            print(f"Usage: /handoff [--launch-limit N] [--output path]")
+            print(f"error: {exc}")
+            return
+        if options.output is not None:
+            write_workspace_handoff(
+                options.output,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+            )
+            print(f"written={options.output}")
+            return
         handoff = build_workspace_handoff(
             self._selected_sources(),
             self.memory_store,
             workspace=self.active_workspace,
-            launch_limit=launch_limit,
+            launch_limit=options.launch_limit,
         )
         print(handoff.render(), end="")
 
@@ -605,6 +614,31 @@ class WorkspaceShell(cmd.Cmd):
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()
+
+    def _parse_handoff_args(self, arg: str) -> argparse.Namespace:
+        tokens = shlex.split(arg, posix=False)
+        if not tokens:
+            return argparse.Namespace(launch_limit=3, output=None)
+        if any(token.startswith("--") for token in tokens):
+            parser = argparse.ArgumentParser(prog="/handoff", add_help=False)
+            parser.add_argument("--launch-limit", type=int, default=3)
+            parser.add_argument("--output", type=Path)
+            parsed = parser.parse_args(tokens)
+            if parsed.output is not None:
+                parsed.output = Path(str(parsed.output).strip('"'))
+            return parsed
+        if len(tokens) == 1:
+            try:
+                return argparse.Namespace(launch_limit=max(1, int(tokens[0])), output=None)
+            except ValueError:
+                return argparse.Namespace(launch_limit=3, output=Path(tokens[0].strip('"')))
+        if len(tokens) == 2:
+            try:
+                launch_limit = max(1, int(tokens[0]))
+            except ValueError as exc:
+                raise ValueError("launch limit must be an integer when providing two positional arguments") from exc
+            return argparse.Namespace(launch_limit=launch_limit, output=Path(tokens[1].strip('"')))
+        raise ValueError("too many positional arguments")
 
     def _expand_alias(self, line: str) -> str:
         if not line:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.git_status import inspect_source
@@ -124,6 +125,24 @@ def build_workspace_handoff(
         summary_lines=summary_lines,
         next_step_lines=next_step_lines,
     )
+
+
+def write_workspace_handoff(
+    path: Path,
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    launch_limit: int = 3,
+) -> WorkspaceHandoff:
+    handoff = build_workspace_handoff(
+        sources,
+        memory_store,
+        workspace=workspace,
+        launch_limit=launch_limit,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(handoff.render(), encoding="utf-8")
+    return handoff
 
 
 def _render_source_lines(sources) -> list[str]:
