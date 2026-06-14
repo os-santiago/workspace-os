@@ -82,6 +82,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             if parsed.path == "/api/recent-docs":
                 self._send_json(_recent_docs_payload())
                 return
+            if parsed.path == "/api/context-snapshot":
+                self._send_json(_context_snapshot_payload(memory_path, workspace_root, query))
+                return
+            if parsed.path == "/api/context-snapshot.md":
+                self._send_text(
+                    _context_snapshot_markdown_payload(memory_path, workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="context-global.md",
+                )
+                return
             if parsed.path == "/api/handoff":
                 self._send_json(_handoff_payload(sources, memory_path, workspace_root, query))
                 return
@@ -307,6 +317,7 @@ def _chat_payload(
         detail_level=profile_detail,
     )
     personal_context = _operator_principles_summary(root=workspace_root)
+    context_snapshot = store.latest_context_snapshot() if store else None
     process_report = current_process_report(store) if store else None
     batch_report = current_batch_report(store) if store else None
     return {
@@ -315,6 +326,7 @@ def _chat_payload(
         "conscience": reply.conscience.to_dict(),
         "learning": reply.learning,
         "personal_context": personal_context,
+        "context_snapshot": context_snapshot,
         "process": _process_summary(process_report),
         "batch": _batch_summary(batch_report),
     }
@@ -373,6 +385,43 @@ def _handoff_markdown_payload(
         compact=compact,
     )
     return {"ok": True, "text": text}
+
+
+def _context_snapshot_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    snapshot = store.latest_context_snapshot()
+    if snapshot is None:
+        return {"ok": False, "error": "No context snapshot found."}
+    return {"ok": True, "snapshot": snapshot}
+
+
+def _context_snapshot_markdown_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    snapshot = store.latest_context_snapshot()
+    if snapshot is None:
+        return {"ok": False, "text": "No context snapshot found."}
+    lines = [
+        f"Workspace context snapshot: {snapshot['scope']}",
+        f"Reason: {snapshot['reason']}",
+        "",
+        f"- created_at={snapshot['created_at']}",
+        f"- summary={snapshot['summary']}",
+    ]
+    return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 
 def _delegate_launch_payload(

@@ -50,6 +50,7 @@ class ShellTests(unittest.TestCase):
             shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
 
             self.assertIn("Habits:", shell.intro)
+            self.assertIn("Context: none", shell.intro)
 
             with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_workspaces("")

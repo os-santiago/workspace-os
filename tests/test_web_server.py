@@ -8,6 +8,8 @@ from workspace_os.web_server import (
     _agent_command,
     _capture_preview_payload,
     _chat_payload,
+    _context_snapshot_markdown_payload,
+    _context_snapshot_payload,
     _conscience_preview_payload,
     _delegate_launch_payload,
     _extract_progress_map,
@@ -45,6 +47,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("handoffRefresh", index)
         self.assertIn("handoffOutput", index)
         self.assertIn("handoffDownload", index)
+        self.assertIn("contextRefresh", index)
+        self.assertIn("contextOutput", index)
         self.assertIn("requestSubmit", app)
         self.assertIn("shiftKey", app)
         self.assertIn("scrollChatToBottom", app)
@@ -239,6 +243,27 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["learning"]["activated"])
         self.assertIn("conscience", result)
 
+    def test_chat_payload_includes_context_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = Source("example", "doctrine", "Example.", root)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            store.record_context_snapshot("global", "shell-exit", "compact context", "markdown context")
+
+            result = _chat_payload(
+                [source],
+                {"message": "Use the latest context."},
+                memory_path=memory,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertIn("context_snapshot", result)
+        self.assertEqual("shell-exit", result["context_snapshot"]["reason"])
+
     def test_chat_payload_reports_active_batch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -325,6 +350,37 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertIn("Workspace handoff:", result["text"])
         self.assertIn("batch-1", result["text"])
+
+    def test_context_snapshot_payload_renders_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            store.record_context_snapshot("global", "shell-exit", "compact context", "markdown context")
+
+            result = _context_snapshot_payload(memory_path=memory, workspace_root=root)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("shell-exit", result["snapshot"]["reason"])
+
+    def test_context_snapshot_markdown_payload_renders_download_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            store.record_context_snapshot("global", "shell-exit", "compact context", "markdown context")
+
+            result = _context_snapshot_markdown_payload(memory_path=memory, workspace_root=root)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Workspace context snapshot:", result["text"])
+        self.assertIn("compact context", result["text"])
 
 
 if __name__ == "__main__":

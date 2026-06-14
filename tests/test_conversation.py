@@ -73,6 +73,27 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Active process:", reply.reply)
         self.assertIn("process-1", reply.reply)
 
+    def test_workspace_reply_includes_global_context_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            store.record_context_snapshot("global", "shell-exit", "compact context", "markdown context")
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "Use the latest context.",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Global context:", reply.reply)
+        self.assertIn("shell-exit", reply.reply)
+        self.assertIn("compact context", reply.reply)
+
 
 if __name__ == "__main__":
     unittest.main()

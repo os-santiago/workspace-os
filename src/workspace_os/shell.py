@@ -40,8 +40,10 @@ class WorkspaceShell(cmd.Cmd):
             self.active_workspace = None
         self.active_process = self.memory_store.active_process()
         self.active_batch = self.memory_store.active_batch()
+        self.context_snapshot = self.memory_store.latest_context_snapshot()
         self.intro = (
             f"Workspace OS shell. {self.habits.render_summary()}\n"
+            f"{self._render_context_banner()}"
             f"{self._render_process_banner()}"
             f"{self._render_batch_banner()}"
             "Type /help for commands, /inspect for overview, /handoff for closing summary, /exit to leave."
@@ -71,6 +73,7 @@ class WorkspaceShell(cmd.Cmd):
         )
         print(reply.reply)
         self.habits = compute_habits(self.memory_store, self.profile)
+        self.context_snapshot = self.memory_store.latest_context_snapshot()
         self.prompt = self._render_prompt()
 
     def do_help(self, arg: str) -> None:
@@ -491,6 +494,7 @@ class WorkspaceShell(cmd.Cmd):
         )
         print(reply.reply)
         self.habits = compute_habits(self.memory_store, self.profile)
+        self.context_snapshot = self.memory_store.latest_context_snapshot()
 
     def _print_workspaces(self) -> None:
         for source in self.sources:
@@ -598,6 +602,14 @@ class WorkspaceShell(cmd.Cmd):
             f"{report.label} | objective={report.objective} | started={report.started_at}"
             f"{checkpoint}{latest}\n"
         )
+
+    def _render_context_banner(self) -> str:
+        if self.context_snapshot is None:
+            return "Context: none\n"
+        summary = self.context_snapshot["summary"]
+        reason = self.context_snapshot["reason"]
+        created_at = self.context_snapshot["created_at"]
+        return f"Context: {reason} | {created_at} | {summary}\n"
 
     def _print_batch_status(self) -> None:
         report = current_batch_report(self.memory_store)

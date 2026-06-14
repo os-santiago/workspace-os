@@ -3,6 +3,7 @@ const qs = (selector) => document.querySelector(selector);
 const state = {
   conscienceCount: 0,
   learningCount: 0,
+  contextCount: 0,
   handoffCount: 0,
 };
 
@@ -75,6 +76,22 @@ const renderHandoff = (data) => {
   output.textContent = data.markdown || "No handoff available.";
 };
 
+const renderContext = (data) => {
+  const output = qs("#contextOutput");
+  if (!data.ok) {
+    output.textContent = data.error || "Unable to load context.";
+    return;
+  }
+  state.contextCount += 1;
+  const snapshot = data.snapshot;
+  output.textContent = [
+    `Reason: ${snapshot.reason}`,
+    `Created: ${snapshot.created_at}`,
+    "",
+    snapshot.summary,
+  ].join("\n");
+};
+
 const loadSidebar = async () => {
   const [software, docs] = await Promise.all([
     getJson("/api/recent-software"),
@@ -87,6 +104,11 @@ const loadSidebar = async () => {
 const loadHandoff = async () => {
   const data = await getJson("/api/handoff?launch_limit=3");
   renderHandoff(data);
+};
+
+const loadContext = async () => {
+  const data = await getJson("/api/context-snapshot");
+  renderContext(data);
 };
 
 const bindChat = () => {
@@ -140,6 +162,9 @@ const init = async () => {
   qs("#handoffDownload").addEventListener("click", () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
   });
+  qs("#contextDownload").addEventListener("click", () => {
+    window.location.href = "/api/context-snapshot.md";
+  });
   qs("#handoffRefresh").addEventListener("click", async () => {
     qs("#handoffOutput").textContent = "Loading handoff...";
     try {
@@ -148,7 +173,16 @@ const init = async () => {
       qs("#handoffOutput").textContent = error.message;
     }
   });
+  qs("#contextRefresh").addEventListener("click", async () => {
+    qs("#contextOutput").textContent = "Loading context...";
+    try {
+      await loadContext();
+    } catch (error) {
+      qs("#contextOutput").textContent = error.message;
+    }
+  });
   await loadSidebar();
+  await loadContext();
   await loadHandoff();
 };
 

@@ -74,6 +74,16 @@ def build_workspace_reply(
     if memory_store:
         process = current_process_report(memory_store)
         batch = current_batch_report(memory_store)
+        context = memory_store.latest_context_snapshot()
+        if context is not None:
+            lines.extend(
+                [
+                    "",
+                    "Global context:",
+                    f"- {context['reason']} @ {context['created_at']}",
+                    f"- {context['summary']}",
+                ]
+            )
         if process is not None:
             lines.extend(
                 [
