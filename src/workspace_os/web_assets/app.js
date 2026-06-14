@@ -76,13 +76,12 @@ const renderHandoff = (data) => {
   output.textContent = data.markdown || "No handoff available.";
 };
 
-const renderContext = (data) => {
-  const output = qs("#contextOutput");
+const renderContext = (data, selector = "#contextOutput") => {
+  const output = qs(selector);
   if (!data.ok) {
     output.textContent = data.error || "Unable to load context.";
     return;
   }
-  state.contextCount += 1;
   const snapshot = data.snapshot;
   output.textContent = [
     `Reason: ${snapshot.reason}`,
@@ -90,6 +89,12 @@ const renderContext = (data) => {
     "",
     snapshot.summary,
   ].join("\n");
+};
+
+const renderContextSnapshot = (data) => {
+  state.contextCount += 1;
+  renderContext(data, "#contextOutput");
+  renderContext(data, "#chatContextOutput");
 };
 
 const loadSidebar = async () => {
@@ -108,7 +113,7 @@ const loadHandoff = async () => {
 
 const loadContext = async () => {
   const data = await getJson("/api/context-snapshot");
-  renderContext(data);
+  renderContextSnapshot(data);
 };
 
 const bindChat = () => {
@@ -135,6 +140,12 @@ const bindChat = () => {
     }
     updateIndicators(Boolean(data.learning && data.learning.activated));
     last.querySelector("p").textContent = data.reply;
+    if (data.context_snapshot) {
+      renderContextSnapshot({
+        ok: true,
+        snapshot: data.context_snapshot,
+      });
+    }
     if (data.conscience) {
       const details = [
         `Decision: ${data.conscience.decision}`,
@@ -161,6 +172,14 @@ const init = async () => {
   bindChat();
   qs("#handoffDownload").addEventListener("click", () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
+  });
+  qs("#chatContextRefresh").addEventListener("click", async () => {
+    qs("#chatContextOutput").textContent = "Loading context...";
+    try {
+      await loadContext();
+    } catch (error) {
+      qs("#chatContextOutput").textContent = error.message;
+    }
   });
   qs("#contextDownload").addEventListener("click", () => {
     window.location.href = "/api/context-snapshot.md";

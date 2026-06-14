@@ -49,9 +49,12 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("handoffDownload", index)
         self.assertIn("contextRefresh", index)
         self.assertIn("contextOutput", index)
+        self.assertIn("chatContextRefresh", index)
+        self.assertIn("chatContextOutput", index)
         self.assertIn("requestSubmit", app)
         self.assertIn("shiftKey", app)
         self.assertIn("scrollChatToBottom", app)
+        self.assertIn("data.context_snapshot", app)
 
     def test_capture_preview_returns_source_relative_target(self):
         with tempfile.TemporaryDirectory() as directory:

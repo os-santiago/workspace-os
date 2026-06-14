@@ -80,8 +80,34 @@ textarea {
 .chat-panel {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
+}
+
+.chat-context {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-bottom: 2px solid var(--tp-white);
+  background: var(--tp-black);
+}
+
+.chat-context-body {
+  overflow: hidden;
+  display: grid;
+  min-height: 0;
+  padding: 0.65rem;
+}
+
+.chat-context-output {
+  margin: 0;
+  padding: 0.7rem;
+  color: var(--tp-yellow);
+  background: var(--tp-blue);
+  border: 1px solid var(--tp-cyan);
+  white-space: pre-wrap;
+  overflow: auto;
+  min-height: 0;
 }
 
 .chat-stream {

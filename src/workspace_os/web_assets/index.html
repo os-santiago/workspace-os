@@ -17,6 +17,17 @@
 
     <main class="workspace-layout">
       <section class="chat-panel" aria-label="Workspace chat">
+        <section class="chat-context" aria-label="Latest context snapshot">
+          <div class="rail-header">
+            <h2>Latest Context</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="chatContextRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="chat-context-body">
+            <pre class="chat-context-output" id="chatContextOutput">Loading context...</pre>
+          </div>
+        </section>
         <div class="chat-stream" id="chatStream">
           <article class="message system-message">
             <strong>Workspace OS</strong>
