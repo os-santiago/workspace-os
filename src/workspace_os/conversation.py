@@ -54,6 +54,7 @@ def build_workspace_reply(
         f"Conscience: {conscience.decision} ({conscience.risk_level})",
         f"Strategy: {conscience.response_strategy}",
         f"Rationale: {conscience.rationale}",
+        f"Policy refs: {', '.join(conscience.policy_refs) if conscience.policy_refs else 'n/a'}",
         f"Learning engine: {'activated' if learning['activated'] else 'standby'}",
         learning["summary"],
     ]
@@ -85,6 +86,15 @@ def build_workspace_reply(
                     "",
                     "Active batch:",
                     f"- {batch.label}: duration={batch.duration_seconds}s delegations={batch.delegations} defects={batch.defect_iterations}",
+                ]
+            )
+        if conscience.context:
+            trace_lines.extend(
+                [
+                    "",
+                    "Moral context:",
+                    f"- intent={conscience.context.get('user_intent', 'n/a')} domain={conscience.context.get('domain', 'n/a')} reversible={conscience.context.get('reversibility', 'n/a')}",
+                    f"- salience={conscience.context.get('moral_salience', 'n/a')} confidence={conscience.context.get('confidence', 'n/a')}",
                 ]
             )
 

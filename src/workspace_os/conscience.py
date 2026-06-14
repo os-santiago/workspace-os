@@ -62,6 +62,40 @@ _SECRET_ASSIGNMENT = re.compile(
 
 
 @dataclass(frozen=True)
+class RequestContext:
+    user_intent: str
+    domain: str
+    affected_parties: list[str]
+    risk_level: str
+    reversibility: str
+    requires_authority: bool
+    moral_salience: bool
+    confidence: float
+    missing_context: list[str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "user_intent": self.user_intent,
+            "domain": self.domain,
+            "affected_parties": self.affected_parties,
+            "risk_level": self.risk_level,
+            "reversibility": self.reversibility,
+            "requires_authority": self.requires_authority,
+            "moral_salience": self.moral_salience,
+            "confidence": self.confidence,
+            "missing_context": self.missing_context,
+        }
+
+
+@dataclass(frozen=True)
+class NormativeAnalysis:
+    applicable_norms: list[str]
+    policy_refs: list[str]
+    conflicts: list[str]
+    priority: str
+
+
+@dataclass(frozen=True)
 class ConscienceDecision:
     risk_level: str
     moral_categories: list[str]
@@ -71,9 +105,11 @@ class ConscienceDecision:
     rationale: str
     human_review_required: bool
     missing_context: list[str]
+    policy_refs: list[str]
+    context: dict[str, object]
 
     def allows_execution(self) -> bool:
-        return self.decision in {ALLOW, ALLOW_WITH_LIMITS}
+        return self.decision in {ALLOW, ALLOW_WITH_LIMITS, SAFE_REDIRECT}
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -85,87 +121,184 @@ class ConscienceDecision:
             "rationale": self.rationale,
             "human_review_required": self.human_review_required,
             "missing_context": self.missing_context,
+            "policy_refs": self.policy_refs,
+            "context": self.context,
         }
 
 
-def evaluate_request(task: str, brief: str = "", destination: str = "software") -> ConscienceDecision:
+def analyze_request_context(task: str, brief: str = "", destination: str = "software") -> RequestContext:
     text = f"{task}\n{brief}".casefold()
-    categories: list[str] = []
+    user_intent = _infer_user_intent(text)
+    domain = _infer_domain(text, destination=destination)
+    affected_parties = _infer_affected_parties(text, destination=destination)
+    reversibility = _infer_reversibility(text)
+    requires_authority = _contains_any(text, _AUTHORITY_PATTERNS)
     missing_context: list[str] = []
-    norms = [
+
+    if destination != "software":
+        missing_context.append("google_drive_connector")
+    if requires_authority:
+        missing_context.append("authorization_and_rollback_plan")
+    if user_intent == "ambiguous":
+        missing_context.append("purpose")
+    if _SECRET_ASSIGNMENT.search(f"{task}\n{brief}"):
+        missing_context.append("secret_handling_plan")
+
+    risk_level = _infer_risk_level(text, destination=destination, requires_authority=requires_authority)
+    moral_salience = risk_level != "low" or bool(missing_context) or domain in {"security", "finance", "health", "legal"}
+    confidence = 0.91 if user_intent != "ambiguous" else 0.63
+    if destination != "software":
+        confidence = min(confidence, 0.75)
+
+    return RequestContext(
+        user_intent=user_intent,
+        domain=domain,
+        affected_parties=affected_parties,
+        risk_level=risk_level,
+        reversibility=reversibility,
+        requires_authority=requires_authority,
+        moral_salience=moral_salience,
+        confidence=confidence,
+        missing_context=_unique(missing_context),
+    )
+
+
+def resolve_normative_analysis(context: RequestContext, destination: str = "software") -> NormativeAnalysis:
+    applicable_norms = [
         "ADEV: protect sensitive data and avoid unsafe execution.",
         "ADEV: preserve unrelated local changes.",
         "scanales-kb: use prior lessons before acting.",
+        "Workspace OS: prefer helpful redirection over generic refusal when safe.",
     ]
+    policy_refs = [
+        "adev.safety",
+        "adev.workspace-housekeeping",
+        "scanales-kb.prior-lessons",
+        "workspace.os.orchestration",
+    ]
+    conflicts: list[str] = []
+    priority = "helpfulness_with_safety"
+
+    if destination != "software":
+        applicable_norms.append("Workspace OS: Google Workspace writes require a real connector.")
+        policy_refs.append("workspace.connector.google")
+        conflicts.append("deliverable_routing_without_connector")
+        priority = "connector_gate"
+
+    if context.risk_level == "critical":
+        applicable_norms.append("Operational Conscience: refuse harmful or evasive requests.")
+        policy_refs.append("workspace.safety.refusal")
+        conflicts.append("helpfulness_vs_harm_prevention")
+        priority = "harm_prevention"
+    elif context.requires_authority:
+        applicable_norms.append("Operational Conscience: require approval for risky or hard-to-reverse action.")
+        policy_refs.append("workspace.authority")
+        conflicts.append("helpfulness_vs_authorization")
+        priority = "authorization_first"
+    elif context.risk_level == "medium":
+        applicable_norms.append("Operational Conscience: allow useful work with safety limits.")
+        policy_refs.append("workspace.safety.limited_help")
+    else:
+        policy_refs.append("workspace.safety.standard_help")
+
+    if context.moral_salience and context.user_intent == "ambiguous":
+        policy_refs.append("workspace.redirect.ambiguity")
+        conflicts.append("ambiguity_vs_execution")
+        priority = "clarify_or_redirect"
+
+    return NormativeAnalysis(
+        applicable_norms=_unique(applicable_norms),
+        policy_refs=_unique(policy_refs),
+        conflicts=_unique(conflicts),
+        priority=priority,
+    )
+
+
+def evaluate_request(task: str, brief: str = "", destination: str = "software") -> ConscienceDecision:
+    context = analyze_request_context(task, brief=brief, destination=destination)
+    normative = resolve_normative_analysis(context, destination=destination)
 
     if destination != "software":
         return ConscienceDecision(
-            risk_level="medium",
+            risk_level=context.risk_level,
             moral_categories=["connector_boundary", "deliverable_routing"],
-            applicable_norms=norms + ["Workspace OS: Google Workspace writes require a real connector."],
+            applicable_norms=normative.applicable_norms,
             decision=ASK_CLARIFICATION,
             response_strategy="block_until_connector_exists",
             rationale="The destination requires a Google Workspace connector before safe execution is possible.",
             human_review_required=True,
-            missing_context=["google_drive_connector"],
+            missing_context=_unique([*context.missing_context, "google_drive_connector"]),
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
         )
 
-    if _contains_any(text, _CRITICAL_PATTERNS):
+    if context.risk_level == "critical":
         return ConscienceDecision(
-            risk_level="critical",
+            risk_level=context.risk_level,
             moral_categories=["possible_misuse", "security_harm"],
-            applicable_norms=norms + ["Operational Conscience: refuse harmful or evasive requests."],
+            applicable_norms=normative.applicable_norms,
             decision=REFUSE,
             response_strategy="refuse_with_brief_reason",
             rationale="The request appears to enable harm, abuse, evasion, or unauthorized access.",
             human_review_required=True,
             missing_context=[],
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
         )
 
-    if _SECRET_ASSIGNMENT.search(f"{task}\n{brief}"):
-        categories.append("sensitive_data")
-        missing_context.append("secret_handling_plan")
-
-    if _contains_any(text, _AUTHORITY_PATTERNS):
-        categories.append("requires_authority")
-        missing_context.append("authorization_and_rollback_plan")
-
-    if _contains_any(text, _SENSITIVE_PATTERNS):
-        categories.append("sensitive_operation")
-
-    if "requires_authority" in categories:
+    if context.requires_authority:
         return ConscienceDecision(
-            risk_level="high",
-            moral_categories=_unique(categories),
-            applicable_norms=norms + ["Operational Conscience: require approval for risky or hard-to-reverse action."],
+            risk_level=context.risk_level,
+            moral_categories=_unique(["requires_authority", *context.affected_parties]),
+            applicable_norms=normative.applicable_norms,
             decision=ASK_CLARIFICATION,
             response_strategy="request_authority_scope_and_rollback_plan",
             rationale="The request may affect protected systems, data, or irreversible state and needs explicit scope.",
             human_review_required=True,
-            missing_context=_unique(missing_context),
+            missing_context=_unique(context.missing_context),
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
         )
 
-    if categories:
+    if context.user_intent == "ambiguous":
         return ConscienceDecision(
-            risk_level="medium",
-            moral_categories=_unique(categories),
-            applicable_norms=norms + ["Operational Conscience: allow useful work with safety limits."],
+            risk_level=context.risk_level,
+            moral_categories=_unique([*context.affected_parties, "ambiguous_intent"]),
+            applicable_norms=normative.applicable_norms,
+            decision=SAFE_REDIRECT,
+            response_strategy="redirect_to_codex_then_claude",
+            rationale="The request is under-specified, so a workspace inventory or cross-check will produce a better next step.",
+            human_review_required=False,
+            missing_context=_unique(context.missing_context),
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
+        )
+
+    if context.risk_level == "medium":
+        return ConscienceDecision(
+            risk_level=context.risk_level,
+            moral_categories=_unique([*context.affected_parties, "sensitive_operation"]),
+            applicable_norms=normative.applicable_norms,
             decision=ALLOW_WITH_LIMITS,
             response_strategy="execute_with_sanitization_and_validation",
             rationale="The request is useful but touches sensitive operational concerns, so execution must stay bounded.",
             human_review_required=False,
-            missing_context=_unique(missing_context),
+            missing_context=_unique(context.missing_context),
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
         )
 
     return ConscienceDecision(
-        risk_level="low",
+        risk_level=context.risk_level,
         moral_categories=["standard_software_work"],
-        applicable_norms=norms,
+        applicable_norms=normative.applicable_norms,
         decision=ALLOW,
         response_strategy="execute_with_standard_adev_validation",
         rationale="No elevated moral or operational risk was detected in the request.",
         human_review_required=False,
         missing_context=[],
+        policy_refs=normative.policy_refs,
+        context=context.to_dict(),
     )
 
 
@@ -176,6 +309,12 @@ def render_decision_for_prompt(decision: ConscienceDecision) -> str:
         f"- Risk level: {decision.risk_level}",
         f"- Response strategy: {decision.response_strategy}",
         f"- Rationale: {decision.rationale}",
+        f"- Policy refs: {', '.join(decision.policy_refs) if decision.policy_refs else 'n/a'}",
+        "- Context:",
+        f"  - intent={decision.context.get('user_intent', 'n/a')}",
+        f"  - domain={decision.context.get('domain', 'n/a')}",
+        f"  - reversibility={decision.context.get('reversibility', 'n/a')}",
+        f"  - moral_salience={decision.context.get('moral_salience', 'n/a')}",
         "- Applicable norms:",
         *[f"  - {norm}" for norm in decision.applicable_norms],
     ]
@@ -186,6 +325,67 @@ def render_decision_for_prompt(decision: ConscienceDecision) -> str:
 
 def _contains_any(value: str, patterns: tuple[str, ...]) -> bool:
     return any(pattern in value for pattern in patterns)
+
+
+def _infer_user_intent(text: str) -> str:
+    if any(marker in text for marker in ("how do i", "how to", "explíc", "explic", "why", "what is", "what does")):
+        return "educational"
+    if any(marker in text for marker in ("deploy", "delete", "drop database", "force push", "remove access", "rotate secret")):
+        return "operational"
+    if _contains_any(text, _CRITICAL_PATTERNS):
+        return "harmful"
+    if "?" in text or len(text.split()) <= 4:
+        return "ambiguous"
+    return "operational"
+
+
+def _infer_domain(text: str, destination: str = "software") -> str:
+    if destination != "software":
+        return "deliverable"
+    if _contains_any(text, ("password", "token", "credential", "security", "auth", "permission")):
+        return "security"
+    if _contains_any(text, ("payment", "invoice", "budget", "billing", "finance")):
+        return "finance"
+    if _contains_any(text, ("patient", "health", "medical")):
+        return "health"
+    if _contains_any(text, ("legal", "law", "compliance", "policy")):
+        return "legal"
+    if _contains_any(text, ("repo", "workspace", "git", "branch", "commit", "codex", "claude")):
+        return "workspace"
+    return "general"
+
+
+def _infer_affected_parties(text: str, destination: str = "software") -> list[str]:
+    parties = ["user"]
+    if destination != "software":
+        parties.append("organization")
+    if _contains_any(text, ("team", "organization", "customer", "client", "third party", "third-party", "someone", "another user")):
+        parties.append("third_party")
+    if _contains_any(text, ("production", "prod", "deploy", "merge to main", "release")):
+        parties.append("system")
+    return _unique(parties)
+
+
+def _infer_reversibility(text: str) -> str:
+    if _contains_any(text, ("delete", "drop database", "force push", "remove access", "revoke access", "deploy")):
+        return "hard_to_reverse"
+    if _contains_any(text, ("backup", "restore", "revert", "rollback")):
+        return "reversible"
+    return "reversible"
+
+
+def _infer_risk_level(text: str, destination: str = "software", requires_authority: bool = False) -> str:
+    if destination != "software":
+        return "medium"
+    if _contains_any(text, _CRITICAL_PATTERNS):
+        return "critical"
+    if requires_authority:
+        return "high"
+    if _SECRET_ASSIGNMENT.search(text):
+        return "medium"
+    if _contains_any(text, _SENSITIVE_PATTERNS):
+        return "medium"
+    return "low"
 
 
 def _unique(values: list[str]) -> list[str]:

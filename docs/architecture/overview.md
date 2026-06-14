@@ -43,18 +43,21 @@ Initial commands:
 Interprets requests before routing them to execution.
 
 Workspace OS implements this concept as the Operational Conscience Layer defined in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
+The request bridge pipeline is further specified in `docs/architecture/decisions/0004-request-bridge-pipeline.md`.
 
 Initial scope:
-- Convert raw operator requests into explicit intent, outcome, risk, and checkpoint expectations.
-- Decide whether the request should be clarified, answered, converted to an agent brief, or executed.
-- Block or downgrade requests that conflict with privacy, safety, or repository rules.
+- Convert raw operator requests into explicit intent, context, domain, risk, and checkpoint expectations.
+- Evaluate context, norms, consequences, and decision tradeoffs before answering or delegating.
+- Decide whether the request should be clarified, safely redirected, converted to an agent brief, or executed.
+- Block or downgrade requests that conflict with privacy, safety, authority, or repository rules.
 - Preserve operator preferences and decision style as explicit context rather than implicit chat memory.
 
 Initial implementation:
 - Uses deterministic rules for low, medium, high, and critical software delegation risk.
-- Allows `ALLOW` and `ALLOW_WITH_LIMITS` decisions to proceed to approved agent launch.
+- Emits `ALLOW`, `ALLOW_WITH_LIMITS`, `SAFE_REDIRECT`, `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions.
+- Allows `ALLOW`, `ALLOW_WITH_LIMITS`, and `SAFE_REDIRECT` decisions to proceed to response generation or allowed redirection.
 - Blocks `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions before agent launch.
-- Returns the decision to the web UI so the operator can inspect the bridge state.
+- Returns the decision, policy references, and compact context to the web UI so the operator can inspect the bridge state.
 
 ### Learning Engine
 

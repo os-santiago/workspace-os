@@ -4,7 +4,9 @@ from workspace_os.conscience import (
     ALLOW,
     ALLOW_WITH_LIMITS,
     ASK_CLARIFICATION,
+    SAFE_REDIRECT,
     REFUSE,
+    analyze_request_context,
     evaluate_request,
     render_decision_for_prompt,
 )
@@ -46,12 +48,30 @@ class ConscienceTests(unittest.TestCase):
         self.assertEqual(ASK_CLARIFICATION, decision.decision)
         self.assertIn("google_drive_connector", decision.missing_context)
 
+    def test_redirects_ambiguous_requests_to_agents(self):
+        decision = evaluate_request("What should we do next?")
+
+        self.assertEqual(SAFE_REDIRECT, decision.decision)
+        self.assertEqual("redirect_to_codex_then_claude", decision.response_strategy)
+        self.assertIn("workspace.redirect.ambiguity", decision.policy_refs)
+        self.assertIn("ambiguous_intent", decision.moral_categories)
+
+    def test_context_analysis_captures_ambiguity_and_domain(self):
+        context = analyze_request_context("What should we do next?")
+
+        self.assertEqual("ambiguous", context.user_intent)
+        self.assertEqual("general", context.domain)
+        self.assertTrue(context.moral_salience)
+        self.assertIn("purpose", context.missing_context)
+
     def test_prompt_rendering_redacts_secret_assignments(self):
         decision = evaluate_request("Improve token handling.", "token=plain-text")
 
         rendered = render_decision_for_prompt(decision)
 
         self.assertNotIn("plain-text", rendered)
+        self.assertIn("Policy refs:", rendered)
+        self.assertIn("Context:", rendered)
 
 
 if __name__ == "__main__":
