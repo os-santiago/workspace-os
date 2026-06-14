@@ -48,6 +48,7 @@ GOAL
   |      +-- show status, search, context, classify, validate
   |      +-- show batch progress and active roadmap
   |      +-- keep mutation flows behind explicit approval
+  |      +-- shell-first conversation and workspace switching
   |
   +-- [LATER] Stage 5 - Delivery workflows
   |      +-- consulting estimates
@@ -81,7 +82,7 @@ Batch 05 [DONE] Direct web pilot
   local web app | allowlisted endpoints | homedir-inspired shell
 
 Batch 06 [NEXT] UI workflow depth
-  capture flow | promotion flow | roadmap progress | agent context flow
+  capture flow | promotion flow | roadmap progress | agent context flow | terminal shell
 
 Batch 07 [TODO] Pilot hardening
   approvals | write workflows | local auth boundary | mobile access design

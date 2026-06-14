@@ -15,6 +15,7 @@ from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
+from workspace_os.shell import WorkspaceShell
 from workspace_os.validation import validate_workspace, validation_failed
 from workspace_os.web_server import serve_web_app
 
@@ -53,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         return _chat(sources, memory_path, args.message, args.session_id, args.interactive)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
+    if args.command == "shell":
+        return _shell(sources, memory_path, args.session_id)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -182,6 +185,12 @@ def _build_parser() -> argparse.ArgumentParser:
     outcome_add.add_argument("--context-hash", required=True, help="Stable context hash.")
     outcome_add.add_argument("--outcome", required=True, choices=["success", "failure", "partial"], help="Outcome.")
     outcome_add.add_argument("--evidence-ref", help="Optional evidence reference.")
+
+    shell_parser = subparsers.add_parser(
+        "shell",
+        help="Open the terminal-first Workspace OS shell.",
+    )
+    shell_parser.add_argument("--session-id", default="shell", help="Memory session identifier.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -384,6 +393,15 @@ def _memory(memory_path: Path, command: str, args: argparse.Namespace) -> int:
 
     print("error: unsupported memory command", file=sys.stderr)
     return 2
+
+
+def _shell(sources: list[Source], memory_path: Path, session_id: str) -> int:
+    shell = WorkspaceShell(sources=sources, memory_path=memory_path, session_id=session_id)
+    try:
+        shell.cmdloop()
+    except KeyboardInterrupt:
+        print("")
+    return 0
 
 
 def _web(config_path: Path, host: str, port: int) -> int:

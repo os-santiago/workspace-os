@@ -178,6 +178,7 @@ Acceptance criteria:
 - Mutating workflows require explicit approval.
 
 Initial implementation:
+- `python -m workspace_os shell` opens a terminal-first workspace shell with workspace switching and conversational prompts.
 - `python -m workspace_os web` starts the local web pilot.
 - The pilot uses allowlisted local endpoints instead of arbitrary shell execution.
 - The UI includes software, documents, presentations, and learning contexts inspired by homedir.

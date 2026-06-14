@@ -53,9 +53,9 @@ docs/
 
 ## Current Status
 
-Stage: first local CLI foundation.
+Stage: terminal-first workspace shell foundation.
 
-Runtime implementation exists for source registry loading, repository status, librarian search, non-destructive housekeeping reports, terminal conversation, and a persistent workspace memory store for preferences, lessons, outcomes, and decision traces.
+Runtime implementation exists for source registry loading, repository status, librarian search, non-destructive housekeeping reports, terminal conversation, a persistent workspace memory store for preferences, lessons, outcomes, and decision traces, and an interactive shell for switching workspaces and running routine actions.
 
 ## First MVP Direction
 
@@ -76,6 +76,7 @@ python -m workspace_os --config config/workspace.sources.example.json search ADE
 python -m workspace_os --config config/workspace.sources.example.json context "agent alignment"
 python -m workspace_os --config config/workspace.sources.example.json chat "Remember to keep batches large but coherent."
 python -m workspace_os --config config/workspace.sources.example.json memory status
+python -m workspace_os --config config/workspace.sources.example.json shell
 python -m workspace_os --config config/workspace.sources.example.json classify "Agents must validate scripts before release."
 python -m workspace_os --config config/workspace.sources.example.json capture --type session --title "Agent checkpoint" --text "Sanitized session note."
 python -m workspace_os --config config/workspace.sources.example.json promote --to adev --rule "Agents must validate scripts before release." --evidence "scanales-kb:captures/session/example.md"

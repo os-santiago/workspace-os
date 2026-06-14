@@ -1,0 +1,71 @@
+from contextlib import redirect_stdout
+from pathlib import Path
+import io
+import os
+import tempfile
+import unittest
+
+from workspace_os.config import Source
+from workspace_os.shell import WorkspaceShell
+
+
+class ShellTests(unittest.TestCase):
+    def test_shell_switches_workspaces_and_records_chat_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            adev = root / "adev"
+            kb = root / "kb"
+            adev.mkdir()
+            kb.mkdir()
+            self._init_git_repo(adev)
+            self._init_git_repo(kb)
+            (adev / "ADEV.md").write_text("ADEV must stay concise.\n", encoding="utf-8")
+            memory_path = root / "memory.sqlite3"
+            shell = WorkspaceShell(
+                [
+                    Source("adev", "doctrine", "Doctrine.", adev),
+                    Source("kb", "evidence", "Evidence.", kb),
+                ],
+                memory_path=memory_path,
+                session_id="shell-test",
+            )
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_ws("adev")
+                shell.default("Remember ADEV")
+
+            rendered = buffer.getvalue()
+            stats = shell.memory_store.stats()
+
+        self.assertIn("active workspace=adev", rendered)
+        self.assertIn("Learning engine: activated", rendered)
+        self.assertEqual(2, stats["conversation_turns"])
+
+    def test_shell_lists_workspaces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_workspaces("")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("source", rendered)
+
+    def _init_git_repo(self, path: Path) -> None:
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "workspace@example.com"], cwd=path, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Workspace"], cwd=path, check=True, capture_output=True)
+        (path / ".gitignore").write_text("", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=path, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
+
+
+if __name__ == "__main__":
+    unittest.main()
