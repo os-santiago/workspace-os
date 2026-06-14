@@ -39,6 +39,23 @@ class WorkspaceOverview:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class WorkspaceHandoff:
+    workspace: str
+    summary_lines: tuple[str, ...]
+    next_step_lines: tuple[str, ...]
+
+    def render(self) -> str:
+        lines = [f"Workspace handoff: {self.workspace}"]
+        if self.summary_lines:
+            lines.append("")
+            lines.extend(self.summary_lines)
+        if self.next_step_lines:
+            lines.append("")
+            lines.extend(self.next_step_lines)
+        return "\n".join(lines) + "\n"
+
+
 def build_workspace_overview(
     sources,
     memory_store: WorkspaceMemoryStore,
@@ -79,6 +96,33 @@ def build_workspace_overview(
         process_lines=process_lines,
         batch_lines=batch_lines,
         launch_lines=launch_lines,
+    )
+
+
+def build_workspace_handoff(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    launch_limit: int = 3,
+) -> WorkspaceHandoff:
+    overview = build_workspace_overview(sources, memory_store, workspace=workspace, launch_limit=launch_limit)
+    process = current_process_report(memory_store)
+    batch = current_batch_report(memory_store)
+    stats = memory_store.stats()
+
+    summary_lines = (
+        f"State: sources={len(overview.source_lines) - 1} memory_entries={stats['conversation_turns']} turns "
+        f"launches={stats['agent_launches']} habits_ready=yes",
+        f"Profile: {overview.profile_lines[1].removeprefix('- ')}",
+        f"Habits: {_compact_habit_summary(overview.habit_lines[1])}",
+        _summary_line("Process", process),
+        _summary_line("Batch", batch),
+    )
+    next_step_lines = ("Next:", _next_step(process, batch))
+    return WorkspaceHandoff(
+        workspace=overview.workspace,
+        summary_lines=summary_lines,
+        next_step_lines=next_step_lines,
     )
 
 
@@ -138,3 +182,39 @@ def _render_launch_lines(launches) -> tuple[str, ...]:
         workspace = launch["workspace"] or "all"
         lines.append(f"- {launch['agent']} {workspace}: {launch['task']} ({launch['launched_at']})")
     return tuple(lines)
+
+
+def _summary_line(label: str, item) -> str:
+    if item is None:
+        return f"{label}: none"
+    if label == "Process":
+        line = (
+            f"{label}: {item.label} objective={item.objective} duration={item.duration_seconds}s "
+            f"batches={item.batch_count} checkpoints={item.checkpoint_count}"
+        )
+        if item.latest_checkpoint_label:
+            line += f" latest={item.latest_checkpoint_label}"
+        return line
+    if label == "Batch":
+        return (
+            f"{label}: {item.label} objective={item.objective} duration={item.duration_seconds}s "
+            f"delegations={item.delegations} defects={item.defect_iterations}"
+        )
+    return f"{label}: unavailable"
+
+
+def _next_step(process, batch) -> str:
+    if process is not None:
+        if process.checkpoint_count == 0:
+            return "record the first process checkpoint"
+        if batch is None:
+            return "start a batch inside the active process"
+        return "continue with the next batch checkpoint or close the process when complete"
+    if batch is not None:
+        return "start or close the process window around the active batch work"
+    return "start a new process window before the next batch"
+
+
+def _compact_habit_summary(line: str) -> str:
+    text = line.removeprefix("- ").strip()
+    return text.removeprefix("Habits: ").strip() if text.startswith("Habits: ") else text

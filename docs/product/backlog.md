@@ -193,6 +193,7 @@ Initial implementation:
 - Process summary output gives a dedicated stopwatch for a long-running work window, including batch count, delegations, and defect iterations for the whole process.
 - Process checkpoints record milestones within the active process so the operator can mark progress without closing the window.
 - A read-only `inspect` surface condenses source status, memory, profile, habits, active process, active batch, and recent launches into one operator-facing summary.
+- A concise `handoff` surface turns the current workspace state into a copyable closing summary for iteration wrap-up.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 

@@ -13,7 +13,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_overview
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         return _chat(sources, memory_path, args.message, args.session_id, args.interactive)
     if args.command == "inspect":
         return _inspect(sources, memory_path, args.launch_limit)
+    if args.command == "handoff":
+        return _handoff(sources, memory_path, args.launch_limit)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
     if args.command == "shell":
@@ -162,6 +164,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render a condensed read-only overview of the active workspace state.",
     )
     inspect_parser.add_argument("--launch-limit", type=int, default=5, help="Maximum recent launches to show.")
+
+    handoff_parser = subparsers.add_parser(
+        "handoff",
+        help="Render a concise copyable handoff for the current workspace state.",
+    )
+    handoff_parser.add_argument("--launch-limit", type=int, default=3, help="Maximum recent launches to show.")
 
     memory_parser = subparsers.add_parser(
         "memory",
@@ -435,6 +443,14 @@ def _inspect(sources: list[Source], memory_path: Path, launch_limit: int) -> int
     store.ensure_schema()
     overview = build_workspace_overview(sources, store, launch_limit=launch_limit)
     print(overview.render(), end="")
+    return 0
+
+
+def _handoff(sources: list[Source], memory_path: Path, launch_limit: int) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    handoff = build_workspace_handoff(sources, store, launch_limit=launch_limit)
+    print(handoff.render(), end="")
     return 0
 
 

@@ -14,7 +14,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_overview
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -43,7 +43,7 @@ class WorkspaceShell(cmd.Cmd):
             f"Workspace OS shell. {self.habits.render_summary()}\n"
             f"{self._render_process_banner()}"
             f"{self._render_batch_banner()}"
-            "Type /help for commands, /inspect for overview, /exit to leave."
+            "Type /help for commands, /inspect for overview, /handoff for closing summary, /exit to leave."
         )
         self.prompt = self._render_prompt()
 
@@ -88,6 +88,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
                     "/inspect            show a condensed read-only workspace overview",
+                    "/handoff            show a concise copyable handoff summary",
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, status, summary, or list batches",
@@ -220,6 +221,23 @@ class WorkspaceShell(cmd.Cmd):
                 return
         overview = build_workspace_overview(self._selected_sources(), self.memory_store, workspace=self.active_workspace, launch_limit=launch_limit)
         print(overview.render(), end="")
+
+    def do_handoff(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        launch_limit = 3
+        if parts:
+            try:
+                launch_limit = max(1, int(parts[0]))
+            except ValueError:
+                print("Usage: /handoff [launch-limit]")
+                return
+        handoff = build_workspace_handoff(
+            self._selected_sources(),
+            self.memory_store,
+            workspace=self.active_workspace,
+            launch_limit=launch_limit,
+        )
+        print(handoff.render(), end="")
 
     def do_profile(self, arg: str) -> None:
         parts = shlex.split(arg)
