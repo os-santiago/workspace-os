@@ -51,6 +51,86 @@ class CliTests(unittest.TestCase):
             self.assertIn("Workspace handoff:", rendered)
             self.assertIn("process-1", rendered)
 
+    def test_batch_stop_auto_writes_handoff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            memory = root / "memory.sqlite3"
+            handoff = root / "handoff.md"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_batch(store, "batch-1", "cli auto handoff", started_at="2026-06-14T10:05:00+00:00")
+
+            exit_code = main(["--config", str(config), "batch", "stop"])
+
+            self.assertEqual(0, exit_code)
+            self.assertTrue(handoff.exists())
+            rendered = handoff.read_text(encoding="utf-8")
+            self.assertIn("Workspace handoff:", rendered)
+            self.assertIn("batch-1", rendered)
+
+    def test_process_stop_auto_writes_handoff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            memory = root / "memory.sqlite3"
+            handoff = root / "handoff.md"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_process(store, "process-1", "cli auto handoff", started_at="2026-06-14T10:00:00+00:00")
+
+            exit_code = main(["--config", str(config), "process", "stop"])
+
+            self.assertEqual(0, exit_code)
+            self.assertTrue(handoff.exists())
+            rendered = handoff.read_text(encoding="utf-8")
+            self.assertIn("Workspace handoff:", rendered)
+            self.assertIn("process-1", rendered)
+
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
 

@@ -15,7 +15,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -322,6 +322,16 @@ class WorkspaceShell(cmd.Cmd):
                 print("No active batch found.")
                 return
             print(report.render(), end="")
+            handoff_path = default_workspace_handoff_path(self.memory_store.path)
+            write_workspace_handoff(
+                handoff_path,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                prefix=report.render(),
+            )
+            print(f"handoff_written={handoff_path}")
             return
         if command == "report":
             batch_id = int(parts[1]) if len(parts) > 1 else None
@@ -369,6 +379,16 @@ class WorkspaceShell(cmd.Cmd):
                 print("No active process found.")
                 return
             print(report.render(), end="")
+            handoff_path = default_workspace_handoff_path(self.memory_store.path)
+            write_workspace_handoff(
+                handoff_path,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                prefix=report.render(),
+            )
+            print(f"handoff_written={handoff_path}")
             return
         if command == "report":
             process_id = int(parts[1]) if len(parts) > 1 else None

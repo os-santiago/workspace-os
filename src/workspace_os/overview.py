@@ -133,6 +133,7 @@ def write_workspace_handoff(
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
     launch_limit: int = 3,
+    prefix: str | None = None,
 ) -> WorkspaceHandoff:
     handoff = build_workspace_handoff(
         sources,
@@ -141,8 +142,15 @@ def write_workspace_handoff(
         launch_limit=launch_limit,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(handoff.render(), encoding="utf-8")
+    content = handoff.render()
+    if prefix:
+        content = f"{prefix.rstrip()}\n\n{content}"
+    path.write_text(content, encoding="utf-8")
     return handoff
+
+
+def default_workspace_handoff_path(memory_path: Path) -> Path:
+    return memory_path.parent / "handoff.md"
 
 
 def _render_source_lines(sources) -> list[str]:

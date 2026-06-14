@@ -195,6 +195,7 @@ Initial implementation:
 - A read-only `inspect` surface condenses source status, memory, profile, habits, active process, active batch, and recent launches into one operator-facing summary.
 - A concise `handoff` surface turns the current workspace state into a copyable closing summary for iteration wrap-up.
 - `handoff` can export Markdown to a file from the CLI and shell so the closing summary can be archived or pasted elsewhere without copying.
+- `batch stop` and `process stop` write a default `handoff.md` beside the local memory store so completed windows leave a closing artifact automatically.
 - The web pilot exposes the same handoff summary through a local API so the browser panel can close work without entering the shell.
 - The web panel shows a refreshable handoff block so the closing summary stays visible during supervision.
 

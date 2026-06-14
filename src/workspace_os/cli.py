@@ -13,7 +13,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -64,9 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "shell":
         return _shell(sources, memory_path, args.session_id)
     if args.command == "batch":
-        return _batch(memory_path, args.batch_command, args)
+        return _batch(sources, memory_path, args.batch_command, args)
     if args.command == "process":
-        return _process(memory_path, args.process_command, args)
+        return _process(sources, memory_path, args.process_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -505,7 +505,7 @@ def _shell(sources: list[Source], memory_path: Path, session_id: str) -> int:
     return 0
 
 
-def _batch(memory_path: Path, command: str, args: argparse.Namespace) -> int:
+def _batch(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
 
@@ -524,6 +524,9 @@ def _batch(memory_path: Path, command: str, args: argparse.Namespace) -> int:
             print("No active batch found.")
             return 0
         print(report.render(), end="")
+        handoff_path = default_workspace_handoff_path(memory_path)
+        write_workspace_handoff(handoff_path, sources, store, launch_limit=3, prefix=report.render())
+        print(f"handoff_written={handoff_path}")
         return 0
 
     if command == "report":
@@ -564,7 +567,7 @@ def _batch(memory_path: Path, command: str, args: argparse.Namespace) -> int:
     return 2
 
 
-def _process(memory_path: Path, command: str, args: argparse.Namespace) -> int:
+def _process(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
 
@@ -583,6 +586,9 @@ def _process(memory_path: Path, command: str, args: argparse.Namespace) -> int:
             print("No active process found.")
             return 0
         print(report.render(), end="")
+        handoff_path = default_workspace_handoff_path(memory_path)
+        write_workspace_handoff(handoff_path, sources, store, launch_limit=3, prefix=report.render())
+        print(f"handoff_written={handoff_path}")
         return 0
 
     if command == "status":
