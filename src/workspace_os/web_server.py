@@ -152,7 +152,7 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            _write_response_body(self.wfile.write, body)
 
         def _send_text(self, payload: dict[str, object], content_type: str, filename: str | None = None) -> None:
             body = str(payload.get("text", "")).encode("utf-8")
@@ -164,7 +164,7 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            _write_response_body(self.wfile.write, body)
 
         def _send_static(self, filename: str, content_type: str) -> None:
             path = STATIC_ROOT / filename
@@ -177,9 +177,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            _write_response_body(self.wfile.write, body)
 
     return WorkspaceRequestHandler
+
+
+def _write_response_body(writer, body: bytes) -> None:
+    try:
+        writer(body)
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+        return
 
 
 def _status_payload(sources: list[Source]) -> dict[str, object]:

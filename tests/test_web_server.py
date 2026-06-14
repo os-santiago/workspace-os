@@ -19,6 +19,7 @@ from workspace_os.web_server import (
     _recent_docs_payload,
     _recent_software_payload,
     STATIC_ROOT,
+    _write_response_body,
 )
 
 
@@ -59,6 +60,17 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("chatContextExpanded", app)
         self.assertIn("workspace-os.chat-context-expanded", app)
         self.assertIn("localStorage", app)
+
+    def test_write_response_body_ignores_client_disconnects(self):
+        calls = {"count": 0}
+
+        def writer(_body):
+            calls["count"] += 1
+            raise ConnectionAbortedError("client disconnected")
+
+        _write_response_body(writer, b"payload")
+
+        self.assertEqual(1, calls["count"])
 
     def test_capture_preview_returns_source_relative_target(self):
         with tempfile.TemporaryDirectory() as directory:
