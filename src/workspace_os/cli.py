@@ -13,7 +13,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, render_workspace_handoff_text, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -534,8 +534,17 @@ def _batch(sources: list[Source], memory_path: Path, command: str, args: argpars
             return 0
         print(report.render(), end="")
         handoff_path = default_workspace_handoff_path(memory_path)
+        context_path = default_workspace_context_path(memory_path)
         write_workspace_handoff(handoff_path, sources, store, launch_limit=3, prefix=report.render())
+        write_workspace_context_snapshot(
+            context_path,
+            sources,
+            store,
+            launch_limit=3,
+            reason="batch-stop",
+        )
         print(f"handoff_written={handoff_path}")
+        print(f"context_written={context_path}")
         return 0
 
     if command == "report":
@@ -625,8 +634,17 @@ def _process(sources: list[Source], memory_path: Path, command: str, args: argpa
             return 0
         print(report.render(), end="")
         handoff_path = default_workspace_handoff_path(memory_path)
+        context_path = default_workspace_context_path(memory_path)
         write_workspace_handoff(handoff_path, sources, store, launch_limit=3, prefix=report.render())
+        write_workspace_context_snapshot(
+            context_path,
+            sources,
+            store,
+            launch_limit=3,
+            reason="process-stop",
+        )
         print(f"handoff_written={handoff_path}")
+        print(f"context_written={context_path}")
         return 0
 
     if command == "status":

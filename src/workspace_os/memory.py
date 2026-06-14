@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,17 @@ class WorkspaceMemoryStore:
                     note TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (process_id) REFERENCES process_runs(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS context_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    markdown TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    batch_id INTEGER,
+                    process_id INTEGER
                 );
                 """
             )
@@ -661,6 +672,90 @@ class WorkspaceMemoryStore:
                 "created_at": str(row["created_at"]),
             }
 
+    def record_context_snapshot(
+        self,
+        scope: str,
+        reason: str,
+        summary: str,
+        markdown: str,
+        created_at: str | None = None,
+        batch_id: int | None = None,
+        process_id: int | None = None,
+    ) -> int:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO context_snapshots (scope, reason, summary, markdown, created_at, batch_id, process_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    scope.strip(),
+                    reason.strip(),
+                    summary.strip(),
+                    markdown.strip(),
+                    created_at or _utc_now(),
+                    batch_id if batch_id is not None else self.active_batch_id(conn),
+                    process_id if process_id is not None else self.active_process_id(conn),
+                ),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def latest_context_snapshot(self, scope: str | None = None) -> dict[str, str | None] | None:
+        query = """
+            SELECT id, scope, reason, summary, markdown, created_at, batch_id, process_id
+            FROM context_snapshots
+        """
+        params: tuple[object, ...] = ()
+        if scope is not None:
+            query += " WHERE scope = ?"
+            params = (scope.strip(),)
+        query += " ORDER BY created_at DESC, id DESC LIMIT 1"
+        with self._connection() as conn:
+            row = conn.execute(query, params).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "scope": str(row["scope"]),
+                "reason": str(row["reason"]),
+                "summary": str(row["summary"]),
+                "markdown": str(row["markdown"]),
+                "created_at": str(row["created_at"]),
+                "batch_id": str(row["batch_id"]) if row["batch_id"] is not None else None,
+                "process_id": str(row["process_id"]) if row["process_id"] is not None else None,
+            }
+
+    def context_snapshot_count(self) -> int:
+        with self._connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS count FROM context_snapshots").fetchone()
+            return int(row["count"] or 0) if row else 0
+
+    def context_snapshot_history(self, limit: int = 10) -> list[dict[str, str | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, scope, reason, summary, markdown, created_at, batch_id, process_id
+                FROM context_snapshots
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": str(row["id"]),
+                    "scope": str(row["scope"]),
+                    "reason": str(row["reason"]),
+                    "summary": str(row["summary"]),
+                    "markdown": str(row["markdown"]),
+                    "created_at": str(row["created_at"]),
+                    "batch_id": str(row["batch_id"]) if row["batch_id"] is not None else None,
+                    "process_id": str(row["process_id"]) if row["process_id"] is not None else None,
+                }
+                for row in rows
+            ]
+
     def process_metrics(self, process_id: int | None = None, now: str | None = None) -> dict[str, object] | None:
         process = self.get_process(process_id) if process_id is not None else self.active_process()
         if process is None:
@@ -817,6 +912,10 @@ class WorkspaceMemoryStore:
                     SELECT 'conversation' AS kind, role AS title, message AS body, created_at
                     FROM conversation_turns
                     WHERE session_id LIKE :needle OR role LIKE :needle OR message LIKE :needle
+                    UNION ALL
+                    SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary AS body, created_at
+                    FROM context_snapshots
+                    WHERE scope LIKE :needle OR reason LIKE :needle OR summary LIKE :needle OR markdown LIKE :needle
                 )
                 ORDER BY created_at DESC
                 LIMIT :limit
@@ -844,6 +943,9 @@ class WorkspaceMemoryStore:
                     UNION ALL
                     SELECT 'conversation' AS kind, role AS title, message AS body, created_at
                     FROM conversation_turns
+                    UNION ALL
+                    SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary AS body, created_at
+                    FROM context_snapshots
                 )
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -863,6 +965,7 @@ class WorkspaceMemoryStore:
                 "decision_log",
                 "conversation_turns",
                 "agent_launches",
+                "context_snapshots",
             ):
                 row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
                 counts[table] = int(row["count"]) if row else 0

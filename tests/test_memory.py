@@ -15,15 +15,21 @@ class MemoryTests(unittest.TestCase):
             store.record_lesson("delivery", "Prefer one atomic PR per iteration.", ["ADEV.md"], 0.9)
             store.record_task_outcome("capture", "abc123", "success", "scanales-kb:captures/session/example.md")
             store.record_turn("session-1", "user", "Remember this lesson.")
+            store.record_context_snapshot("global", "test", "summary text", "markdown text")
 
             stats = store.stats()
             hits = store.search("concise", limit=10)
+            snapshot = store.latest_context_snapshot("global")
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
         self.assertEqual(1, stats["task_outcomes"])
         self.assertEqual(1, stats["conversation_turns"])
+        self.assertEqual(1, stats["context_snapshots"])
         self.assertTrue(any(hit.kind == "preference" for hit in hits))
+        self.assertIsNotNone(snapshot)
+        self.assertEqual("test", snapshot["reason"])
+        self.assertEqual("summary text", snapshot["summary"])
 
 
 if __name__ == "__main__":

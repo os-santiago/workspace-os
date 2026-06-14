@@ -121,7 +121,9 @@ class ShellTests(unittest.TestCase):
 
             rendered = buffer.getvalue()
             self.assertIn("handoff_written=", rendered)
+            self.assertIn("context_written=", rendered)
             self.assertTrue(handoff.exists())
+            self.assertTrue((root / "context-global.md").exists())
             self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
 
     def test_shell_batch_handoff_writes_markdown(self):
@@ -214,7 +216,9 @@ class ShellTests(unittest.TestCase):
 
             rendered = buffer.getvalue()
             self.assertIn("handoff_written=", rendered)
+            self.assertIn("context_written=", rendered)
             self.assertTrue(handoff.exists())
+            self.assertTrue((root / "context-global.md").exists())
             self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
 
     def test_shell_process_handoff_writes_markdown(self):
@@ -235,6 +239,20 @@ class ShellTests(unittest.TestCase):
             self.assertTrue(handoff.exists())
             self.assertIn("Process summary", handoff.read_text(encoding="utf-8"))
             self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
+
+    def test_shell_exit_persists_context_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()):
+                should_exit = shell.do_exit("")
+
+            self.assertTrue(should_exit)
+            self.assertTrue((root / "context-global.md").exists())
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

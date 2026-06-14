@@ -87,9 +87,11 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(0, exit_code)
             self.assertTrue(handoff.exists())
+            self.assertTrue((root / "context-global.md").exists())
             rendered = handoff.read_text(encoding="utf-8")
             self.assertIn("Workspace handoff:", rendered)
             self.assertIn("batch-1", rendered)
+            self.assertIn("Context:", rendered)
 
     def test_batch_handoff_command_writes_markdown_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -167,9 +169,11 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(0, exit_code)
             self.assertTrue(handoff.exists())
+            self.assertTrue((root / "context-global.md").exists())
             rendered = handoff.read_text(encoding="utf-8")
             self.assertIn("Workspace handoff:", rendered)
             self.assertIn("process-1", rendered)
+            self.assertIn("Context:", rendered)
 
     def test_process_handoff_command_writes_markdown_file(self):
         with tempfile.TemporaryDirectory() as directory:

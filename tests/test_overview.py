@@ -27,6 +27,7 @@ class OverviewTests(unittest.TestCase):
                 note="first pass",
                 created_at="2026-06-14T09:07:00+00:00",
             )
+            store.record_context_snapshot("global", "overview-test", "snapshot summary", "snapshot markdown")
 
             overview = build_workspace_overview([Source("source", "product", "Product.", source_root)], store, workspace="source")
 
@@ -39,6 +40,7 @@ class OverviewTests(unittest.TestCase):
         self.assertIn("Habits:", rendered)
         self.assertIn("Process:", rendered)
         self.assertIn("Batch:", rendered)
+        self.assertIn("Context:", rendered)
         self.assertIn("Recent launches:", rendered)
         self.assertIn("process-1", rendered)
         self.assertIn("batch-1", rendered)
@@ -60,6 +62,7 @@ class OverviewTests(unittest.TestCase):
                 note="first pass",
                 created_at="2026-06-14T09:07:00+00:00",
             )
+            store.record_context_snapshot("global", "handoff-test", "snapshot summary", "snapshot markdown")
 
             handoff = build_workspace_handoff([Source("source", "product", "Product.", source_root)], store, workspace="source")
 
@@ -71,6 +74,7 @@ class OverviewTests(unittest.TestCase):
         self.assertIn("Habits:", rendered)
         self.assertIn("Process:", rendered)
         self.assertIn("Batch:", rendered)
+        self.assertIn("Context:", rendered)
         self.assertIn("Next:", rendered)
         self.assertIn("source", rendered)
 

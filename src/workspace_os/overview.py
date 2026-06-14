@@ -15,6 +15,7 @@ class WorkspaceOverview:
     workspace: str
     source_lines: tuple[str, ...]
     memory_lines: tuple[str, ...]
+    context_lines: tuple[str, ...]
     profile_lines: tuple[str, ...]
     habit_lines: tuple[str, ...]
     process_lines: tuple[str, ...]
@@ -26,6 +27,7 @@ class WorkspaceOverview:
         sections = (
             self.source_lines,
             self.memory_lines,
+            self.context_lines,
             self.profile_lines,
             self.habit_lines,
             self.process_lines,
@@ -57,6 +59,24 @@ class WorkspaceHandoff:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class WorkspaceContextSnapshot:
+    workspace: str
+    reason: str
+    summary_lines: tuple[str, ...]
+    next_step_lines: tuple[str, ...]
+
+    def render(self) -> str:
+        lines = [f"Workspace context snapshot: {self.workspace}", f"Reason: {self.reason}"]
+        if self.summary_lines:
+            lines.append("")
+            lines.extend(self.summary_lines)
+        if self.next_step_lines:
+            lines.append("")
+            lines.extend(self.next_step_lines)
+        return "\n".join(lines) + "\n"
+
+
 def build_workspace_overview(
     sources,
     memory_store: WorkspaceMemoryStore,
@@ -69,9 +89,11 @@ def build_workspace_overview(
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     stats = memory_store.stats()
+    context_snapshot = memory_store.latest_context_snapshot()
 
     source_lines = tuple(_render_source_lines(sources, compact=compact))
     memory_lines = _render_memory_lines(stats, compact=compact)
+    context_lines = _render_context_lines(context_snapshot, compact=compact)
     profile_lines = _render_profile_lines(profile, compact=compact)
     habit_lines = _render_habit_lines(habits, compact=compact)
     process_lines = _render_process_lines(process, compact=compact)
@@ -82,6 +104,7 @@ def build_workspace_overview(
         workspace=workspace or profile.default_workspace or "all workspaces",
         source_lines=source_lines,
         memory_lines=memory_lines,
+        context_lines=context_lines,
         profile_lines=profile_lines,
         habit_lines=habit_lines,
         process_lines=process_lines,
@@ -109,18 +132,52 @@ def build_workspace_handoff(
     stats = memory_store.stats()
     profile_summary = _profile_summary_text(overview.profile_lines)
     habit_summary = _habit_summary_text(overview.habit_lines)
+    context_summary = _context_summary_text(overview.context_lines)
 
     summary_lines = (
         f"State: sources={len(sources)} memory_entries={stats['conversation_turns']} turns "
         f"launches={stats['agent_launches']} habits_ready=yes",
         f"Profile: {profile_summary}",
         f"Habits: {habit_summary}",
+        f"Context: {context_summary}",
         _summary_line("Process", process),
         _summary_line("Batch", batch),
     )
     next_step_lines = ("Next:", _next_step(process, batch))
     return WorkspaceHandoff(
         workspace=overview.workspace,
+        summary_lines=summary_lines,
+        next_step_lines=next_step_lines,
+    )
+
+
+def build_workspace_context_snapshot(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    launch_limit: int = 3,
+    reason: str = "finalization",
+) -> WorkspaceContextSnapshot:
+    overview = build_workspace_overview(
+        sources,
+        memory_store,
+        workspace=workspace,
+        launch_limit=launch_limit,
+        compact=True,
+    )
+    process = current_process_report(memory_store)
+    batch = current_batch_report(memory_store)
+    summary_lines = (
+        f"State: {overview.memory_lines[0].removeprefix('Memory: ')}",
+        f"Profile: {_profile_summary_text(overview.profile_lines)}",
+        f"Habits: {_habit_summary_text(overview.habit_lines)}",
+        _summary_line("Process", process),
+        _summary_line("Batch", batch),
+    )
+    next_step_lines = ("Next:", _next_step(process, batch))
+    return WorkspaceContextSnapshot(
+        workspace=overview.workspace,
+        reason=reason,
         summary_lines=summary_lines,
         next_step_lines=next_step_lines,
     )
@@ -150,6 +207,30 @@ def write_workspace_handoff(
 
 def default_workspace_handoff_path(memory_path: Path) -> Path:
     return memory_path.parent / "handoff.md"
+
+
+def default_workspace_context_path(memory_path: Path) -> Path:
+    return memory_path.parent / "context-global.md"
+
+
+def write_workspace_context_snapshot(
+    path: Path,
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    launch_limit: int = 3,
+    reason: str = "finalization",
+) -> WorkspaceContextSnapshot:
+    snapshot = build_workspace_context_snapshot(
+        sources,
+        memory_store,
+        workspace=workspace,
+        launch_limit=launch_limit,
+        reason=reason,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(snapshot.render(), encoding="utf-8")
+    return snapshot
 
 
 def render_workspace_handoff_text(
@@ -213,9 +294,25 @@ def _render_memory_lines(stats: dict[str, int], compact: bool = False) -> tuple[
     line = (
         f"Memory: preferences={stats['operator_preferences']} lessons={stats['reusable_lessons']} "
         f"outcomes={stats['task_outcomes']} decisions={stats['decision_log']} turns={stats['conversation_turns']} "
-        f"launches={stats['agent_launches']}"
+        f"launches={stats['agent_launches']} snapshots={stats.get('context_snapshots', 0)}"
     )
     return (line,)
+
+
+def _render_context_lines(snapshot: dict[str, str | None] | None, compact: bool = False) -> tuple[str, ...]:
+    if snapshot is None:
+        return ("Context: none",)
+    if compact:
+        return (
+            f"Context: {snapshot['reason']} at {snapshot['created_at']} scope={snapshot['scope']}",
+        )
+    lines = [
+        "Context:",
+        f"- scope={snapshot['scope']} reason={snapshot['reason']} created_at={snapshot['created_at']}",
+    ]
+    if snapshot.get("summary"):
+        lines.append(f"- summary={snapshot['summary']}")
+    return tuple(lines)
 
 
 def _render_profile_lines(profile, compact: bool = False) -> tuple[str, ...]:
@@ -333,3 +430,13 @@ def _habit_summary_text(lines: tuple[str, ...]) -> str:
     if len(lines) == 1:
         return _compact_habit_summary(lines[0])
     return _compact_habit_summary(lines[1])
+
+
+def _context_summary_text(lines: tuple[str, ...]) -> str:
+    if not lines:
+        return "unavailable"
+    if len(lines) == 1:
+        return lines[0].removeprefix("Context: ").strip()
+    if lines[0] == "Context: none":
+        return "none"
+    return lines[1].removeprefix("- ").strip()

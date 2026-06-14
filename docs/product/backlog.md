@@ -197,7 +197,7 @@ Initial implementation:
 - A concise `handoff` surface turns the current workspace state into a copyable closing summary for iteration wrap-up.
 - `handoff` can export Markdown to a file from the CLI and shell so the closing summary can be archived or pasted elsewhere without copying.
 - `batch handoff` and `process handoff` export scoped closing summaries for the active batch or process, including optional `--output` and `--compact` modes.
-- `batch stop` and `process stop` write a default `handoff.md` beside the local memory store so completed windows leave a closing artifact automatically.
+- `batch stop` and `process stop` write a default `handoff.md` beside the local memory store and a `context-global.md` snapshot so completed windows leave both a closing artifact and compacted durable context automatically, and shell exit also persists the latest context snapshot.
 - The web pilot exposes the same handoff summary through a local API so the browser panel can close work without entering the shell.
 - The web panel shows a refreshable handoff block and a direct download action so the closing summary stays visible and exportable during supervision.
 
