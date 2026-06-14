@@ -119,6 +119,28 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("next step=", reply.reply)
         self.assertIn("codex", reply.reply)
 
+    def test_workspace_reply_routes_ambiguous_status_to_codex_and_claude(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "que proyectos tenemos en curso?",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Projects in flight:", reply.reply)
+        self.assertIn("primary route=/codex", reply.reply)
+        self.assertIn("fallback route=/claude", reply.reply)
+        self.assertIn("codex prompt=", reply.reply)
+        self.assertNotIn("start a new process window before the next batch", reply.reply)
+
 
 if __name__ == "__main__":
     unittest.main()

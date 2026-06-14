@@ -168,9 +168,14 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     launches = memory_store.recent_launches(limit=3)
+    workspace_name = profile.default_workspace or "all workspaces"
+    codex_prompt = (
+        f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
+        "active branches, current process or batch windows, blockers, and the next best action."
+    )
 
     lines = ["Projects in flight:"]
-    lines.append(f"- workspace={profile.default_workspace or 'all workspaces'}")
+    lines.append(f"- workspace={workspace_name}")
     if process is None:
         lines.append("- process=none")
     else:
@@ -192,7 +197,16 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
             lines.append(f"  - {launch['agent']} {workspace}: {launch['task']}")
     else:
         lines.append("- recent launches=none")
-    lines.append(f"- next step={_next_step(process, batch)}")
+    if process is None and batch is None:
+        lines.extend(
+            [
+                "- primary route=/codex \"Inspect the current workspace state and summarize projects in flight, active branches, blockers, and the next best action.\"",
+                "- fallback route=/claude \"Cross-check the same workspace inventory and add anything Codex missed; parallelize if faster.\"",
+                f"- codex prompt={codex_prompt}",
+            ]
+        )
+    else:
+        lines.append(f"- next step={_next_step(process, batch)}")
     return lines
 
 
