@@ -13,6 +13,7 @@ from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
+from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.shell import WorkspaceShell
@@ -336,9 +337,17 @@ def _promote(sources: list[Source], target: str, rule: str, evidence: str, max_m
 def _chat(sources: list[Source], memory_path: Path, message: str | None, session_id: str, interactive: bool) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
+    profile = load_profile(store)
 
     if message and not interactive:
-        reply = build_workspace_reply(sources, message, memory_store=store, session_id=session_id)
+        reply = build_workspace_reply(
+            sources,
+            message,
+            memory_store=store,
+            session_id=session_id,
+            tone=profile.tone,
+            detail_level=profile.detail_level,
+        )
         print(reply.reply)
         return 0
 
@@ -352,7 +361,14 @@ def _chat(sources: list[Source], memory_path: Path, message: str | None, session
             continue
         if prompt.casefold() in {"exit", "quit"}:
             break
-        reply = build_workspace_reply(sources, prompt, memory_store=store, session_id=session_id)
+        reply = build_workspace_reply(
+            sources,
+            prompt,
+            memory_store=store,
+            session_id=session_id,
+            tone=profile.tone,
+            detail_level=profile.detail_level,
+        )
         print(reply.reply)
         print("")
     return 0

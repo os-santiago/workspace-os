@@ -3,17 +3,17 @@ from __future__ import annotations
 import cmd
 from pathlib import Path
 import shlex
-import sys
 
-from workspace_os.capture import build_capture_draft, write_capture
+from workspace_os.agent_adapter import launch_agent
+from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
-from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
+from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.validation import validate_workspace, validation_failed
@@ -28,8 +28,11 @@ class WorkspaceShell(cmd.Cmd):
         self.sources = sources
         self.memory_store = WorkspaceMemoryStore(memory_path)
         self.memory_store.ensure_schema()
+        self.profile = load_profile(self.memory_store)
         self.session_id = session_id
-        self.active_workspace: str | None = None
+        self.active_workspace: str | None = self.profile.default_workspace
+        if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
+            self.active_workspace = None
         self.prompt = self._render_prompt()
 
     def parseline(self, line: str):
@@ -39,10 +42,7 @@ class WorkspaceShell(cmd.Cmd):
         return super().parseline(stripped)
 
     def precmd(self, line: str) -> str:
-        stripped = self._normalize_line(line)
-        if stripped.startswith("/"):
-            return stripped[1:]
-        return stripped
+        return self._expand_alias(self._normalize_line(line))
 
     def default(self, line: str) -> None:
         message = line.strip()
@@ -53,6 +53,8 @@ class WorkspaceShell(cmd.Cmd):
             message,
             memory_store=self.memory_store,
             session_id=self.session_id,
+            tone=self.profile.tone,
+            detail_level=self.profile.detail_level,
         )
         print(reply.reply)
         self.prompt = self._render_prompt()
@@ -72,6 +74,11 @@ class WorkspaceShell(cmd.Cmd):
                     "/capture <type>     capture session/incident/decision/daily notes",
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
+                    "/profile [k v]      get or set profile values",
+                    "/alias ...          save, list, or invoke shortcuts",
+                    "/codex <task>       launch codex with the active workspace",
+                    "/claude <task>      launch claude with the active workspace",
+                    "/launches           show recent agent launches",
                     "/exit               exit shell",
                     "",
                     "Free text is treated as a chat message and recorded in memory.",
@@ -185,6 +192,63 @@ class WorkspaceShell(cmd.Cmd):
         if not hits:
             print("No memory entries found.")
 
+    def do_profile(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_profile()
+            return
+        if len(parts) < 2:
+            print("Usage: /profile <key> <value>")
+            return
+        key = parts[0].strip()
+        value = " ".join(parts[1:]).strip()
+        if key not in {"tone", "detail_level", "default_workspace"}:
+            print("Supported keys: tone, detail_level, default_workspace")
+            return
+        save_profile_key(self.memory_store, key, value)
+        self.profile = load_profile(self.memory_store)
+        if key == "default_workspace":
+            self.active_workspace = value or None
+            if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
+                self.active_workspace = None
+        self.prompt = self._render_prompt()
+        print(f"saved profile {key}")
+
+    def do_alias(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_aliases()
+            return
+        if len(parts) == 1:
+            alias = parts[0]
+            command = self.profile.shortcuts.get(alias)
+            if command is None:
+                print("No alias found.")
+                return
+            print(f"{alias}={command}")
+            return
+        alias = parts[0]
+        command = " ".join(parts[1:])
+        save_shortcut(self.memory_store, alias, command)
+        self.profile = load_profile(self.memory_store)
+        print(f"saved alias {alias}")
+
+    def do_codex(self, arg: str) -> None:
+        self._launch_agent("codex", arg)
+
+    def do_claude(self, arg: str) -> None:
+        self._launch_agent("claude", arg)
+
+    def do_launches(self, arg: str) -> None:
+        launches = self.memory_store.recent_launches(limit=10)
+        for launch in launches:
+            print(
+                f"- {launch['agent']} {launch['workspace'] or 'all'}: {launch['task']} "
+                f"({launch['launched_at']})"
+            )
+        if not launches:
+            print("No agent launches found.")
+
     def do_chat(self, arg: str) -> None:
         message = arg.strip()
         if not message:
@@ -195,6 +259,8 @@ class WorkspaceShell(cmd.Cmd):
             message,
             memory_store=self.memory_store,
             session_id=self.session_id,
+            tone=self.profile.tone,
+            detail_level=self.profile.detail_level,
         )
         print(reply.reply)
 
@@ -212,6 +278,64 @@ class WorkspaceShell(cmd.Cmd):
                 f"untracked={status.untracked_count} ahead={status.ahead} behind={status.behind}"
             )
 
+    def _print_profile(self) -> None:
+        print(f"tone={self.profile.tone}")
+        print(f"detail_level={self.profile.detail_level}")
+        print(f"default_workspace={self.profile.default_workspace or ''}")
+
+    def _print_aliases(self) -> None:
+        if not self.profile.shortcuts:
+            print("No aliases saved.")
+            return
+        for name, command in sorted(self.profile.shortcuts.items()):
+            print(f"{name}={command}")
+
+    def _launch_agent(self, agent: str, arg: str) -> None:
+        task = arg.strip()
+        if not task:
+            print(f"Usage: /{agent} <task>")
+            return
+        workspace = self._active_workspace_source()
+        if workspace is None:
+            print("No active workspace selected.")
+            return
+        prompt = self._build_agent_prompt(agent, task)
+        try:
+            pid = launch_agent(
+                agent=agent,
+                workspace_name=workspace.name,
+                task=task,
+                prompt=prompt,
+                workspace_root=workspace.path,
+                memory_store=self.memory_store,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}")
+            return
+        print(f"launched={agent}:{pid}")
+
+    def _build_agent_prompt(self, agent: str, task: str) -> str:
+        return "\n".join(
+            [
+                f"Workspace OS shell delegation for {agent}.",
+                f"Active workspace: {self.active_workspace or 'all'}",
+                f"Tone: {self.profile.tone}",
+                f"Detail level: {self.profile.detail_level}",
+                "Follow ADEV rules and preserve unrelated local changes.",
+                "Use the selected workspace only.",
+                "",
+                "Task:",
+                task,
+            ]
+        )
+
+    def _active_workspace_source(self) -> Source | None:
+        if self.active_workspace:
+            for source in self.sources:
+                if source.name == self.active_workspace:
+                    return source
+        return self.sources[0] if self.sources else None
+
     def _selected_sources(self) -> list[Source]:
         if not self.active_workspace:
             return self.sources
@@ -223,3 +347,15 @@ class WorkspaceShell(cmd.Cmd):
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()
+
+    def _expand_alias(self, line: str) -> str:
+        if not line:
+            return line
+        parts = shlex.split(line)
+        if not parts:
+            return line
+        replacement = self.profile.shortcuts.get(parts[0])
+        if not replacement:
+            return line
+        remainder = " ".join(parts[1:])
+        return f"{replacement} {remainder}".strip()

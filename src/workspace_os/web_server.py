@@ -17,6 +17,7 @@ from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
+from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.validation import validate_workspace, validation_failed
@@ -266,10 +267,21 @@ def _chat_payload(
     if not message:
         return {"ok": False, "error": "Message is required."}
     store = None
+    profile_tone = "neutral"
+    profile_detail = "standard"
     if memory_path is not None:
         store = WorkspaceMemoryStore(memory_path)
         store.ensure_schema()
-    reply = build_workspace_reply(sources, message, memory_store=store)
+        profile = load_profile(store)
+        profile_tone = profile.tone
+        profile_detail = profile.detail_level
+    reply = build_workspace_reply(
+        sources,
+        message,
+        memory_store=store,
+        tone=profile_tone,
+        detail_level=profile_detail,
+    )
     personal_context = _operator_principles_summary(root=workspace_root)
     return {
         "ok": True,

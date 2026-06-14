@@ -56,6 +56,31 @@ class ShellTests(unittest.TestCase):
 
         self.assertIn("source", rendered)
 
+    def test_shell_profile_and_alias_are_persistent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_profile("tone terse")
+                shell.do_profile("detail_level minimal")
+                shell.do_profile("default_workspace source")
+                shell.do_alias("s /status")
+                shell.default("Remember this")
+                expanded = shell.precmd("s")
+                shell.do_launches("")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("saved profile tone", rendered)
+        self.assertIn("Style: terse / minimal", rendered)
+        self.assertEqual("/status", expanded)
+        self.assertEqual("source", shell.active_workspace)
+        self.assertEqual("/status", shell.profile.shortcuts["s"])
+
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
 

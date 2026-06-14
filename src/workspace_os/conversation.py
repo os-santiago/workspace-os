@@ -24,11 +24,15 @@ def build_workspace_reply(
     message: str,
     memory_store: WorkspaceMemoryStore | None = None,
     session_id: str = "default",
+    tone: str = "neutral",
+    detail_level: str = "standard",
 ) -> WorkspaceReply:
     clean_message = message.strip()
     conscience = evaluate_request(clean_message, destination="software")
-    source_matches = search_sources(sources, clean_message, max_results=5)
-    memory_hits = memory_store.search(clean_message, limit=5) if memory_store else []
+    source_limit = _detail_limit(detail_level)
+    memory_limit = _detail_limit(detail_level)
+    source_matches = search_sources(sources, clean_message, max_results=source_limit)
+    memory_hits = memory_store.search(clean_message, limit=memory_limit) if memory_store else []
     learning = _learning_signal(clean_message, memory_hits)
 
     if memory_store:
@@ -43,6 +47,7 @@ def build_workspace_reply(
 
     lines = [
         "Request received.",
+        f"Style: {tone} / {detail_level}",
         "",
         f"Conscience: {conscience.decision} ({conscience.risk_level})",
         f"Strategy: {conscience.response_strategy}",
@@ -94,3 +99,11 @@ def _learning_signal(message: str, memory_hits: list[MemoryHit]) -> dict[str, ob
 
 def _hash_text(value: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
+
+
+def _detail_limit(detail_level: str) -> int:
+    if detail_level == "minimal":
+        return 2
+    if detail_level == "comprehensive":
+        return 8
+    return 5

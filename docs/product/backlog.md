@@ -185,6 +185,8 @@ Initial implementation:
 - Capture and promotion actions are preview-only from the browser.
 - Software delegation can launch an approved Codex or Claude run from the local Git workspace.
 - Document and presentation delegation remain blocked until a real Google Drive connector exists.
+- Shell profile commands remember tone, detail level, default workspace, and shortcut aliases in persistent memory.
+- Shell agent commands launch allowlisted Codex or Claude tasks from the active workspace and record the launch.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 

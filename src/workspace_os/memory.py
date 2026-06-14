@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,12 @@ class WorkspaceMemoryStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS operator_preferences (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS operator_profile (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -80,6 +86,14 @@ class WorkspaceMemoryStore:
                     message TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS agent_launches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent TEXT NOT NULL CHECK(agent IN ('codex', 'claude')),
+                    task TEXT NOT NULL,
+                    workspace TEXT,
+                    launched_at TEXT NOT NULL
+                );
                 """
             )
             conn.execute("DELETE FROM schema_version")
@@ -104,6 +118,28 @@ class WorkspaceMemoryStore:
         with self._connection() as conn:
             row = conn.execute(
                 "SELECT value FROM operator_preferences WHERE key = ?",
+                (key.strip(),),
+            ).fetchone()
+            return str(row["value"]) if row else None
+
+    def set_profile_key(self, key: str, value: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO operator_profile (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key.strip(), value.strip(), _utc_now()),
+            )
+            conn.commit()
+
+    def get_profile_key(self, key: str) -> str | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM operator_profile WHERE key = ?",
                 (key.strip(),),
             ).fetchone()
             return str(row["value"]) if row else None
@@ -181,6 +217,38 @@ class WorkspaceMemoryStore:
             )
             conn.commit()
 
+    def record_agent_launch(self, agent: str, task: str, workspace: str | None) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_launches (agent, task, workspace, launched_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (agent.strip(), task.strip(), workspace.strip() if workspace else None, _utc_now()),
+            )
+            conn.commit()
+
+    def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT agent, task, workspace, launched_at
+                FROM agent_launches
+                ORDER BY launched_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "agent": str(row["agent"]),
+                    "task": str(row["task"]),
+                    "workspace": row["workspace"],
+                    "launched_at": str(row["launched_at"]),
+                }
+                for row in rows
+            ]
+
     def search(self, query: str, limit: int = 8) -> list[MemoryHit]:
         needle = f"%{query.strip()}%"
         if not query.strip():
@@ -249,10 +317,12 @@ class WorkspaceMemoryStore:
             counts = {}
             for table in (
                 "operator_preferences",
+                "operator_profile",
                 "task_outcomes",
                 "reusable_lessons",
                 "decision_log",
                 "conversation_turns",
+                "agent_launches",
             ):
                 row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
                 counts[table] = int(row["count"]) if row else 0
