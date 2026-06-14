@@ -44,6 +44,7 @@ Interprets requests before routing them to execution.
 
 Workspace OS implements this concept as the Operational Conscience Layer defined in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
 The request bridge pipeline is further specified in `docs/architecture/decisions/0004-request-bridge-pipeline.md`.
+The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 
 Initial scope:
 - Convert raw operator requests into explicit intent, context, domain, risk, and checkpoint expectations.

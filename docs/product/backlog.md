@@ -234,6 +234,7 @@ Initial implementation:
 - Launch decisions return risk level, moral categories, applicable norms, policy refs, context, decision, strategy, rationale, review requirement, and missing context.
 - Ambiguous requests can return `SAFE_REDIRECT` so the system can route them to Codex first and Claude as a parallel cross-check.
 - The web chat exposes redirect routes as launchable actions for ambiguous requests.
+- The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 - Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.
 - Google Workspace destinations remain blocked until a real connector exists.
 - The web UI exposes a chat-first workspace with engine activation indicators and recent local software and document activity.

@@ -74,14 +74,18 @@ Identifies whether a request has ethical, privacy, legal, safety, or third-party
 
 ### Normative Reasoning
 
-Retrieves and orders the norms that apply to the request.
+Retrieves and orders the norms that apply to the request from versioned policy documents.
 
 Initial normative sources:
 
-- ADEV doctrine.
-- scanales-kb lessons.
-- Workspace OS operating rules.
-- future domain or jurisdiction rules when explicitly added.
+- `docs/architecture/policies/global-safety.md`
+- `docs/architecture/policies/orchestration.md`
+- `docs/architecture/policies/security.md`
+- `docs/architecture/policies/privacy.md`
+- `docs/architecture/policies/legal.md`
+- `docs/architecture/policies/finance.md`
+- `docs/architecture/policies/deliverables.md`
+- ADEV doctrine and scanales-kb lessons as supporting context.
 
 ### Consequence and Risk Evaluation
 

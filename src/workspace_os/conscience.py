@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 import re
 
 from workspace_os.sanitization import sanitize_text
@@ -96,6 +98,13 @@ class NormativeAnalysis:
 
 
 @dataclass(frozen=True)
+class PolicyDocument:
+    ref: str
+    title: str
+    norms: list[str]
+
+
+@dataclass(frozen=True)
 class ConscienceDecision:
     risk_level: str
     moral_categories: list[str]
@@ -164,18 +173,9 @@ def analyze_request_context(task: str, brief: str = "", destination: str = "soft
 
 
 def resolve_normative_analysis(context: RequestContext, destination: str = "software") -> NormativeAnalysis:
-    applicable_norms = [
-        "ADEV: protect sensitive data and avoid unsafe execution.",
-        "ADEV: preserve unrelated local changes.",
-        "scanales-kb: use prior lessons before acting.",
-        "Workspace OS: prefer helpful redirection over generic refusal when safe.",
-    ]
-    policy_refs = [
-        "adev.safety",
-        "adev.workspace-housekeeping",
-        "scanales-kb.prior-lessons",
-        "workspace.os.orchestration",
-    ]
+    policy_documents = _policy_documents_for_context(context, destination)
+    applicable_norms = [norm for document in policy_documents for norm in document.norms]
+    policy_refs = [document.ref for document in policy_documents]
     conflicts: list[str] = []
     priority = "helpfulness_with_safety"
 
@@ -327,6 +327,83 @@ def _contains_any(value: str, patterns: tuple[str, ...]) -> bool:
     return any(pattern in value for pattern in patterns)
 
 
+def _policy_root() -> Path:
+    return Path(__file__).resolve().parents[2] / "docs" / "architecture" / "policies"
+
+
+@lru_cache(maxsize=1)
+def _policy_documents() -> tuple[PolicyDocument, ...]:
+    root = _policy_root()
+    if not root.exists():
+        return ()
+    documents: list[PolicyDocument] = []
+    for path in sorted(root.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        document = _parse_policy_document(path.stem, text)
+        if document is not None:
+            documents.append(document)
+    return tuple(documents)
+
+
+def _policy_documents_for_context(context: RequestContext, destination: str = "software") -> list[PolicyDocument]:
+    selected = []
+    by_ref = {document.ref: document for document in _policy_documents()}
+
+    for ref in (
+        "workspace.policy.global-safety",
+        "workspace.policy.orchestration",
+        _domain_policy_ref(context.domain, destination),
+    ):
+        document = by_ref.get(ref)
+        if document is not None and document not in selected:
+            selected.append(document)
+
+    if not selected:
+        return [
+            PolicyDocument(
+                ref="workspace.policy.fallback",
+                title="Fallback workspace policy",
+                norms=[
+                    "ADEV: protect sensitive data and avoid unsafe execution.",
+                    "ADEV: preserve unrelated local changes.",
+                    "scanales-kb: use prior lessons before acting.",
+                ],
+            )
+        ]
+    return selected
+
+
+def _domain_policy_ref(domain: str, destination: str = "software") -> str:
+    if destination != "software":
+        return "workspace.policy.deliverables"
+    if domain == "security":
+        return "workspace.policy.security"
+    if domain == "privacy":
+        return "workspace.policy.privacy"
+    if domain == "legal":
+        return "workspace.policy.legal"
+    if domain == "finance":
+        return "workspace.policy.finance"
+    return "workspace.policy.orchestration"
+
+
+def _parse_policy_document(stem: str, text: str) -> PolicyDocument | None:
+    lines = [line.strip() for line in text.splitlines()]
+    title = stem.replace("_", " ").replace("-", " ").title()
+    ref = f"workspace.policy.{stem.replace('_', '-').replace(' ', '-')}"
+    norms: list[str] = []
+    for line in lines:
+        if line.startswith("policy_ref:"):
+            ref = line.split(":", 1)[1].strip()
+        elif line.startswith("# "):
+            title = line[2:].strip()
+        elif line.startswith("- "):
+            norms.append(line[2:].strip())
+    if not norms:
+        return None
+    return PolicyDocument(ref=ref, title=title, norms=norms)
+
+
 def _infer_user_intent(text: str) -> str:
     if any(marker in text for marker in ("how do i", "how to", "explíc", "explic", "why", "what is", "what does")):
         return "educational"
@@ -342,7 +419,7 @@ def _infer_user_intent(text: str) -> str:
 def _infer_domain(text: str, destination: str = "software") -> str:
     if destination != "software":
         return "deliverable"
-    if _contains_any(text, ("password", "token", "credential", "security", "auth", "permission")):
+    if _contains_any(text, ("password", "token", "secret", "credential", "security", "auth", "permission")):
         return "security"
     if _contains_any(text, ("payment", "invoice", "budget", "billing", "finance")):
         return "finance"

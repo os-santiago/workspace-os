@@ -26,6 +26,7 @@ class ConscienceTests(unittest.TestCase):
         self.assertEqual(ALLOW_WITH_LIMITS, decision.decision)
         self.assertEqual("medium", decision.risk_level)
         self.assertTrue(decision.allows_execution())
+        self.assertIn("workspace.policy.security", decision.policy_refs)
 
     def test_requests_clarification_for_authority_sensitive_work(self):
         decision = evaluate_request("Deploy this change to production.")
@@ -54,6 +55,8 @@ class ConscienceTests(unittest.TestCase):
         self.assertEqual(SAFE_REDIRECT, decision.decision)
         self.assertEqual("redirect_to_codex_then_claude", decision.response_strategy)
         self.assertIn("workspace.redirect.ambiguity", decision.policy_refs)
+        self.assertIn("workspace.policy.global-safety", decision.policy_refs)
+        self.assertIn("workspace.policy.orchestration", decision.policy_refs)
         self.assertIn("ambiguous_intent", decision.moral_categories)
 
     def test_context_analysis_captures_ambiguity_and_domain(self):
