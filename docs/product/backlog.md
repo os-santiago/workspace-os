@@ -195,6 +195,8 @@ Initial implementation:
 - A read-only `inspect` surface condenses source status, memory, profile, habits, active process, active batch, and recent launches into one operator-facing summary.
 - `inspect --compact` trims the overview into summary lines for lower-noise supervision.
 - A concise `handoff` surface turns the current workspace state into a copyable closing summary for iteration wrap-up.
+- `context latest` replays the most recent compacted global context snapshot directly from memory, while `context <topic>` still builds a governed task pack.
+- The interactive chat CLI opens by showing the latest compacted global context snapshot before prompting for input so the operator starts from shared state.
 - `handoff` can export Markdown to a file from the CLI and shell so the closing summary can be archived or pasted elsewhere without copying.
 - `batch handoff` and `process handoff` export scoped closing summaries for the active batch or process, including optional `--output` and `--compact` modes.
 - `batch stop` and `process stop` write a default `handoff.md` beside the local memory store and a `context-global.md` snapshot so completed windows leave both a closing artifact and compacted durable context automatically, and shell exit also persists the latest context snapshot.

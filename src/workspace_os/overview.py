@@ -233,6 +233,13 @@ def write_workspace_context_snapshot(
     return snapshot
 
 
+def render_latest_workspace_context_text(memory_store: WorkspaceMemoryStore) -> str:
+    snapshot = memory_store.latest_context_snapshot()
+    if snapshot is None:
+        return "No context snapshot found.\n"
+    return f"{snapshot['markdown'].rstrip()}\n"
+
+
 def render_workspace_handoff_text(
     sources,
     memory_store: WorkspaceMemoryStore,

@@ -15,7 +15,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -86,6 +86,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/status             show active workspace status",
                     "/search <query>     search configured sources",
                     "/context <topic>    build governed context pack",
+                    "/context latest     show the latest compacted global context snapshot",
                     "/classify <text>    classify content destination",
                     "/validate           validate workspace health",
                     "/capture <type>     capture session/incident/decision/daily notes",
@@ -155,6 +156,9 @@ class WorkspaceShell(cmd.Cmd):
         topic = arg.strip()
         if not topic:
             print("Usage: /context <topic>")
+            return
+        if topic.casefold() == "latest":
+            print(render_latest_workspace_context_text(self.memory_store), end="")
             return
         pack = build_context_pack(
             sources=self.sources,

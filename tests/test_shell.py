@@ -7,6 +7,7 @@ import unittest
 
 from workspace_os.config import Source
 from workspace_os.shell import WorkspaceShell
+from workspace_os.overview import build_workspace_context_snapshot
 
 
 class ShellTests(unittest.TestCase):
@@ -254,6 +255,26 @@ class ShellTests(unittest.TestCase):
 
             self.assertTrue(should_exit)
             self.assertTrue((root / "context-global.md").exists())
+
+    def test_shell_context_latest_renders_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+            snapshot = build_workspace_context_snapshot([Source("source", "product", "Product.", source_root)], shell.memory_store, workspace="source", reason="shell-test")
+            shell.memory_store.record_context_snapshot("global", "shell-test", snapshot.summary_lines[0], snapshot.render())
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_context("latest")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("Workspace context snapshot:", rendered)
+        self.assertIn("shell-test", rendered)
+        self.assertIn("State:", rendered)
+        self.assertIn("Next:", rendered)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

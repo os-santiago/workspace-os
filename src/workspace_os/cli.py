@@ -13,7 +13,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -333,6 +333,11 @@ def _context(
     max_matches: int,
     max_doctrine_lines: int,
 ) -> int:
+    if topic.casefold() == "latest":
+        store = WorkspaceMemoryStore(memory_path)
+        store.ensure_schema()
+        print(render_latest_workspace_context_text(store), end="")
+        return 0
     pack = build_context_pack(
         sources=sources,
         topic=topic,
@@ -427,6 +432,7 @@ def _chat(sources: list[Source], memory_path: Path, message: str | None, session
         return 0
 
     print("Workspace OS chat. Type `exit` to leave.")
+    print(render_latest_workspace_context_text(store), end="")
     while True:
         try:
             prompt = input("> ").strip()
