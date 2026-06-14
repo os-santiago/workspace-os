@@ -87,4 +87,4 @@ python -m workspace_os --config config/workspace.sources.example.json validate -
 
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
 
-Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
+Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.

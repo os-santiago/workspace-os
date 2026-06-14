@@ -49,6 +49,8 @@ class ShellTests(unittest.TestCase):
             self._init_git_repo(source_root)
             shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
 
+            self.assertIn("Habits:", shell.intro)
+
             with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_workspaces("")
 
@@ -70,6 +72,7 @@ class ShellTests(unittest.TestCase):
                 shell.do_profile("default_workspace source")
                 shell.do_alias("s /status")
                 shell.default("Remember this")
+                shell.do_habits("")
                 expanded = shell.precmd("s")
                 shell.do_launches("")
 
@@ -77,6 +80,7 @@ class ShellTests(unittest.TestCase):
 
         self.assertIn("saved profile tone", rendered)
         self.assertIn("Style: terse / minimal", rendered)
+        self.assertIn("Operator habits", rendered)
         self.assertEqual("/status", expanded)
         self.assertEqual("source", shell.active_workspace)
         self.assertEqual("/status", shell.profile.shortcuts["s"])

@@ -11,6 +11,7 @@ from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
+from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
@@ -29,10 +30,15 @@ class WorkspaceShell(cmd.Cmd):
         self.memory_store = WorkspaceMemoryStore(memory_path)
         self.memory_store.ensure_schema()
         self.profile = load_profile(self.memory_store)
+        self.habits = compute_habits(self.memory_store, self.profile)
         self.session_id = session_id
         self.active_workspace: str | None = self.profile.default_workspace
         if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
             self.active_workspace = None
+        self.intro = (
+            f"Workspace OS shell. {self.habits.render_summary()}\n"
+            "Type /help for commands, /exit to leave."
+        )
         self.prompt = self._render_prompt()
 
     def parseline(self, line: str):
@@ -57,6 +63,7 @@ class WorkspaceShell(cmd.Cmd):
             detail_level=self.profile.detail_level,
         )
         print(reply.reply)
+        self.habits = compute_habits(self.memory_store, self.profile)
         self.prompt = self._render_prompt()
 
     def do_help(self, arg: str) -> None:
@@ -75,6 +82,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
                     "/profile [k v]      get or set profile values",
+                    "/habits             show inferred operator habits",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
@@ -207,6 +215,7 @@ class WorkspaceShell(cmd.Cmd):
             return
         save_profile_key(self.memory_store, key, value)
         self.profile = load_profile(self.memory_store)
+        self.habits = compute_habits(self.memory_store, self.profile)
         if key == "default_workspace":
             self.active_workspace = value or None
             if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
@@ -231,7 +240,12 @@ class WorkspaceShell(cmd.Cmd):
         command = " ".join(parts[1:])
         save_shortcut(self.memory_store, alias, command)
         self.profile = load_profile(self.memory_store)
+        self.habits = compute_habits(self.memory_store, self.profile)
         print(f"saved alias {alias}")
+
+    def do_habits(self, arg: str) -> None:
+        habits = compute_habits(self.memory_store, self.profile)
+        print(habits.render_full(), end="")
 
     def do_codex(self, arg: str) -> None:
         self._launch_agent("codex", arg)
@@ -263,6 +277,7 @@ class WorkspaceShell(cmd.Cmd):
             detail_level=self.profile.detail_level,
         )
         print(reply.reply)
+        self.habits = compute_habits(self.memory_store, self.profile)
 
     def _print_workspaces(self) -> None:
         for source in self.sources:
@@ -312,6 +327,7 @@ class WorkspaceShell(cmd.Cmd):
         except (OSError, ValueError) as exc:
             print(f"error: {exc}")
             return
+        self.habits = compute_habits(self.memory_store, self.profile)
         print(f"launched={agent}:{pid}")
 
     def _build_agent_prompt(self, agent: str, task: str) -> str:

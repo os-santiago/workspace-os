@@ -249,6 +249,52 @@ class WorkspaceMemoryStore:
                 for row in rows
             ]
 
+    def task_outcome_metrics(self, limit: int | None = None) -> list[dict[str, int | str]]:
+        query = """
+                SELECT
+                    task_type,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+                    SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count
+                FROM task_outcomes
+                GROUP BY task_type
+                ORDER BY total DESC, task_type ASC
+                """
+        params: tuple[object, ...] = ()
+        if limit is not None:
+            query += "\n                LIMIT ?"
+            params = (limit,)
+        with self._connection() as conn:
+            rows = conn.execute(query, params)
+            return [
+                {
+                    "task_type": str(row["task_type"]),
+                    "total": int(row["total"]),
+                    "success_count": int(row["success_count"] or 0),
+                    "failure_count": int(row["failure_count"] or 0),
+                    "partial_count": int(row["partial_count"] or 0),
+                }
+                for row in rows
+            ]
+
+    def decision_metrics(self) -> list[dict[str, str]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT risk_level, missing_context
+                FROM decision_log
+                ORDER BY created_at DESC, id DESC
+                """
+            )
+            return [
+                {
+                    "risk_level": str(row["risk_level"]),
+                    "missing_context": str(row["missing_context"]),
+                }
+                for row in rows
+            ]
+
     def search(self, query: str, limit: int = 8) -> list[MemoryHit]:
         needle = f"%{query.strip()}%"
         if not query.strip():
