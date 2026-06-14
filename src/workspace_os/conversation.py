@@ -6,6 +6,7 @@ from hashlib import sha256
 from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
+from workspace_os.git_status import inspect_source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -47,40 +48,22 @@ def build_workspace_reply(
             missing_context=conscience.missing_context,
         )
 
-    lines = [
-        "Request received.",
+    answer_lines = _answer_lines(clean_message, sources, memory_store)
+    trace_lines = [
         f"Style: {tone} / {detail_level}",
-        "",
         f"Conscience: {conscience.decision} ({conscience.risk_level})",
         f"Strategy: {conscience.response_strategy}",
         f"Rationale: {conscience.rationale}",
-        "",
         f"Learning engine: {'activated' if learning['activated'] else 'standby'}",
         learning["summary"],
     ]
-
-    if memory_store and _is_workspace_status_query(clean_message):
-        lines.extend(["", *_workspace_status_lines(memory_store)])
-
-    if memory_hits:
-        lines.extend(["", "Memory signals:"])
-        lines.extend([hit.render() for hit in memory_hits[:3]])
-
-    if source_matches:
-        lines.extend(["", "Related knowledge:"])
-        lines.extend(
-            [
-                f"- {match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}"
-                for match in source_matches[:3]
-            ]
-        )
 
     if memory_store:
         process = current_process_report(memory_store)
         batch = current_batch_report(memory_store)
         context = memory_store.latest_context_snapshot()
         if context is not None:
-            lines.extend(
+            trace_lines.extend(
                 [
                     "",
                     "Global context:",
@@ -89,7 +72,7 @@ def build_workspace_reply(
                 ]
             )
         if process is not None:
-            lines.extend(
+            trace_lines.extend(
                 [
                     "",
                     "Active process:",
@@ -97,7 +80,7 @@ def build_workspace_reply(
                 ]
             )
         if batch is not None:
-            lines.extend(
+            trace_lines.extend(
                 [
                     "",
                     "Active batch:",
@@ -105,7 +88,20 @@ def build_workspace_reply(
                 ]
             )
 
-    reply = sanitize_text("\n".join(lines))
+    if memory_hits:
+        trace_lines.extend(["", "Memory signals:"])
+        trace_lines.extend([hit.render() for hit in memory_hits[:3]])
+
+    if source_matches:
+        trace_lines.extend(["", "Related knowledge:"])
+        trace_lines.extend(
+            [
+                f"- {match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}"
+                for match in source_matches[:3]
+            ]
+        )
+
+    reply = sanitize_text("\n".join(["Answer:", *answer_lines, "", "Trace:", *trace_lines]))
 
     if memory_store:
         memory_store.record_turn(session_id=session_id, role="assistant", message=reply)
@@ -164,10 +160,10 @@ def _is_workspace_status_query(message: str) -> bool:
 
 
 def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
-    profile = load_profile(memory_store)
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     launches = memory_store.recent_launches(limit=3)
+    profile = load_profile(memory_store)
     workspace_name = profile.default_workspace or "all workspaces"
     codex_prompt = (
         f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
@@ -208,6 +204,74 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     else:
         lines.append(f"- next step={_next_step(process, batch)}")
     return lines
+
+
+def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMemoryStore | None) -> list[str]:
+    if memory_store and _is_workspace_status_query(message):
+        return _workspace_status_answer_lines(sources, memory_store)
+    return [
+        "I can help with that.",
+        "If you want the current workspace inventory, ask 'what projects are in flight?' and I will route it through the tracked repos.",
+    ]
+
+
+def _workspace_status_answer_lines(sources: list[Source], memory_store: WorkspaceMemoryStore) -> list[str]:
+    profile = load_profile(memory_store)
+    process = current_process_report(memory_store)
+    batch = current_batch_report(memory_store)
+    launches = memory_store.recent_launches(limit=3)
+    lines: list[str] = []
+    lines.append("Tracked projects:")
+    for source in sources:
+        status = inspect_source(source)
+        branch = status.branch or "n/a"
+        if status.state == "missing":
+            detail = f"missing path={source.path}"
+        elif status.state == "not-git":
+            detail = f"not-git path={source.path}"
+        elif status.state == "error":
+            detail = f"error={status.error}"
+        else:
+            detail = f"branch={branch} changes={status.dirty_count} untracked={status.untracked_count}"
+            if status.ahead or status.behind:
+                detail += f" ahead={status.ahead} behind={status.behind}"
+        lines.append(f"- {source.name}: {detail}")
+
+    if process is None and batch is None:
+        lines.extend(
+            [
+                "No active process or batch window is tracked.",
+                "Primary route=/codex",
+                "Use Codex to inventory the workspace and summarize active work.",
+                f"Suggested command: /codex \"{_codex_inventory_prompt(profile.default_workspace or 'all workspaces')}\"",
+                "Fallback route=/claude",
+                "Use Claude in parallel to cross-check the inventory and fill gaps.",
+                f"Suggested command: /claude \"{_claude_cross_check_prompt(profile.default_workspace or 'all workspaces')}\"",
+            ]
+        )
+    else:
+        lines.append(f"Next step: {_next_step(process, batch)}")
+
+    if launches:
+        lines.append("Recent launches:")
+        for launch in launches:
+            workspace = launch["workspace"] or "all"
+            lines.append(f"- {launch['agent']} {workspace}: {launch['task']}")
+    return lines
+
+
+def _codex_inventory_prompt(workspace_name: str) -> str:
+    return (
+        f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
+        "active branches, blockers, and the next best action."
+    )
+
+
+def _claude_cross_check_prompt(workspace_name: str) -> str:
+    return (
+        f"Cross-check the workspace inventory for {workspace_name}; confirm any active work, "
+        "identify gaps, and suggest the fastest next step."
+    )
 
 
 def _next_step(process, batch) -> str:

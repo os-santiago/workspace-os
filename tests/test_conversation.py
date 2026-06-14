@@ -32,6 +32,8 @@ class ConversationTests(unittest.TestCase):
         self.assertTrue(reply.conscience.allows_execution())
         self.assertTrue(any(hit.kind == "preference" for hit in reply.memory_hits))
         self.assertEqual(2, stats["conversation_turns"])
+        self.assertIn("Answer:", reply.reply)
+        self.assertIn("Trace:", reply.reply)
 
     def test_workspace_reply_includes_active_batch_summary(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -50,6 +52,7 @@ class ConversationTests(unittest.TestCase):
                 session_id="session-1",
             )
 
+        self.assertIn("Trace:", reply.reply)
         self.assertIn("Active batch:", reply.reply)
         self.assertIn("batch-1", reply.reply)
 
@@ -70,6 +73,7 @@ class ConversationTests(unittest.TestCase):
                 session_id="session-1",
             )
 
+        self.assertIn("Trace:", reply.reply)
         self.assertIn("Active process:", reply.reply)
         self.assertIn("process-1", reply.reply)
 
@@ -90,6 +94,7 @@ class ConversationTests(unittest.TestCase):
                 session_id="session-1",
             )
 
+        self.assertIn("Trace:", reply.reply)
         self.assertIn("Global context:", reply.reply)
         self.assertIn("shell-exit", reply.reply)
         self.assertIn("compact context", reply.reply)
@@ -113,10 +118,12 @@ class ConversationTests(unittest.TestCase):
                 session_id="session-1",
             )
 
-        self.assertIn("Projects in flight:", reply.reply)
+        self.assertIn("Answer:", reply.reply)
+        self.assertIn("Trace:", reply.reply)
+        self.assertIn("Tracked projects:", reply.reply)
         self.assertIn("process-1", reply.reply)
         self.assertIn("batch-1", reply.reply)
-        self.assertIn("next step=", reply.reply)
+        self.assertIn("Next step:", reply.reply)
         self.assertIn("codex", reply.reply)
 
     def test_workspace_reply_routes_ambiguous_status_to_codex_and_claude(self):
@@ -135,10 +142,12 @@ class ConversationTests(unittest.TestCase):
                 session_id="session-1",
             )
 
-        self.assertIn("Projects in flight:", reply.reply)
-        self.assertIn("primary route=/codex", reply.reply)
-        self.assertIn("fallback route=/claude", reply.reply)
-        self.assertIn("codex prompt=", reply.reply)
+        self.assertIn("Answer:", reply.reply)
+        self.assertIn("Trace:", reply.reply)
+        self.assertIn("Primary route=/codex", reply.reply)
+        self.assertIn("Fallback route=/claude", reply.reply)
+        self.assertIn("Suggested command: /codex", reply.reply)
+        self.assertIn("Suggested command: /claude", reply.reply)
         self.assertNotIn("start a new process window before the next batch", reply.reply)
 
 
