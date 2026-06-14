@@ -6,9 +6,12 @@ const state = {
   contextCount: 0,
   handoffCount: 0,
   chatContextExpanded: false,
+  conscienceExpanded: false,
+  latestConscience: null,
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
+const CONSCIENCE_STORAGE_KEY = "workspace-os.conscience-expanded";
 
 const getJson = async (url) => {
   const response = await fetch(url, { cache: "no-store" });
@@ -132,6 +135,42 @@ const renderContextSnapshot = (data) => {
   renderContext(data, "#chatContextOutput", state.chatContextExpanded);
 };
 
+const renderConscience = (data = null) => {
+  const output = qs("#conscienceOutput");
+  if (!data) {
+    output.textContent = "Waiting for a conscience decision...";
+    return;
+  }
+  state.latestConscience = data;
+  const lines = [
+    `Decision: ${data.decision || "n/a"}`,
+    `Risk: ${data.risk_level || "n/a"}`,
+    `Strategy: ${data.response_strategy || "n/a"}`,
+    `Policy refs: ${(data.policy_refs || []).join(", ") || "n/a"}`,
+    "",
+    `Context:`,
+    `- intent=${data.context?.user_intent || "n/a"}`,
+    `- domain=${data.context?.domain || "n/a"}`,
+    `- reversibility=${data.context?.reversibility || "n/a"}`,
+    `- salience=${data.context?.moral_salience || "n/a"}`,
+  ];
+  if (state.conscienceExpanded) {
+    lines.push(
+      "",
+      "Applicable norms:",
+      ...((data.applicable_norms || []).map((norm) => `- ${norm}`)),
+      "",
+      "Missing context:",
+      ...((data.missing_context || []).map((value) => `- ${value}`)),
+    );
+  }
+  output.textContent = lines.join("\n");
+  qs("#conscienceToggle").textContent = state.conscienceExpanded ? "Collapse" : "Expand";
+  qs(".conscience-section").classList.toggle("is-collapsed", !state.conscienceExpanded);
+  qs(".conscience-section").classList.toggle("is-expanded", state.conscienceExpanded);
+  qs("#conscienceIndicator").textContent = `Conscience ${state.conscienceCount}`;
+};
+
 const loadSidebar = async () => {
   const [software, docs] = await Promise.all([
     getJson("/api/recent-software"),
@@ -159,9 +198,25 @@ const readChatContextPreference = () => {
   }
 };
 
+const readConsciencePreference = () => {
+  try {
+    return window.localStorage.getItem(CONSCIENCE_STORAGE_KEY) === "expanded";
+  } catch {
+    return false;
+  }
+};
+
 const saveChatContextPreference = (expanded) => {
   try {
     window.localStorage.setItem(CHAT_CONTEXT_STORAGE_KEY, expanded ? "expanded" : "collapsed");
+  } catch {
+    return;
+  }
+};
+
+const saveConsciencePreference = (expanded) => {
+  try {
+    window.localStorage.setItem(CONSCIENCE_STORAGE_KEY, expanded ? "expanded" : "collapsed");
   } catch {
     return;
   }
@@ -184,6 +239,23 @@ const toggleChatContext = () => {
   loadContext().catch((error) => {
     qs("#chatContextOutput").textContent = error.message;
   });
+};
+
+const setConscienceExpanded = (expanded, persist = true) => {
+  state.conscienceExpanded = expanded;
+  const section = qs(".conscience-section");
+  const button = qs("#conscienceToggle");
+  section.classList.toggle("is-expanded", state.conscienceExpanded);
+  section.classList.toggle("is-collapsed", !state.conscienceExpanded);
+  button.textContent = state.conscienceExpanded ? "Collapse" : "Expand";
+  if (persist) {
+    saveConsciencePreference(state.conscienceExpanded);
+  }
+  renderConscience(state.latestConscience);
+};
+
+const toggleConscience = () => {
+  setConscienceExpanded(!state.conscienceExpanded);
 };
 
 const bindChat = () => {
@@ -217,6 +289,7 @@ const bindChat = () => {
       });
     }
     if (data.conscience) {
+      renderConscience(data.conscience);
       const details = [
         `Decision: ${data.conscience.decision}`,
         `Risk: ${data.conscience.risk_level}`,
@@ -263,6 +336,10 @@ const init = async () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
   });
   qs("#chatContextToggle").addEventListener("click", toggleChatContext);
+  qs("#conscienceToggle").addEventListener("click", toggleConscience);
+  qs("#conscienceRefresh").addEventListener("click", () => {
+    renderConscience(state.latestConscience);
+  });
   qs("#chatContextRefresh").addEventListener("click", async () => {
     qs("#chatContextOutput").textContent = "Loading context...";
     try {
@@ -292,8 +369,10 @@ const init = async () => {
   });
   await loadSidebar();
   setChatContextExpanded(readChatContextPreference(), false);
+  setConscienceExpanded(readConsciencePreference(), false);
   await loadContext();
   await loadHandoff();
+  renderConscience(null);
 };
 
 init().catch((error) => {

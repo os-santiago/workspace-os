@@ -297,6 +297,10 @@ textarea {
   font-size: 0.8rem;
 }
 
+.handoff-section.is-collapsed .handoff-body {
+  display: none;
+}
+
 .handoff-output {
   margin: 0;
   padding: 0.7rem;

@@ -77,6 +77,7 @@ class RequestContext:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "intent": self.user_intent,
             "user_intent": self.user_intent,
             "domain": self.domain,
             "affected_parties": self.affected_parties,

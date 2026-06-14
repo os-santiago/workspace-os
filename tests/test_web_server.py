@@ -50,6 +50,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("handoffDownload", index)
         self.assertIn("contextRefresh", index)
         self.assertIn("contextOutput", index)
+        self.assertIn("conscienceToggle", index)
+        self.assertIn("conscienceRefresh", index)
+        self.assertIn("conscienceOutput", index)
         self.assertIn("chatContextToggle", index)
         self.assertIn("chatContextRefresh", index)
         self.assertIn("chatContextOutput", index)
@@ -58,6 +61,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("scrollChatToBottom", app)
         self.assertIn("data.context_snapshot", app)
         self.assertIn("suggested_actions", app)
+        self.assertIn("latestConscience", app)
+        self.assertIn("conscienceExpanded", app)
+        self.assertIn("workspace-os.conscience-expanded", app)
         self.assertIn("chatContextExpanded", app)
         self.assertIn("workspace-os.chat-context-expanded", app)
         self.assertIn("localStorage", app)
@@ -274,6 +280,8 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(2, len(result["suggested_actions"]))
         self.assertEqual("codex", result["suggested_actions"][0]["agent"])
         self.assertEqual("claude", result["suggested_actions"][1]["agent"])
+        self.assertIn("workspace.policy.global-safety", result["conscience"]["policy_refs"])
+        self.assertIn("intent", result["conscience"]["context"])
 
     def test_chat_payload_includes_context_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
