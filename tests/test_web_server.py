@@ -40,10 +40,14 @@ Batch 02 [NEXT] Web pilot
 
     def test_web_assets_include_handoff_panel(self):
         index = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+        app = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("handoffRefresh", index)
         self.assertIn("handoffOutput", index)
         self.assertIn("handoffDownload", index)
+        self.assertIn("requestSubmit", app)
+        self.assertIn("shiftKey", app)
+        self.assertIn("scrollChatToBottom", app)
 
     def test_capture_preview_returns_source_relative_target(self):
         with tempfile.TemporaryDirectory() as directory:

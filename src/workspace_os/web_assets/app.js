@@ -29,6 +29,11 @@ const updateIndicators = (learningActivated = false) => {
   qs("#learningIndicator").textContent = `Learning ${state.learningCount}`;
 };
 
+const scrollChatToBottom = () => {
+  const stream = qs("#chatStream");
+  stream.scrollTop = stream.scrollHeight;
+};
+
 const appendMessage = (role, text, details = "") => {
   const item = document.createElement("article");
   item.className = `message ${role}-message`;
@@ -38,7 +43,7 @@ const appendMessage = (role, text, details = "") => {
     ${details ? `<pre>${escapeHtml(details)}</pre>` : ""}
   `;
   qs("#chatStream").appendChild(item);
-  item.scrollIntoView({ block: "end" });
+  scrollChatToBottom();
 };
 
 const renderRail = (selector, data, emptyText) => {
@@ -85,9 +90,15 @@ const loadHandoff = async () => {
 };
 
 const bindChat = () => {
+  const input = qs("#chatInput");
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    qs("#chatForm").requestSubmit();
+  });
+
   qs("#chatForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const input = qs("#chatInput");
     const message = input.value.trim();
     if (!message) return;
     appendMessage("user", message);
@@ -97,6 +108,7 @@ const bindChat = () => {
     const last = qs("#chatStream").lastElementChild;
     if (!data.ok) {
       last.querySelector("p").textContent = data.error;
+      scrollChatToBottom();
       return;
     }
     updateIndicators(Boolean(data.learning && data.learning.activated));
@@ -111,6 +123,7 @@ const bindChat = () => {
       detailBlock.textContent = details;
       last.appendChild(detailBlock);
     }
+    scrollChatToBottom();
   });
 };
 
