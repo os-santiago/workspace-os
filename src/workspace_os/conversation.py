@@ -20,6 +20,7 @@ class WorkspaceReply:
     learning: dict[str, object]
     source_matches: list[SearchMatch]
     memory_hits: list[MemoryHit]
+    suggested_actions: list[dict[str, str]]
 
 
 def build_workspace_reply(
@@ -49,6 +50,9 @@ def build_workspace_reply(
         )
 
     answer_lines = _answer_lines(clean_message, sources, memory_store)
+    suggested_actions = _suggested_actions(clean_message, conscience, memory_store)
+    if suggested_actions:
+        answer_lines.extend(_redirect_guidance_lines(suggested_actions))
     trace_lines = [
         f"Style: {tone} / {detail_level}",
         f"Conscience: {conscience.decision} ({conscience.risk_level})",
@@ -122,6 +126,7 @@ def build_workspace_reply(
         learning=learning,
         source_matches=source_matches,
         memory_hits=memory_hits,
+        suggested_actions=suggested_actions,
     )
 
 
@@ -249,6 +254,42 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
         )
     else:
         lines.append(f"- next step={_next_step(process, batch)}")
+    return lines
+
+
+def _suggested_actions(message: str, conscience: ConscienceDecision, memory_store: WorkspaceMemoryStore | None) -> list[dict[str, str]]:
+    if conscience.decision != "SAFE_REDIRECT":
+        return []
+    if _is_workspace_status_query(message):
+        return []
+    profile = load_profile(memory_store) if memory_store else None
+    workspace_name = "all workspaces"
+    if profile and profile.default_workspace:
+        workspace_name = profile.default_workspace
+    codex_task = _codex_inventory_prompt(workspace_name)
+    claude_task = _claude_cross_check_prompt(workspace_name)
+    return [
+        {
+            "agent": "codex",
+            "task": codex_task,
+            "brief": f"User request: {message}",
+            "command": f'/codex "{codex_task}"',
+        },
+        {
+            "agent": "claude",
+            "task": claude_task,
+            "brief": f"User request: {message}",
+            "command": f'/claude "{claude_task}"',
+        },
+    ]
+
+
+def _redirect_guidance_lines(actions: list[dict[str, str]]) -> list[str]:
+    lines = ["Suggested route: /codex"]
+    if actions:
+        lines.append(f"Suggested command: {actions[0]['command']}")
+    if len(actions) > 1:
+        lines.extend(["Fallback route: /claude", f"Suggested command: {actions[1]['command']}"])
     return lines
 
 

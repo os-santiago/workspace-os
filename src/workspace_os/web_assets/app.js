@@ -50,6 +50,34 @@ const appendMessage = (role, text, details = "") => {
   scrollChatToBottom();
 };
 
+const launchSuggestedAction = async (action, button) => {
+  button.disabled = true;
+  button.textContent = `Launching ${action.agent}...`;
+  try {
+    const result = await postJson("/api/delegate-launch", {
+      agent: action.agent,
+      destination: "software",
+      task: action.task,
+      brief: action.brief,
+      approved: true,
+    });
+    appendMessage(
+      "system",
+      `${action.agent} launch complete.`,
+      [
+        `pid=${result.pid}`,
+        `decision=${result.conscience?.decision || "n/a"}`,
+        `risk=${result.conscience?.risk_level || "n/a"}`,
+      ].join("\n"),
+    );
+  } catch (error) {
+    appendMessage("system", `${action.agent} launch failed.`, error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = `Launch ${action.agent}`;
+  }
+};
+
 const renderRail = (selector, data, emptyText) => {
   const list = qs(selector);
   list.innerHTML = "";
@@ -197,6 +225,25 @@ const bindChat = () => {
       const detailBlock = document.createElement("pre");
       detailBlock.textContent = details;
       last.appendChild(detailBlock);
+    }
+    if (data.suggested_actions && data.suggested_actions.length > 0) {
+      const actions = document.createElement("div");
+      actions.className = "suggested-actions";
+      const header = document.createElement("p");
+      header.textContent = "Suggested routes:";
+      actions.appendChild(header);
+      for (const action of data.suggested_actions) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `Launch ${action.agent}`;
+        button.addEventListener("click", () => {
+          launchSuggestedAction(action, button).catch((error) => {
+            appendMessage("system", `${action.agent} launch failed.`, error.message);
+          });
+        });
+        actions.appendChild(button);
+      }
+      last.appendChild(actions);
     }
     scrollChatToBottom();
   });

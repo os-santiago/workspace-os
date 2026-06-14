@@ -57,6 +57,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("shiftKey", app)
         self.assertIn("scrollChatToBottom", app)
         self.assertIn("data.context_snapshot", app)
+        self.assertIn("suggested_actions", app)
         self.assertIn("chatContextExpanded", app)
         self.assertIn("workspace-os.chat-context-expanded", app)
         self.assertIn("localStorage", app)
@@ -261,6 +262,18 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertTrue(result["learning"]["activated"])
         self.assertIn("conscience", result)
+
+    def test_chat_payload_exposes_redirect_actions(self):
+        result = _chat_payload(
+            [],
+            {"message": "What should we do next?"},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("SAFE_REDIRECT", result["conscience"]["decision"])
+        self.assertEqual(2, len(result["suggested_actions"]))
+        self.assertEqual("codex", result["suggested_actions"][0]["agent"])
+        self.assertEqual("claude", result["suggested_actions"][1]["agent"])
 
     def test_chat_payload_includes_context_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

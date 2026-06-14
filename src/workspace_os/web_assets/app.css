@@ -156,6 +156,32 @@ textarea {
   overflow: auto;
 }
 
+.suggested-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--tp-cyan);
+}
+
+.suggested-actions p {
+  width: 100%;
+  margin: 0 0 0.15rem;
+  color: var(--tp-yellow);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.suggested-actions button {
+  color: var(--tp-black);
+  background: var(--tp-cyan);
+  border: 2px solid var(--tp-black);
+  cursor: pointer;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .user-message {
   align-self: flex-end;
   border-color: var(--tp-yellow);

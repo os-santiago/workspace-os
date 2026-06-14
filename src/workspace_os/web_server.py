@@ -332,6 +332,7 @@ def _chat_payload(
         "reply": reply.reply,
         "conscience": reply.conscience.to_dict(),
         "learning": reply.learning,
+        "suggested_actions": reply.suggested_actions,
         "personal_context": personal_context,
         "context_snapshot": context_snapshot,
         "process": _process_summary(process_report),

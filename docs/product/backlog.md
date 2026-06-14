@@ -233,6 +233,7 @@ Initial implementation:
 - Deterministic Operational Conscience evaluation exists for delegated software work.
 - Launch decisions return risk level, moral categories, applicable norms, policy refs, context, decision, strategy, rationale, review requirement, and missing context.
 - Ambiguous requests can return `SAFE_REDIRECT` so the system can route them to Codex first and Claude as a parallel cross-check.
+- The web chat exposes redirect routes as launchable actions for ambiguous requests.
 - Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.
 - Google Workspace destinations remain blocked until a real connector exists.
 - The web UI exposes a chat-first workspace with engine activation indicators and recent local software and document activity.
