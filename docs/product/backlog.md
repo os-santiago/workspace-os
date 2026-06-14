@@ -190,6 +190,7 @@ Initial implementation:
 - Batch telemetry records start and end time, delegations, defects, and conversation activity so each iteration can be reported with duration and defect-driven churn.
 - Chat and web responses surface the active batch summary so the current work window stays visible outside the shell.
 - Batch summary output lists the recent batch count with duration and defect iterations per batch, and reports the global process window from first start to last end for accurate stopwatch-style measurement.
+- Process summary output gives a dedicated stopwatch for a long-running work window, including batch count, delegations, and defect iterations for the whole process.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 

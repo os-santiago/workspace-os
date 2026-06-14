@@ -46,6 +46,10 @@ def start_batch(memory_store: WorkspaceMemoryStore, label: str, objective: str, 
     return memory_store.start_batch(label, objective, started_at=started_at)
 
 
+def start_process(memory_store: WorkspaceMemoryStore, label: str, objective: str, started_at: str | None = None) -> int:
+    return memory_store.start_process(label, objective, started_at=started_at)
+
+
 def stop_batch(memory_store: WorkspaceMemoryStore, ended_at: str | None = None) -> BatchReport | None:
     batch = memory_store.finish_active_batch(ended_at=ended_at)
     if batch is None:
@@ -54,11 +58,25 @@ def stop_batch(memory_store: WorkspaceMemoryStore, ended_at: str | None = None) 
     return _build_report(report)
 
 
+def stop_process(memory_store: WorkspaceMemoryStore, ended_at: str | None = None) -> ProcessSummary | None:
+    process = memory_store.finish_active_process(ended_at=ended_at)
+    if process is None:
+        return None
+    return _build_process_report(memory_store, int(process["id"]), now=ended_at)
+
+
 def current_batch_report(memory_store: WorkspaceMemoryStore, batch_id: int | None = None, now: str | None = None) -> BatchReport | None:
     report = memory_store.batch_metrics(batch_id=batch_id, now=now)
     if report is None:
         return None
     return _build_report(report)
+
+
+def current_process_report(memory_store: WorkspaceMemoryStore, process_id: int | None = None, now: str | None = None) -> ProcessSummary | None:
+    report = memory_store.process_metrics(process_id=process_id, now=now)
+    if report is None:
+        return None
+    return _build_process_report(memory_store, int(report["process_id"]), now=now)
 
 
 @dataclass(frozen=True)
@@ -128,6 +146,53 @@ def batch_summary(memory_store: WorkspaceMemoryStore, limit: int = 10) -> BatchS
     )
 
 
+@dataclass(frozen=True)
+class ProcessSummary:
+    process_id: int
+    label: str
+    objective: str
+    started_at: str
+    ended_at: str
+    duration_seconds: float
+    batch_count: int
+    delegations: int
+    defect_iterations: int
+
+    def render(self) -> str:
+        lines = [
+            "Process summary",
+            f"process_id={self.process_id}",
+            f"label={self.label}",
+            f"objective={self.objective}",
+            f"started_at={self.started_at}",
+            f"ended_at={self.ended_at}",
+            f"duration={_format_duration(self.duration_seconds)}",
+            f"batch_count={self.batch_count}",
+            f"delegations={self.delegations}",
+            f"defect_iterations={self.defect_iterations}",
+        ]
+        return "\n".join(lines) + "\n"
+
+
+def process_summary(memory_store: WorkspaceMemoryStore, process_id: int | None = None, now: str | None = None) -> ProcessSummary | None:
+    metrics = memory_store.process_metrics(process_id=process_id, now=now)
+    if metrics is None:
+        return None
+    process = metrics["process"]
+    assert isinstance(process, dict)
+    return ProcessSummary(
+        process_id=int(metrics["process_id"]),
+        label=str(process["label"]),
+        objective=str(process["objective"]),
+        started_at=str(process["started_at"]),
+        ended_at=str(metrics["window_end"]),
+        duration_seconds=float(metrics["duration_seconds"]),
+        batch_count=int(metrics["batch_count"]),
+        delegations=int(metrics["delegations"]),
+        defect_iterations=int(metrics["defect_iterations"]),
+    )
+
+
 def _build_report(data: dict[str, object]) -> BatchReport:
     batch = data["batch"]
     assert isinstance(batch, dict)
@@ -144,6 +209,25 @@ def _build_report(data: dict[str, object]) -> BatchReport:
         task_failure_count=int(data["task_failure_count"]),
         task_partial_count=int(data["task_partial_count"]),
         conversation_turns=int(data["conversation_turns"]),
+    )
+
+
+def _build_process_report(memory_store: WorkspaceMemoryStore, process_id: int, now: str | None = None) -> ProcessSummary | None:
+    metrics = memory_store.process_metrics(process_id=process_id, now=now)
+    if metrics is None:
+        return None
+    process = metrics["process"]
+    assert isinstance(process, dict)
+    return ProcessSummary(
+        process_id=int(metrics["process_id"]),
+        label=str(process["label"]),
+        objective=str(process["objective"]),
+        started_at=str(process["started_at"]),
+        ended_at=str(metrics["window_end"]),
+        duration_seconds=float(metrics["duration_seconds"]),
+        batch_count=int(metrics["batch_count"]),
+        delegations=int(metrics["delegations"]),
+        defect_iterations=int(metrics["defect_iterations"]),
     )
 
 

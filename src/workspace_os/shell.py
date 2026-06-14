@@ -5,7 +5,7 @@ from pathlib import Path
 import shlex
 
 from workspace_os.agent_adapter import launch_agent
-from workspace_os.batch import batch_summary, current_batch_report, start_batch, stop_batch
+from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.config import Source
@@ -87,6 +87,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, status, summary, or list batches",
+                    "/process ...        start, stop, report, status, summary, or list processes",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
@@ -298,6 +299,51 @@ class WorkspaceShell(cmd.Cmd):
             return
         print("Usage: /batch <start|stop|report|status|history|summary>")
 
+    def do_process(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_process_status()
+            return
+        command = parts[0].casefold()
+        if command == "start":
+            if len(parts) < 3:
+                print("Usage: /process start <label> <objective>")
+                return
+            label = parts[1]
+            objective = " ".join(parts[2:]).strip()
+            try:
+                process_id = start_process(self.memory_store, label, objective)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return
+            print(f"process_started={process_id}")
+            return
+        if command == "stop":
+            report = stop_process(self.memory_store)
+            if report is None:
+                print("No active process found.")
+                return
+            print(report.render(), end="")
+            return
+        if command == "report":
+            process_id = int(parts[1]) if len(parts) > 1 else None
+            report = current_process_report(self.memory_store, process_id=process_id)
+            if report is None:
+                print("No process found.")
+                return
+            print(report.render(), end="")
+            return
+        if command == "status":
+            self._print_process_status()
+            return
+        if command == "summary":
+            self._print_process_summary(parts[1:])
+            return
+        if command == "history":
+            self._print_process_history()
+            return
+        print("Usage: /process <start|stop|report|status|history|summary>")
+
     def do_codex(self, arg: str) -> None:
         self._launch_agent("codex", arg)
 
@@ -448,6 +494,37 @@ class WorkspaceShell(cmd.Cmd):
                 return
         summary = batch_summary(self.memory_store, limit=limit)
         print(summary.render(), end="")
+
+    def _print_process_status(self) -> None:
+        report = current_process_report(self.memory_store)
+        if report is None:
+            print("No active process found.")
+            return
+        print(report.render(), end="")
+
+    def _print_process_summary(self, args: list[str]) -> None:
+        process_id = None
+        if args:
+            try:
+                process_id = int(args[0])
+            except ValueError:
+                print("Usage: /process summary [id]")
+                return
+        report = process_summary(self.memory_store, process_id=process_id)
+        if report is None:
+            print("No process found.")
+            return
+        print(report.render(), end="")
+
+    def _print_process_history(self) -> None:
+        processes = self.memory_store.process_history(limit=5)
+        for process in processes:
+            print(
+                f"- {process['id']} {process['label']}: {process['objective']} "
+                f"({process['started_at']} -> {process['ended_at'] or 'active'})"
+            )
+        if not processes:
+            print("No processes found.")
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()

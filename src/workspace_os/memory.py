@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -96,6 +96,14 @@ class WorkspaceMemoryStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS batch_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT NOT NULL,
+                    objective TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS process_runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     label TEXT NOT NULL,
                     objective TEXT NOT NULL,
@@ -435,6 +443,159 @@ class WorkspaceMemoryStore:
                 }
                 for row in rows
             ]
+
+    def start_process(self, label: str, objective: str, started_at: str | None = None) -> int:
+        active = self.active_process()
+        if active is not None:
+            raise ValueError("A process is already active.")
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO process_runs (label, objective, started_at, ended_at)
+                VALUES (?, ?, ?, NULL)
+                """,
+                (label.strip(), objective.strip(), started_at or _utc_now()),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def active_process(self) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM process_runs
+                WHERE ended_at IS NULL
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "objective": str(row["objective"]),
+                "started_at": str(row["started_at"]),
+                "ended_at": row["ended_at"],
+            }
+
+    def finish_active_process(self, ended_at: str | None = None) -> dict[str, str | None] | None:
+        process = self.active_process()
+        if process is None:
+            return None
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE process_runs
+                SET ended_at = ?
+                WHERE id = ?
+                """,
+                (ended_at or _utc_now(), process["id"]),
+            )
+            conn.commit()
+        return self.get_process(int(process["id"]))
+
+    def get_process(self, process_id: int) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM process_runs
+                WHERE id = ?
+                """,
+                (process_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "objective": str(row["objective"]),
+                "started_at": str(row["started_at"]),
+                "ended_at": row["ended_at"],
+            }
+
+    def active_process_id(self, conn: sqlite3.Connection | None = None) -> int | None:
+        if conn is not None:
+            row = self._active_process_row(conn)
+            return int(row["id"]) if row else None
+        with self._connection() as fresh_conn:
+            row = self._active_process_row(fresh_conn)
+            return int(row["id"]) if row else None
+
+    def _active_process_row(self, conn: sqlite3.Connection) -> dict[str, str | None] | None:
+        row = conn.execute(
+            """
+            SELECT id, label, objective, started_at, ended_at
+            FROM process_runs
+            WHERE ended_at IS NULL
+            ORDER BY started_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": str(row["id"]),
+            "label": str(row["label"]),
+            "objective": str(row["objective"]),
+            "started_at": str(row["started_at"]),
+            "ended_at": row["ended_at"],
+        }
+
+    def process_history(self, limit: int = 10) -> list[dict[str, str | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM process_runs
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": str(row["id"]),
+                    "label": str(row["label"]),
+                    "objective": str(row["objective"]),
+                    "started_at": str(row["started_at"]),
+                    "ended_at": row["ended_at"],
+                }
+                for row in rows
+            ]
+
+    def process_metrics(self, process_id: int | None = None, now: str | None = None) -> dict[str, object] | None:
+        process = self.get_process(process_id) if process_id is not None else self.active_process()
+        if process is None:
+            return None
+        window_end = process["ended_at"] or (now or _utc_now())
+        started_at = str(process["started_at"])
+        process_id_value = int(process["id"])
+        batches = [
+            batch
+            for batch in self.batch_history(limit=1000)
+            if str(batch["started_at"]) >= started_at and str(batch["started_at"]) <= window_end
+        ]
+        batch_count = len(batches)
+        delegations = 0
+        defects = 0
+        for batch in batches:
+            report = self.batch_metrics(batch_id=int(batch["id"]))
+            if report is None:
+                continue
+            delegations += report["delegations"]
+            defects += report["defect_iterations"]
+        return {
+            "process": process,
+            "process_id": process_id_value,
+            "window_end": window_end,
+            "duration_seconds": _duration_seconds(started_at, window_end),
+            "batch_count": batch_count,
+            "delegations": delegations,
+            "defect_iterations": defects,
+        }
 
     def _ensure_batch_column(self, conn: sqlite3.Connection, table: str) -> None:
         try:

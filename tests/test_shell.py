@@ -106,6 +106,25 @@ class ShellTests(unittest.TestCase):
         self.assertIn("delegations=", rendered)
         self.assertIn("batches=", rendered)
 
+    def test_shell_process_commands_report_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_process("start iteration-1 ten-batch window")
+                shell.do_process("summary")
+                shell.do_process("stop")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("process_started=", rendered)
+        self.assertIn("Process summary", rendered)
+        self.assertIn("batch_count=", rendered)
+
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 from workspace_os.capture import build_capture_draft, write_capture
-from workspace_os.batch import batch_summary, current_batch_report, start_batch, stop_batch
+from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         return _shell(sources, memory_path, args.session_id)
     if args.command == "batch":
         return _batch(memory_path, args.batch_command, args)
+    if args.command == "process":
+        return _process(memory_path, args.process_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -217,6 +219,23 @@ def _build_parser() -> argparse.ArgumentParser:
 
     batch_summary_parser = batch_subparsers.add_parser("summary", help="Summarize recent batch durations and defects.")
     batch_summary_parser.add_argument("--limit", type=int, default=5, help="Maximum batches to summarize.")
+
+    process_parser = subparsers.add_parser(
+        "process",
+        help="Track and report a global work process window.",
+    )
+    process_subparsers = process_parser.add_subparsers(dest="process_command", required=True)
+    process_start = process_subparsers.add_parser("start", help="Start a new process window.")
+    process_start.add_argument("--label", required=True, help="Process label.")
+    process_start.add_argument("--objective", required=True, help="Process objective.")
+    process_subparsers.add_parser("stop", help="Stop the active process window.")
+    process_status = process_subparsers.add_parser("status", help="Show the active process window.")
+    process_report = process_subparsers.add_parser("report", help="Render the active or selected process report.")
+    process_report.add_argument("--id", type=int, help="Process identifier.")
+    process_summary_parser = process_subparsers.add_parser("summary", help="Summarize the active or selected process window.")
+    process_summary_parser.add_argument("--id", type=int, help="Process identifier.")
+    process_history = process_subparsers.add_parser("history", help="List recent process windows.")
+    process_history.add_argument("--limit", type=int, default=5, help="Maximum processes to list.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -501,6 +520,66 @@ def _batch(memory_path: Path, command: str, args: argparse.Namespace) -> int:
         return 0
 
     print("error: unsupported batch command", file=sys.stderr)
+    return 2
+
+
+def _process(memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if command == "start":
+        try:
+            process_id = start_process(store, args.label, args.objective)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"process_started={process_id}")
+        return 0
+
+    if command == "stop":
+        report = stop_process(store)
+        if report is None:
+            print("No active process found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "status":
+        report = current_process_report(store)
+        if report is None:
+            print("No active process found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "report":
+        report = current_process_report(store, process_id=args.id)
+        if report is None:
+            print("No process found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "summary":
+        report = process_summary(store, process_id=args.id)
+        if report is None:
+            print("No process found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "history":
+        processes = store.process_history(limit=args.limit)
+        for process in processes:
+            print(
+                f"- {process['id']} {process['label']}: {process['objective']} "
+                f"({process['started_at']} -> {process['ended_at'] or 'active'})"
+            )
+        if not processes:
+            print("No processes found.")
+        return 0
+
+    print("error: unsupported process command", file=sys.stderr)
     return 2
 
 

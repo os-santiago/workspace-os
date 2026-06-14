@@ -80,6 +80,8 @@ python -m workspace_os --config config/workspace.sources.example.json shell
 python -m workspace_os --config config/workspace.sources.example.json batch start --label sprint-1 --objective "keep batches large"
 python -m workspace_os --config config/workspace.sources.example.json batch report
 python -m workspace_os --config config/workspace.sources.example.json batch summary
+python -m workspace_os --config config/workspace.sources.example.json process start --label iteration-1 --objective "10 batch window"
+python -m workspace_os --config config/workspace.sources.example.json process summary
 python -m workspace_os --config config/workspace.sources.example.json classify "Agents must validate scripts before release."
 python -m workspace_os --config config/workspace.sources.example.json capture --type session --title "Agent checkpoint" --text "Sanitized session note."
 python -m workspace_os --config config/workspace.sources.example.json promote --to adev --rule "Agents must validate scripts before release." --evidence "scanales-kb:captures/session/example.md"
@@ -91,4 +93,4 @@ python -m workspace_os --config config/workspace.sources.example.json validate -
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
 
 Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
-When a batch is active, `chat` and the web reply include a compact batch summary alongside the normal response. `batch summary` also reports the global process window from the first batch start to the last batch end.
+When a batch is active, `chat` and the web reply include a compact batch summary alongside the normal response. `batch summary` reports the recent batch window, and `process summary` reports the stopwatch-style global process window from first start to last end.
