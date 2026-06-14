@@ -13,7 +13,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, render_workspace_handoff_text, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -56,9 +56,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "chat":
         return _chat(sources, memory_path, args.message, args.session_id, args.interactive)
     if args.command == "inspect":
-        return _inspect(sources, memory_path, args.launch_limit)
+        return _inspect(sources, memory_path, args.launch_limit, args.compact)
     if args.command == "handoff":
-        return _handoff(sources, memory_path, args.launch_limit, args.output)
+        return _handoff(sources, memory_path, args.launch_limit, args.output, args.compact)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
     if args.command == "shell":
@@ -164,6 +164,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render a condensed read-only overview of the active workspace state.",
     )
     inspect_parser.add_argument("--launch-limit", type=int, default=5, help="Maximum recent launches to show.")
+    inspect_parser.add_argument("--compact", action="store_true", help="Render a shorter overview with summary lines.")
 
     handoff_parser = subparsers.add_parser(
         "handoff",
@@ -171,6 +172,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     handoff_parser.add_argument("--launch-limit", type=int, default=3, help="Maximum recent launches to show.")
     handoff_parser.add_argument("--output", type=Path, help="Write the handoff Markdown to a file.")
+    handoff_parser.add_argument("--compact", action="store_true", help="Render a shorter handoff summary.")
 
     memory_parser = subparsers.add_parser(
         "memory",
@@ -230,6 +232,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     batch_report = batch_subparsers.add_parser("report", help="Render the active or selected batch report.")
     batch_report.add_argument("--id", type=int, help="Batch identifier.")
+    batch_handoff = batch_subparsers.add_parser("handoff", help="Render or export a handoff for the active batch window.")
+    batch_handoff.add_argument("--launch-limit", type=int, default=3, help="Maximum recent launches to show.")
+    batch_handoff.add_argument("--output", type=Path, help="Write the batch handoff Markdown to a file.")
+    batch_handoff.add_argument("--compact", action="store_true", help="Render a shorter handoff summary.")
 
     batch_status = batch_subparsers.add_parser("status", help="Show the active batch window.")
     batch_history = batch_subparsers.add_parser("history", help="List recent batch windows.")
@@ -257,6 +263,10 @@ def _build_parser() -> argparse.ArgumentParser:
     process_checkpoint = process_subparsers.add_parser("checkpoint", help="Record a milestone in the active process window.")
     process_checkpoint.add_argument("--label", required=True, help="Checkpoint label.")
     process_checkpoint.add_argument("--note", default="", help="Optional checkpoint note.")
+    process_handoff = process_subparsers.add_parser("handoff", help="Render or export a handoff for the active process window.")
+    process_handoff.add_argument("--launch-limit", type=int, default=3, help="Maximum recent launches to show.")
+    process_handoff.add_argument("--output", type=Path, help="Write the process handoff Markdown to a file.")
+    process_handoff.add_argument("--compact", action="store_true", help="Render a shorter handoff summary.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -439,23 +449,22 @@ def _chat(sources: list[Source], memory_path: Path, message: str | None, session
     return 0
 
 
-def _inspect(sources: list[Source], memory_path: Path, launch_limit: int) -> int:
+def _inspect(sources: list[Source], memory_path: Path, launch_limit: int, compact: bool) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
-    overview = build_workspace_overview(sources, store, launch_limit=launch_limit)
+    overview = build_workspace_overview(sources, store, launch_limit=launch_limit, compact=compact)
     print(overview.render(), end="")
     return 0
 
 
-def _handoff(sources: list[Source], memory_path: Path, launch_limit: int, output: Path | None = None) -> int:
+def _handoff(sources: list[Source], memory_path: Path, launch_limit: int, output: Path | None = None, compact: bool = False) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
     if output is not None:
-        handoff = write_workspace_handoff(output, sources, store, launch_limit=launch_limit)
+        handoff = write_workspace_handoff(output, sources, store, launch_limit=launch_limit, compact=compact)
         print(f"written={output}")
         return 0
-    handoff = build_workspace_handoff(sources, store, launch_limit=launch_limit)
-    print(handoff.render(), end="")
+    print(render_workspace_handoff_text(sources, store, launch_limit=launch_limit, compact=compact), end="")
     return 0
 
 
@@ -537,6 +546,35 @@ def _batch(sources: list[Source], memory_path: Path, command: str, args: argpars
         print(report.render(), end="")
         return 0
 
+    if command == "handoff":
+        report = current_batch_report(store)
+        if report is None:
+            print("No active batch found.")
+            return 0
+        prefix = report.render()
+        if getattr(args, "output", None) is not None:
+            write_workspace_handoff(
+                args.output,
+                sources,
+                store,
+                launch_limit=args.launch_limit,
+                compact=args.compact,
+                prefix=prefix,
+            )
+            print(f"written={args.output}")
+            return 0
+        print(
+            render_workspace_handoff_text(
+                sources,
+                store,
+                launch_limit=args.launch_limit,
+                compact=args.compact,
+                prefix=prefix,
+            ),
+            end="",
+        )
+        return 0
+
     if command == "status":
         batch = store.active_batch()
         if batch is None:
@@ -605,6 +643,35 @@ def _process(sources: list[Source], memory_path: Path, command: str, args: argpa
             print("No process found.")
             return 0
         print(report.render(), end="")
+        return 0
+
+    if command == "handoff":
+        report = current_process_report(store)
+        if report is None:
+            print("No active process found.")
+            return 0
+        prefix = report.render()
+        if getattr(args, "output", None) is not None:
+            write_workspace_handoff(
+                args.output,
+                sources,
+                store,
+                launch_limit=args.launch_limit,
+                compact=args.compact,
+                prefix=prefix,
+            )
+            print(f"written={args.output}")
+            return 0
+        print(
+            render_workspace_handoff_text(
+                sources,
+                store,
+                launch_limit=args.launch_limit,
+                compact=args.compact,
+                prefix=prefix,
+            ),
+            end="",
+        )
         return 0
 
     if command == "summary":

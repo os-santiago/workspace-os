@@ -12,6 +12,7 @@ from workspace_os.web_server import (
     _delegate_launch_payload,
     _extract_progress_map,
     _handoff_payload,
+    _handoff_markdown_payload,
     _promote_preview_payload,
     _recent_docs_payload,
     _recent_software_payload,
@@ -42,6 +43,7 @@ Batch 02 [NEXT] Web pilot
 
         self.assertIn("handoffRefresh", index)
         self.assertIn("handoffOutput", index)
+        self.assertIn("handoffDownload", index)
 
     def test_capture_preview_returns_source_relative_target(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -301,6 +303,24 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Workspace handoff:", result["markdown"])
         self.assertIn("Next:", result["markdown"])
         self.assertIn("process-1", result["markdown"])
+
+    def test_handoff_markdown_payload_renders_download_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = Source("example", "doctrine", "Example.", root)
+            memory = root / "memory.sqlite3"
+            from workspace_os.batch import start_batch
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_batch(store, "batch-1", "surface markdown export", started_at="2026-06-14T10:05:00+00:00")
+
+            result = _handoff_markdown_payload([source], memory_path=memory, workspace_root=root)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Workspace handoff:", result["text"])
+        self.assertIn("batch-1", result["text"])
 
 
 if __name__ == "__main__":

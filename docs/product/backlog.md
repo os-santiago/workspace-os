@@ -193,11 +193,13 @@ Initial implementation:
 - Process summary output gives a dedicated stopwatch for a long-running work window, including batch count, delegations, and defect iterations for the whole process.
 - Process checkpoints record milestones within the active process so the operator can mark progress without closing the window.
 - A read-only `inspect` surface condenses source status, memory, profile, habits, active process, active batch, and recent launches into one operator-facing summary.
+- `inspect --compact` trims the overview into summary lines for lower-noise supervision.
 - A concise `handoff` surface turns the current workspace state into a copyable closing summary for iteration wrap-up.
 - `handoff` can export Markdown to a file from the CLI and shell so the closing summary can be archived or pasted elsewhere without copying.
+- `batch handoff` and `process handoff` export scoped closing summaries for the active batch or process, including optional `--output` and `--compact` modes.
 - `batch stop` and `process stop` write a default `handoff.md` beside the local memory store so completed windows leave a closing artifact automatically.
 - The web pilot exposes the same handoff summary through a local API so the browser panel can close work without entering the shell.
-- The web panel shows a refreshable handoff block so the closing summary stays visible during supervision.
+- The web panel shows a refreshable handoff block and a direct download action so the closing summary stays visible and exportable during supervision.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 

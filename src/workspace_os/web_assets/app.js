@@ -124,6 +124,9 @@ const escapeHtml = (value) =>
 
 const init = async () => {
   bindChat();
+  qs("#handoffDownload").addEventListener("click", () => {
+    window.location.href = "/api/handoff.md?launch_limit=3";
+  });
   qs("#handoffRefresh").addEventListener("click", async () => {
     qs("#handoffOutput").textContent = "Loading handoff...";
     try {

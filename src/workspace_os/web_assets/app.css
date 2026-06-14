@@ -197,6 +197,13 @@ textarea {
   text-transform: uppercase;
 }
 
+.rail-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .rail-header h2 {
   margin: 0;
   font-size: 1rem;

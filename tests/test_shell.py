@@ -124,6 +124,25 @@ class ShellTests(unittest.TestCase):
             self.assertTrue(handoff.exists())
             self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
 
+    def test_shell_batch_handoff_writes_markdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+            handoff = root / "batch-handoff.md"
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_batch("start sprint-1 auto handoff")
+                shell.do_batch(f"handoff --output \"{handoff}\"")
+
+            rendered = buffer.getvalue()
+            self.assertIn("written=", rendered)
+            self.assertTrue(handoff.exists())
+            self.assertIn("Batch report", handoff.read_text(encoding="utf-8"))
+            self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
+
     def test_shell_process_commands_report_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -196,6 +215,25 @@ class ShellTests(unittest.TestCase):
             rendered = buffer.getvalue()
             self.assertIn("handoff_written=", rendered)
             self.assertTrue(handoff.exists())
+            self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
+
+    def test_shell_process_handoff_writes_markdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+            handoff = root / "process-handoff.md"
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_process("start iteration-1 auto handoff")
+                shell.do_process(f"handoff --output \"{handoff}\"")
+
+            rendered = buffer.getvalue()
+            self.assertIn("written=", rendered)
+            self.assertTrue(handoff.exists())
+            self.assertIn("Process summary", handoff.read_text(encoding="utf-8"))
             self.assertIn("Workspace handoff:", handoff.read_text(encoding="utf-8"))
 
     def _init_git_repo(self, path: Path) -> None:

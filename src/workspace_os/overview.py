@@ -62,6 +62,7 @@ def build_workspace_overview(
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
     launch_limit: int = 5,
+    compact: bool = False,
 ) -> WorkspaceOverview:
     profile = load_profile(memory_store)
     habits = compute_habits(memory_store, profile)
@@ -69,24 +70,13 @@ def build_workspace_overview(
     batch = current_batch_report(memory_store)
     stats = memory_store.stats()
 
-    source_lines = tuple(_render_source_lines(sources))
-    memory_lines = (
-        f"Memory: preferences={stats['operator_preferences']} lessons={stats['reusable_lessons']} "
-        f"outcomes={stats['task_outcomes']} decisions={stats['decision_log']} turns={stats['conversation_turns']} "
-        f"launches={stats['agent_launches']}",
-    )
-    profile_lines = (
-        "Profile:",
-        f"- tone={profile.tone} detail={profile.detail_level} default_workspace={profile.default_workspace or 'n/a'}",
-        f"- shortcuts={len(profile.shortcuts or {})}",
-    )
-    habit_lines = (
-        "Habits:",
-        f"- {habits.render_summary()}",
-    )
-    process_lines = _render_process_lines(process)
-    batch_lines = _render_batch_lines(batch)
-    launch_lines = _render_launch_lines(memory_store.recent_launches(limit=launch_limit))
+    source_lines = tuple(_render_source_lines(sources, compact=compact))
+    memory_lines = _render_memory_lines(stats, compact=compact)
+    profile_lines = _render_profile_lines(profile, compact=compact)
+    habit_lines = _render_habit_lines(habits, compact=compact)
+    process_lines = _render_process_lines(process, compact=compact)
+    batch_lines = _render_batch_lines(batch, compact=compact)
+    launch_lines = _render_launch_lines(memory_store.recent_launches(limit=launch_limit), compact=compact)
 
     return WorkspaceOverview(
         workspace=workspace or profile.default_workspace or "all workspaces",
@@ -105,17 +95,26 @@ def build_workspace_handoff(
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
     launch_limit: int = 3,
+    compact: bool = False,
 ) -> WorkspaceHandoff:
-    overview = build_workspace_overview(sources, memory_store, workspace=workspace, launch_limit=launch_limit)
+    overview = build_workspace_overview(
+        sources,
+        memory_store,
+        workspace=workspace,
+        launch_limit=launch_limit,
+        compact=compact,
+    )
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     stats = memory_store.stats()
+    profile_summary = _profile_summary_text(overview.profile_lines)
+    habit_summary = _habit_summary_text(overview.habit_lines)
 
     summary_lines = (
-        f"State: sources={len(overview.source_lines) - 1} memory_entries={stats['conversation_turns']} turns "
+        f"State: sources={len(sources)} memory_entries={stats['conversation_turns']} turns "
         f"launches={stats['agent_launches']} habits_ready=yes",
-        f"Profile: {overview.profile_lines[1].removeprefix('- ')}",
-        f"Habits: {_compact_habit_summary(overview.habit_lines[1])}",
+        f"Profile: {profile_summary}",
+        f"Habits: {habit_summary}",
         _summary_line("Process", process),
         _summary_line("Batch", batch),
     )
@@ -133,29 +132,62 @@ def write_workspace_handoff(
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
     launch_limit: int = 3,
+    compact: bool = False,
     prefix: str | None = None,
 ) -> WorkspaceHandoff:
-    handoff = build_workspace_handoff(
+    content = render_workspace_handoff_text(
         sources,
         memory_store,
         workspace=workspace,
         launch_limit=launch_limit,
+        compact=compact,
+        prefix=prefix,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = handoff.render()
-    if prefix:
-        content = f"{prefix.rstrip()}\n\n{content}"
     path.write_text(content, encoding="utf-8")
-    return handoff
+    return build_workspace_handoff(sources, memory_store, workspace=workspace, launch_limit=launch_limit, compact=compact)
 
 
 def default_workspace_handoff_path(memory_path: Path) -> Path:
     return memory_path.parent / "handoff.md"
 
 
-def _render_source_lines(sources) -> list[str]:
+def render_workspace_handoff_text(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    launch_limit: int = 3,
+    compact: bool = False,
+    prefix: str | None = None,
+) -> str:
+    handoff = build_workspace_handoff(
+        sources,
+        memory_store,
+        workspace=workspace,
+        launch_limit=launch_limit,
+        compact=compact,
+    )
+    content = handoff.render()
+    if prefix:
+        content = f"{prefix.rstrip()}\n\n{content}"
+    return content
+
+
+def _render_source_lines(sources, compact: bool = False) -> list[str]:
+    statuses = [inspect_source(source) for source in sources]
+    if compact:
+        total = len(statuses)
+        missing = sum(1 for status in statuses if status.state == "missing")
+        not_git = sum(1 for status in statuses if status.state == "not-git")
+        error = sum(1 for status in statuses if status.state == "error")
+        dirty = sum(1 for status in statuses if status.state == "dirty")
+        clean = sum(1 for status in statuses if status.state == "clean")
+        return [
+            "Sources:",
+            f"- total={total} clean={clean} dirty={dirty} missing={missing} not_git={not_git} error={error}",
+        ]
     lines = ["Sources:"]
-    for status in [inspect_source(source) for source in sources]:
+    for status in statuses:
         source = status.source
         if status.state == "missing":
             lines.append(f"- {source.name}: missing ({source.path})")
@@ -177,9 +209,40 @@ def _render_source_lines(sources) -> list[str]:
     return lines
 
 
-def _render_process_lines(process) -> tuple[str, ...]:
+def _render_memory_lines(stats: dict[str, int], compact: bool = False) -> tuple[str, ...]:
+    line = (
+        f"Memory: preferences={stats['operator_preferences']} lessons={stats['reusable_lessons']} "
+        f"outcomes={stats['task_outcomes']} decisions={stats['decision_log']} turns={stats['conversation_turns']} "
+        f"launches={stats['agent_launches']}"
+    )
+    return (line,)
+
+
+def _render_profile_lines(profile, compact: bool = False) -> tuple[str, ...]:
+    if compact:
+        return (f"Profile: tone={profile.tone} detail={profile.detail_level} default_workspace={profile.default_workspace or 'n/a'}",)
+    return (
+        "Profile:",
+        f"- tone={profile.tone} detail={profile.detail_level} default_workspace={profile.default_workspace or 'n/a'}",
+        f"- shortcuts={len(profile.shortcuts or {})}",
+    )
+
+
+def _render_habit_lines(habits, compact: bool = False) -> tuple[str, ...]:
+    summary = habits.render_summary()
+    if compact:
+        return (f"Habits: {summary}",)
+    return ("Habits:", f"- {summary}")
+
+
+def _render_process_lines(process, compact: bool = False) -> tuple[str, ...]:
     if process is None:
         return ("Process: none",)
+    if compact:
+        line = f"Process: {process.label} objective={process.objective} duration={process.duration_seconds}s batches={process.batch_count}"
+        if process.latest_checkpoint_label:
+            line += f" latest={process.latest_checkpoint_label}"
+        return (line,)
     lines = [
         "Process:",
         f"- {process.label}: objective={process.objective} duration={process.duration_seconds}s "
@@ -191,9 +254,11 @@ def _render_process_lines(process) -> tuple[str, ...]:
     return tuple(lines)
 
 
-def _render_batch_lines(batch) -> tuple[str, ...]:
+def _render_batch_lines(batch, compact: bool = False) -> tuple[str, ...]:
     if batch is None:
         return ("Batch: none",)
+    if compact:
+        return (f"Batch: {batch.label} objective={batch.objective} duration={batch.duration_seconds}s delegations={batch.delegations} defects={batch.defect_iterations}",)
     return (
         "Batch:",
         f"- {batch.label}: objective={batch.objective} duration={batch.duration_seconds}s "
@@ -201,9 +266,16 @@ def _render_batch_lines(batch) -> tuple[str, ...]:
     )
 
 
-def _render_launch_lines(launches) -> tuple[str, ...]:
+def _render_launch_lines(launches, compact: bool = False) -> tuple[str, ...]:
     if not launches:
         return ("Recent launches: none",)
+    if compact:
+        first = launches[0]
+        workspace = first["workspace"] or "all"
+        line = f"Recent launches: {first['agent']} {workspace}: {first['task']} ({first['launched_at']})"
+        if len(launches) > 1:
+            line += f" +{len(launches) - 1} more"
+        return (line,)
     lines = ["Recent launches:"]
     for launch in launches:
         workspace = launch["workspace"] or "all"
@@ -245,3 +317,19 @@ def _next_step(process, batch) -> str:
 def _compact_habit_summary(line: str) -> str:
     text = line.removeprefix("- ").strip()
     return text.removeprefix("Habits: ").strip() if text.startswith("Habits: ") else text
+
+
+def _profile_summary_text(lines: tuple[str, ...]) -> str:
+    if not lines:
+        return "unavailable"
+    if len(lines) == 1:
+        return lines[0].removeprefix("Profile: ").strip()
+    return lines[1].removeprefix("- ").strip()
+
+
+def _habit_summary_text(lines: tuple[str, ...]) -> str:
+    if not lines:
+        return "unavailable"
+    if len(lines) == 1:
+        return _compact_habit_summary(lines[0])
+    return _compact_habit_summary(lines[1])

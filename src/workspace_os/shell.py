@@ -15,7 +15,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_handoff_path, render_workspace_handoff_text, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -88,12 +88,12 @@ class WorkspaceShell(cmd.Cmd):
                     "/capture <type>     capture session/incident/decision/daily notes",
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
-                    "/inspect            show a condensed read-only workspace overview",
+                    "/inspect [opts]     show a condensed read-only workspace overview",
                     "/handoff [opts]     show or export a concise handoff summary",
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
-                    "/batch ...          start, stop, report, status, summary, or list batches",
-                    "/process ...        start, stop, report, status, summary, checkpoint, or list processes",
+                    "/batch ...          start, stop, report, handoff, status, summary, or list batches",
+                    "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
@@ -213,21 +213,28 @@ class WorkspaceShell(cmd.Cmd):
 
     def do_inspect(self, arg: str) -> None:
         parts = shlex.split(arg)
-        launch_limit = 5
-        if parts:
-            try:
-                launch_limit = max(1, int(parts[0]))
-            except ValueError:
-                print("Usage: /inspect [launch-limit]")
-                return
-        overview = build_workspace_overview(self._selected_sources(), self.memory_store, workspace=self.active_workspace, launch_limit=launch_limit)
+        parser = argparse.ArgumentParser(prog="/inspect", add_help=False)
+        parser.add_argument("--compact", action="store_true")
+        parser.add_argument("launch_limit", nargs="?", type=int, default=5)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /inspect [--compact] [launch-limit]")
+            return
+        overview = build_workspace_overview(
+            self._selected_sources(),
+            self.memory_store,
+            workspace=self.active_workspace,
+            launch_limit=max(1, options.launch_limit),
+            compact=options.compact,
+        )
         print(overview.render(), end="")
 
     def do_handoff(self, arg: str) -> None:
         try:
             options = self._parse_handoff_args(arg)
         except ValueError as exc:
-            print(f"Usage: /handoff [--launch-limit N] [--output path]")
+            print(f"Usage: /handoff [--launch-limit N] [--output path] [--compact]")
             print(f"error: {exc}")
             return
         if options.output is not None:
@@ -237,16 +244,20 @@ class WorkspaceShell(cmd.Cmd):
                 self.memory_store,
                 workspace=self.active_workspace,
                 launch_limit=options.launch_limit,
+                compact=options.compact,
             )
             print(f"written={options.output}")
             return
-        handoff = build_workspace_handoff(
-            self._selected_sources(),
-            self.memory_store,
-            workspace=self.active_workspace,
-            launch_limit=options.launch_limit,
+        print(
+            render_workspace_handoff_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+            ),
+            end="",
         )
-        print(handoff.render(), end="")
 
     def do_profile(self, arg: str) -> None:
         parts = shlex.split(arg)
@@ -341,6 +352,9 @@ class WorkspaceShell(cmd.Cmd):
                 return
             print(report.render(), end="")
             return
+        if command == "handoff":
+            self._batch_handoff(arg[len(parts[0]) :].strip())
+            return
         if command == "status":
             self._print_batch_status()
             return
@@ -397,6 +411,9 @@ class WorkspaceShell(cmd.Cmd):
                 print("No process found.")
                 return
             print(report.render(), end="")
+            return
+        if command == "handoff":
+            self._process_handoff(arg[len(parts[0]) :].strip())
             return
         if command == "status":
             self._print_process_status()
@@ -610,6 +627,76 @@ class WorkspaceShell(cmd.Cmd):
         if not processes:
             print("No processes found.")
 
+    def _batch_handoff(self, arg: str) -> None:
+        try:
+            options = self._parse_handoff_args(arg)
+        except ValueError as exc:
+            print("Usage: /batch handoff [--launch-limit N] [--output path] [--compact]")
+            print(f"error: {exc}")
+            return
+        report = current_batch_report(self.memory_store)
+        if report is None:
+            print("No active batch found.")
+            return
+        if options.output is not None:
+            write_workspace_handoff(
+                options.output,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            )
+            print(f"written={options.output}")
+            return
+        print(
+            render_workspace_handoff_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            ),
+            end="",
+        )
+
+    def _process_handoff(self, arg: str) -> None:
+        try:
+            options = self._parse_handoff_args(arg)
+        except ValueError as exc:
+            print("Usage: /process handoff [--launch-limit N] [--output path] [--compact]")
+            print(f"error: {exc}")
+            return
+        report = current_process_report(self.memory_store)
+        if report is None:
+            print("No active process found.")
+            return
+        if options.output is not None:
+            write_workspace_handoff(
+                options.output,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            )
+            print(f"written={options.output}")
+            return
+        print(
+            render_workspace_handoff_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            ),
+            end="",
+        )
+
     def _process_checkpoint(self, args: list[str]) -> None:
         if not args:
             print("Usage: /process checkpoint <label> [note]")
@@ -638,26 +725,27 @@ class WorkspaceShell(cmd.Cmd):
     def _parse_handoff_args(self, arg: str) -> argparse.Namespace:
         tokens = shlex.split(arg, posix=False)
         if not tokens:
-            return argparse.Namespace(launch_limit=3, output=None)
+            return argparse.Namespace(launch_limit=3, output=None, compact=False)
         if any(token.startswith("--") for token in tokens):
             parser = argparse.ArgumentParser(prog="/handoff", add_help=False)
             parser.add_argument("--launch-limit", type=int, default=3)
             parser.add_argument("--output", type=Path)
+            parser.add_argument("--compact", action="store_true")
             parsed = parser.parse_args(tokens)
             if parsed.output is not None:
                 parsed.output = Path(str(parsed.output).strip('"'))
             return parsed
         if len(tokens) == 1:
             try:
-                return argparse.Namespace(launch_limit=max(1, int(tokens[0])), output=None)
+                return argparse.Namespace(launch_limit=max(1, int(tokens[0])), output=None, compact=False)
             except ValueError:
-                return argparse.Namespace(launch_limit=3, output=Path(tokens[0].strip('"')))
+                return argparse.Namespace(launch_limit=3, output=Path(tokens[0].strip('"')), compact=False)
         if len(tokens) == 2:
             try:
                 launch_limit = max(1, int(tokens[0]))
             except ValueError as exc:
                 raise ValueError("launch limit must be an integer when providing two positional arguments") from exc
-            return argparse.Namespace(launch_limit=launch_limit, output=Path(tokens[1].strip('"')))
+            return argparse.Namespace(launch_limit=launch_limit, output=Path(tokens[1].strip('"')), compact=False)
         raise ValueError("too many positional arguments")
 
     def _expand_alias(self, line: str) -> str:

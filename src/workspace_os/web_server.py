@@ -17,7 +17,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, render_workspace_handoff_text
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -85,6 +85,13 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             if parsed.path == "/api/handoff":
                 self._send_json(_handoff_payload(sources, memory_path, workspace_root, query))
                 return
+            if parsed.path == "/api/handoff.md":
+                self._send_text(
+                    _handoff_markdown_payload(sources, memory_path, workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="handoff.md",
+                )
+                return
 
             self.send_error(404, "Not found")
 
@@ -133,6 +140,18 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_text(self, payload: dict[str, object], content_type: str, filename: str | None = None) -> None:
+            body = str(payload.get("text", "")).encode("utf-8")
+            status = 200 if payload.get("ok", True) else 400
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-store")
+            if filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -327,6 +346,33 @@ def _handoff_payload(
         "workspace": handoff.workspace,
         "markdown": handoff.render(),
     }
+
+
+def _handoff_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    launch_limit = 3
+    compact = False
+    if query is not None:
+        launch_limit = _int_query(query, "launch_limit", 3)
+        compact = (_first(query, "compact") or "false").casefold() == "true"
+    profile = load_profile(store)
+    workspace = profile.default_workspace or None
+    text = render_workspace_handoff_text(
+        sources,
+        store,
+        workspace=workspace or _workspace_name_from_root(workspace_root),
+        launch_limit=launch_limit,
+        compact=compact,
+    )
+    return {"ok": True, "text": text}
 
 
 def _delegate_launch_payload(
