@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 
 
@@ -16,8 +17,7 @@ class Source:
 
 def load_sources(config_path: Path) -> list[Source]:
     resolved_config = config_path.expanduser().resolve()
-    with resolved_config.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+    payload = _load_payload(resolved_config)
 
     raw_sources = payload.get("sources")
     if not isinstance(raw_sources, list):
@@ -53,8 +53,36 @@ def load_sources(config_path: Path) -> list[Source]:
     return sources
 
 
+def load_workspace_root(config_path: Path) -> Path:
+    resolved_config = config_path.expanduser().resolve()
+    payload = _load_payload(resolved_config)
+
+    raw_root = payload.get("workspace_root")
+    if isinstance(raw_root, str) and raw_root.strip():
+        root = Path(raw_root).expanduser()
+        if not root.is_absolute():
+            root = resolved_config.parent / root
+        return root.resolve()
+
+    env_root = os.environ.get("WORKSPACE_OS_GIT_ROOT", "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+
+    if len(resolved_config.parents) >= 3:
+        return resolved_config.parents[2].resolve()
+    return (Path.home() / "git").resolve()
+
+
 def _required_string(raw: dict[str, object], field: str, index: int) -> str:
     value = raw.get(field)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Source entry #{index + 1} must define non-empty '{field}'.")
     return value.strip()
+
+
+def _load_payload(config_path: Path) -> dict[str, object]:
+    with config_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("Workspace config must be a JSON object.")
+    return payload

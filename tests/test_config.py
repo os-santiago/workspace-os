@@ -1,9 +1,10 @@
 from pathlib import Path
 import json
+import os
 import tempfile
 import unittest
 
-from workspace_os.config import load_sources
+from workspace_os.config import load_sources, load_workspace_root
 
 
 class ConfigTests(unittest.TestCase):
@@ -42,6 +43,35 @@ class ConfigTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "sources"):
                 load_sources(config)
+
+    def test_load_workspace_root_prefers_configured_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "workspace.sources.json"
+            config.write_text(
+                json.dumps({"workspace_root": "..", "sources": []}),
+                encoding="utf-8",
+            )
+
+            workspace_root = load_workspace_root(config)
+
+        self.assertEqual(root.parent.resolve(), workspace_root)
+
+    def test_load_workspace_root_uses_environment_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(json.dumps({"sources": []}), encoding="utf-8")
+            previous = os.environ.get("WORKSPACE_OS_GIT_ROOT")
+            os.environ["WORKSPACE_OS_GIT_ROOT"] = str(Path(directory) / "workspace-root")
+            try:
+                workspace_root = load_workspace_root(config)
+            finally:
+                if previous is None:
+                    os.environ.pop("WORKSPACE_OS_GIT_ROOT", None)
+                else:
+                    os.environ["WORKSPACE_OS_GIT_ROOT"] = previous
+
+        self.assertEqual((Path(directory) / "workspace-root").resolve(), workspace_root)
 
 
 if __name__ == "__main__":

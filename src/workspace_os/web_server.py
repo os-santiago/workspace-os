@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
-from workspace_os.config import Source, load_sources
+from workspace_os.config import Source, load_sources, load_workspace_root
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
@@ -25,7 +25,8 @@ STATIC_ROOT = Path(__file__).parent / "web_assets"
 
 def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     sources = load_sources(config_path)
-    handler = _build_handler(sources)
+    workspace_root = load_workspace_root(config_path)
+    handler = _build_handler(sources, workspace_root)
     server = ThreadingHTTPServer((host, port), handler)
     print(f"Workspace OS web app listening on http://{host}:{port}")
     try:
@@ -36,7 +37,7 @@ def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) 
         server.server_close()
 
 
-def _build_handler(sources: list[Source]):
+def _build_handler(sources: list[Source], workspace_root: Path):
     class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - http.server method name
             parsed = urlparse(self.path)
@@ -70,7 +71,7 @@ def _build_handler(sources: list[Source]):
                 self._send_json(_roadmap_payload())
                 return
             if parsed.path == "/api/recent-software":
-                self._send_json(_recent_software_payload())
+                self._send_json(_recent_software_payload(root=workspace_root))
                 return
             if parsed.path == "/api/recent-docs":
                 self._send_json(_recent_docs_payload())
@@ -92,10 +93,10 @@ def _build_handler(sources: list[Source]):
                 self._send_json(_conscience_preview_payload(payload))
                 return
             if parsed.path == "/api/chat":
-                self._send_json(_chat_payload(sources, payload))
+                self._send_json(_chat_payload(sources, payload, workspace_root))
                 return
             if parsed.path == "/api/delegate-launch":
-                self._send_json(_delegate_launch_payload(payload))
+                self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
                 return
 
             self.send_error(404, "Not found")
@@ -252,7 +253,11 @@ def _conscience_preview_payload(payload: dict[str, object]) -> dict[str, object]
     return {"ok": True, "conscience": decision.to_dict()}
 
 
-def _chat_payload(sources: list[Source], payload: dict[str, object]) -> dict[str, object]:
+def _chat_payload(
+    sources: list[Source],
+    payload: dict[str, object],
+    workspace_root: Path | None = None,
+) -> dict[str, object]:
     message = _string_payload(payload, "message")
     if not message:
         return {"ok": False, "error": "Message is required."}
@@ -260,7 +265,7 @@ def _chat_payload(sources: list[Source], payload: dict[str, object]) -> dict[str
     conscience = evaluate_request(message, destination="software")
     learning = _learning_signal(message)
     matches = search_sources(sources, message, max_results=5)
-    personal_context = _operator_principles_summary()
+    personal_context = _operator_principles_summary(root=workspace_root)
     lines = [
         "Request received.",
         "",
@@ -287,6 +292,7 @@ def _chat_payload(sources: list[Source], payload: dict[str, object]) -> dict[str
 
 def _delegate_launch_payload(
     payload: dict[str, object],
+    workspace_root: Path | None = None,
     launcher: object | None = None,
 ) -> dict[str, object]:
     agent = _string_payload(payload, "agent").casefold()
@@ -316,7 +322,7 @@ def _delegate_launch_payload(
             "conscience": conscience.to_dict(),
         }
 
-    workspace_root = Path.home() / "git"
+    workspace_root = workspace_root or _git_workspace_root()
     if not workspace_root.exists():
         return {"ok": False, "error": "Local Git workspace root was not found."}
 
@@ -516,7 +522,17 @@ def _learning_signal(message: str) -> dict[str, object]:
 
 
 def _git_workspace_root() -> Path:
-    return Path(os.environ.get("WORKSPACE_OS_GIT_ROOT", str(Path.home() / "git")))
+    config_path = Path.cwd() / "config" / "workspace.sources.example.json"
+    if config_path.exists():
+        try:
+            return load_workspace_root(config_path)
+        except (OSError, ValueError):
+            pass
+
+    env_root = os.environ.get("WORKSPACE_OS_GIT_ROOT", "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    return (Path.home() / "git").resolve()
 
 
 def _drive_root() -> Path:
