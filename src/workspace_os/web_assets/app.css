@@ -162,7 +162,7 @@ textarea {
 
 .right-rail {
   display: grid;
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
   gap: 12px;
   padding: 12px;
   min-height: 0;
@@ -186,6 +186,17 @@ textarea {
   font-weight: 900;
 }
 
+.rail-action {
+  padding: 0.25rem 0.55rem;
+  color: var(--tp-white);
+  background: var(--tp-black);
+  border: 2px solid var(--tp-black);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .rail-header h2 {
   margin: 0;
   font-size: 1rem;
@@ -198,6 +209,35 @@ textarea {
   display: grid;
   gap: 0.45rem;
   align-content: start;
+}
+
+.handoff-section {
+  min-height: 0;
+}
+
+.handoff-body {
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  padding: 0.65rem;
+}
+
+.handoff-note {
+  margin: 0;
+  color: var(--tp-yellow);
+  font-size: 0.8rem;
+}
+
+.handoff-output {
+  margin: 0;
+  padding: 0.7rem;
+  color: var(--tp-yellow);
+  background: var(--tp-black);
+  border: 1px solid var(--tp-cyan);
+  white-space: pre-wrap;
+  overflow: auto;
+  min-height: 0;
 }
 
 .rail-item {
@@ -242,7 +282,7 @@ textarea {
   }
 
   .right-rail {
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
     overflow: visible;
   }
 

@@ -15,6 +15,7 @@ from workspace_os.web_server import (
     _promote_preview_payload,
     _recent_docs_payload,
     _recent_software_payload,
+    STATIC_ROOT,
 )
 
 
@@ -35,6 +36,12 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Batch 01 [DONE]", progress)
         self.assertIn("Batch 02 [NEXT]", progress)
         self.assertNotIn("```", progress)
+
+    def test_web_assets_include_handoff_panel(self):
+        index = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("handoffRefresh", index)
+        self.assertIn("handoffOutput", index)
 
     def test_capture_preview_returns_source_relative_target(self):
         with tempfile.TemporaryDirectory() as directory:

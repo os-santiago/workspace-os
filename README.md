@@ -96,5 +96,5 @@ The example source registry uses relative paths and should be copied to a local,
 
 Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
 `/inspect` renders a condensed workspace overview with sources, memory, profile, habits, active process, active batch, and recent launches. `/handoff` renders a concise copyable closing summary for the active workspace.
-The web pilot exposes the same closing summary through its API so the local panel can fetch a handoff without entering the shell.
+The web pilot exposes the same closing summary through its API so the local panel can fetch a handoff without entering the shell, and the right rail shows a refreshable handoff panel.
 When a batch is active, `chat` and the web reply include a compact batch summary alongside the normal response. `batch summary` reports the recent batch window, and `process summary` reports the stopwatch-style global process window from first start to last end. `process checkpoint` records milestones inside the active process window.

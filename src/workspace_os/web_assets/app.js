@@ -3,6 +3,7 @@ const qs = (selector) => document.querySelector(selector);
 const state = {
   conscienceCount: 0,
   learningCount: 0,
+  handoffCount: 0,
 };
 
 const getJson = async (url) => {
@@ -59,6 +60,16 @@ const renderRail = (selector, data, emptyText) => {
   }
 };
 
+const renderHandoff = (data) => {
+  const output = qs("#handoffOutput");
+  if (!data.ok) {
+    output.textContent = data.error || "Unable to load handoff.";
+    return;
+  }
+  state.handoffCount += 1;
+  output.textContent = data.markdown || "No handoff available.";
+};
+
 const loadSidebar = async () => {
   const [software, docs] = await Promise.all([
     getJson("/api/recent-software"),
@@ -66,6 +77,11 @@ const loadSidebar = async () => {
   ]);
   renderRail("#softwareList", software, "No local projects found.");
   renderRail("#docsList", docs, "No Google Drive files found.");
+};
+
+const loadHandoff = async () => {
+  const data = await getJson("/api/handoff?launch_limit=3");
+  renderHandoff(data);
 };
 
 const bindChat = () => {
@@ -108,7 +124,16 @@ const escapeHtml = (value) =>
 
 const init = async () => {
   bindChat();
+  qs("#handoffRefresh").addEventListener("click", async () => {
+    qs("#handoffOutput").textContent = "Loading handoff...";
+    try {
+      await loadHandoff();
+    } catch (error) {
+      qs("#handoffOutput").textContent = error.message;
+    }
+  });
   await loadSidebar();
+  await loadHandoff();
 };
 
 init().catch((error) => {
