@@ -55,7 +55,7 @@ docs/
 
 Stage: terminal-first workspace shell foundation.
 
-Runtime implementation exists for source registry loading, repository status, librarian search, non-destructive housekeeping reports, terminal conversation, a persistent workspace memory store for preferences, lessons, outcomes, and decision traces, and an interactive shell for switching workspaces and running routine actions.
+Runtime implementation exists for source registry loading, repository status, librarian search, non-destructive housekeeping reports, terminal conversation, a persistent workspace memory store for preferences, lessons, outcomes, decision traces, and batch telemetry, and an interactive shell for switching workspaces and running routine actions.
 
 ## First MVP Direction
 
@@ -90,3 +90,4 @@ python -m workspace_os --config config/workspace.sources.example.json validate -
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
 
 Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
+When a batch is active, `chat` and the web reply include a compact batch summary alongside the normal response.

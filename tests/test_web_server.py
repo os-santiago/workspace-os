@@ -225,6 +225,28 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["learning"]["activated"])
         self.assertIn("conscience", result)
 
+    def test_chat_payload_reports_active_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = Source("example", "doctrine", "Example.", root)
+            memory = root / "memory.sqlite3"
+            from workspace_os.batch import start_batch
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_batch(store, "batch-1", "surface batch summary", started_at="2026-06-14T10:00:00+00:00")
+
+            result = _chat_payload(
+                [source],
+                {"message": "Remember this lesson about validation."},
+                memory_path=memory,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertIsNotNone(result["batch"])
+        self.assertEqual("batch-1", result["batch"]["label"])
+
 
 if __name__ == "__main__":
     unittest.main()

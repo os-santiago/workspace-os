@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from workspace_os.capture import build_capture_draft
+from workspace_os.batch import current_batch_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
@@ -283,12 +284,14 @@ def _chat_payload(
         detail_level=profile_detail,
     )
     personal_context = _operator_principles_summary(root=workspace_root)
+    batch_report = current_batch_report(store) if store else None
     return {
         "ok": True,
         "reply": reply.reply,
         "conscience": reply.conscience.to_dict(),
         "learning": reply.learning,
         "personal_context": personal_context,
+        "batch": _batch_summary(batch_report),
     }
 
 
@@ -520,6 +523,20 @@ def _learning_signal(message: str) -> dict[str, object]:
         "activated": True,
         "summary": "Potential learning detected. Capture requires explicit destination and approval.",
         "candidate_destinations": ["ADEV", "scanales-kb", "operator-principles"],
+    }
+
+
+def _batch_summary(batch: object | None) -> dict[str, object] | None:
+    if batch is None:
+        return None
+    return {
+        "batch_id": batch.batch_id,
+        "label": batch.label,
+        "objective": batch.objective,
+        "duration_seconds": batch.duration_seconds,
+        "delegations": batch.delegations,
+        "defect_iterations": batch.defect_iterations,
+        "conversation_turns": batch.conversation_turns,
     }
 
 

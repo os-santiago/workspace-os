@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -104,6 +104,8 @@ class WorkspaceMemoryStore:
                 );
                 """
             )
+            for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches"):
+                self._ensure_batch_column(conn, table)
             conn.execute("DELETE FROM schema_version")
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
             conn.commit()
@@ -159,18 +161,27 @@ class WorkspaceMemoryStore:
         outcome: str,
         evidence_ref: str | None = None,
         created_at: str | None = None,
+        batch_id: int | None = None,
     ) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT INTO task_outcomes (task_type, context_hash, outcome, evidence_ref, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO task_outcomes (task_type, context_hash, outcome, evidence_ref, created_at, batch_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_type, context_hash) DO UPDATE SET
                     outcome = excluded.outcome,
                     evidence_ref = excluded.evidence_ref,
-                    created_at = excluded.created_at
+                    created_at = excluded.created_at,
+                    batch_id = excluded.batch_id
                 """,
-                (task_type.strip(), context_hash.strip(), outcome.strip(), evidence_ref, created_at or _utc_now()),
+                (
+                    task_type.strip(),
+                    context_hash.strip(),
+                    outcome.strip(),
+                    evidence_ref,
+                    created_at or _utc_now(),
+                    batch_id if batch_id is not None else self.active_batch_id(conn),
+                ),
             )
             conn.commit()
 
@@ -199,12 +210,13 @@ class WorkspaceMemoryStore:
         decision: str,
         missing_context: Iterable[str],
         created_at: str | None = None,
+        batch_id: int | None = None,
     ) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT INTO decision_log (request_hash, risk_level, decision, missing_context, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO decision_log (request_hash, risk_level, decision, missing_context, created_at, batch_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request_hash.strip(),
@@ -212,29 +224,56 @@ class WorkspaceMemoryStore:
                     decision.strip(),
                     json.dumps([item.strip() for item in missing_context if item and item.strip()]),
                     created_at or _utc_now(),
+                    batch_id if batch_id is not None else self.active_batch_id(conn),
                 ),
             )
             conn.commit()
 
-    def record_turn(self, session_id: str, role: str, message: str, created_at: str | None = None) -> None:
+    def record_turn(
+        self,
+        session_id: str,
+        role: str,
+        message: str,
+        created_at: str | None = None,
+        batch_id: int | None = None,
+    ) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT INTO conversation_turns (session_id, role, message, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO conversation_turns (session_id, role, message, created_at, batch_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (session_id.strip(), role.strip(), message.strip(), created_at or _utc_now()),
+                (
+                    session_id.strip(),
+                    role.strip(),
+                    message.strip(),
+                    created_at or _utc_now(),
+                    batch_id if batch_id is not None else self.active_batch_id(conn),
+                ),
             )
             conn.commit()
 
-    def record_agent_launch(self, agent: str, task: str, workspace: str | None, launched_at: str | None = None) -> None:
+    def record_agent_launch(
+        self,
+        agent: str,
+        task: str,
+        workspace: str | None,
+        launched_at: str | None = None,
+        batch_id: int | None = None,
+    ) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT INTO agent_launches (agent, task, workspace, launched_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO agent_launches (agent, task, workspace, launched_at, batch_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (agent.strip(), task.strip(), workspace.strip() if workspace else None, launched_at or _utc_now()),
+                (
+                    agent.strip(),
+                    task.strip(),
+                    workspace.strip() if workspace else None,
+                    launched_at or _utc_now(),
+                    batch_id if batch_id is not None else self.active_batch_id(conn),
+                ),
             )
             conn.commit()
 
@@ -255,24 +294,35 @@ class WorkspaceMemoryStore:
 
     def active_batch(self) -> dict[str, str | None] | None:
         with self._connection() as conn:
-            row = conn.execute(
-                """
-                SELECT id, label, objective, started_at, ended_at
-                FROM batch_runs
-                WHERE ended_at IS NULL
-                ORDER BY started_at DESC, id DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            if row is None:
-                return None
-            return {
-                "id": str(row["id"]),
-                "label": str(row["label"]),
-                "objective": str(row["objective"]),
-                "started_at": str(row["started_at"]),
-                "ended_at": row["ended_at"],
-            }
+            return self._active_batch_row(conn)
+
+    def active_batch_id(self, conn: sqlite3.Connection | None = None) -> int | None:
+        if conn is not None:
+            row = self._active_batch_row(conn)
+            return int(row["id"]) if row else None
+        with self._connection() as fresh_conn:
+            row = self._active_batch_row(fresh_conn)
+            return int(row["id"]) if row else None
+
+    def _active_batch_row(self, conn: sqlite3.Connection) -> dict[str, str | None] | None:
+        row = conn.execute(
+            """
+            SELECT id, label, objective, started_at, ended_at
+            FROM batch_runs
+            WHERE ended_at IS NULL
+            ORDER BY started_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": str(row["id"]),
+            "label": str(row["label"]),
+            "objective": str(row["objective"]),
+            "started_at": str(row["started_at"]),
+            "ended_at": row["ended_at"],
+        }
 
     def finish_active_batch(self, ended_at: str | None = None) -> dict[str, str | None] | None:
         batch = self.active_batch()
@@ -322,9 +372,9 @@ class WorkspaceMemoryStore:
                 """
                 SELECT COUNT(*) AS count
                 FROM agent_launches
-                WHERE launched_at >= ? AND launched_at <= ?
+                WHERE (batch_id = ? OR (batch_id IS NULL AND launched_at >= ? AND launched_at <= ?))
                 """,
-                (started_at, window_end),
+                (batch_id_value, started_at, window_end),
             ).fetchone()
             outcome_rows = conn.execute(
                 """
@@ -334,17 +384,17 @@ class WorkspaceMemoryStore:
                     SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
                     SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count
                 FROM task_outcomes
-                WHERE created_at >= ? AND created_at <= ?
+                WHERE (batch_id = ? OR (batch_id IS NULL AND created_at >= ? AND created_at <= ?))
                 """,
-                (started_at, window_end),
+                (batch_id_value, started_at, window_end),
             ).fetchone()
             turn_count = conn.execute(
                 """
                 SELECT COUNT(*) AS count
                 FROM conversation_turns
-                WHERE created_at >= ? AND created_at <= ?
+                WHERE (batch_id = ? OR (batch_id IS NULL AND created_at >= ? AND created_at <= ?))
                 """,
-                (started_at, window_end),
+                (batch_id_value, started_at, window_end),
             ).fetchone()
         total = int(outcome_rows["total"] or 0)
         success_count = int(outcome_rows["success_count"] or 0)
@@ -385,6 +435,13 @@ class WorkspaceMemoryStore:
                 }
                 for row in rows
             ]
+
+    def _ensure_batch_column(self, conn: sqlite3.Connection, table: str) -> None:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN batch_id INTEGER")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).casefold():
+                raise
 
     def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
         with self._connection() as conn:

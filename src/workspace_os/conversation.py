@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 from workspace_os.conscience import ConscienceDecision, evaluate_request
+from workspace_os.batch import current_batch_report
 from workspace_os.config import Source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
 from workspace_os.sanitization import sanitize_text
@@ -69,6 +70,17 @@ def build_workspace_reply(
                 for match in source_matches[:3]
             ]
         )
+
+    if memory_store:
+        batch = current_batch_report(memory_store)
+        if batch is not None:
+            lines.extend(
+                [
+                    "",
+                    "Active batch:",
+                    f"- {batch.label}: duration={batch.duration_seconds}s delegations={batch.delegations} defects={batch.defect_iterations}",
+                ]
+            )
 
     reply = sanitize_text("\n".join(lines))
 
