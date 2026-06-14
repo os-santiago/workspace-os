@@ -198,7 +198,9 @@ Initial implementation:
 - `context latest` replays the most recent compacted global context snapshot directly from memory, while `context <topic>` still builds a governed task pack.
 - The interactive chat CLI opens by showing the latest compacted global context snapshot before prompting for input so the operator starts from shared state.
 - The web chat shows the latest compacted global context snapshot above the chat history, refreshes it from the latest reply, lets the operator expand or collapse the block on demand, and remembers that preference across reloads.
-- Chat replies separate the user-facing `Answer:` from the internal `Trace:` so reasoning and results are visually distinct, and ambiguous workspace-status questions route to Codex first with Claude as a parallel fallback.
+- Chat replies separate the user-facing `Answer:` from the internal `Trace:` so reasoning and results are visually distinct.
+- Greetings, app-overview questions, and repetition complaints return intent-aware guidance instead of the same canned fallback.
+- Ambiguous workspace-status questions route to Codex first with Claude as a parallel fallback when the workspace needs inventory or cross-checking.
 - `handoff` can export Markdown to a file from the CLI and shell so the closing summary can be archived or pasted elsewhere without copying.
 - `batch handoff` and `process handoff` export scoped closing summaries for the active batch or process, including optional `--output` and `--compact` modes.
 - `batch stop` and `process stop` write a default `handoff.md` beside the local memory store and a `context-global.md` snapshot so completed windows leave both a closing artifact and compacted durable context automatically, and shell exit also persists the latest context snapshot.

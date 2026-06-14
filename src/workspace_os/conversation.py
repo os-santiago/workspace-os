@@ -159,6 +159,42 @@ def _is_workspace_status_query(message: str) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def _is_greeting(message: str) -> bool:
+    text = message.casefold().strip(" ?!.,")
+    greetings = {"hola", "hello", "hi", "hey", "buenas", "buenos dias", "buenas tardes"}
+    return text in greetings
+
+
+def _is_app_overview_query(message: str) -> bool:
+    text = message.casefold()
+    keywords = (
+        "que hace esta aplicacion",
+        "qué hace esta aplicación",
+        "what does this app do",
+        "what does this application do",
+        "que hace wos",
+        "what is wos",
+        "para que sirve",
+        "what is this for",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
+def _is_repetition_query(message: str) -> bool:
+    text = message.casefold()
+    keywords = (
+        "respondes siempre lo mismo",
+        "always the same",
+        "same thing",
+        "no me ayudas",
+        "not helpful",
+        "sin ayuda",
+        "repetitivo",
+        "repetitive",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
 def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
@@ -207,11 +243,32 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
 
 
 def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMemoryStore | None) -> list[str]:
+    if _is_greeting(message):
+        return [
+            "Hola. Soy WOS: orquesto trabajo sobre tus repos, recuerdo contexto y delego a Codex o Claude cuando hace falta.",
+            "Dame un repo, un objetivo o una pregunta y te devuelvo el siguiente paso concreto.",
+        ]
+    if _is_app_overview_query(message):
+        return [
+            "Workspace OS is your local workspace control plane.",
+            "- tracks repos and git state",
+            "- remembers context, decisions, handoffs, and preferences",
+            "- routes ambiguous work to Codex first, Claude as backup",
+            "- delegates execution and cross-checks to those agents when work needs throughput",
+            "- compacts global context after each work window",
+            "Try: /inspect, /context latest, /codex <task>, /claude <task>",
+        ]
+    if _is_repetition_query(message):
+        return [
+            "No. I now answer by intent instead of repeating the same fallback.",
+            "If a question is ambiguous, I route it to Codex first and use Claude in parallel when a second pass is useful.",
+            "Ask for repo state, an objective, or a task and I'll return the next action instead of a canned reply.",
+        ]
     if memory_store and _is_workspace_status_query(message):
         return _workspace_status_answer_lines(sources, memory_store)
     return [
-        "I can help with that.",
-        "If you want the current workspace inventory, ask 'what projects are in flight?' and I will route it through the tracked repos.",
+        "Give me a repo, goal, or question and I'll turn it into a task plan, route work to Codex, or cross-check with Claude.",
+        "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/codex <task>', or '/claude <task>'.",
     ]
 
 

@@ -35,6 +35,89 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Trace:", reply.reply)
 
+    def test_workspace_reply_greeting_is_actionable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "hola",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Answer:", reply.reply)
+        self.assertIn("Hola. Soy WOS", reply.reply)
+        self.assertIn("Codex", reply.reply)
+        self.assertIn("Claude", reply.reply)
+
+    def test_workspace_reply_explains_application(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "que hace esta aplicacion?",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Workspace OS is your local workspace control plane.", reply.reply)
+        self.assertIn("tracks repos and git state", reply.reply)
+        self.assertIn("delegates execution and cross-checks", reply.reply)
+        self.assertIn("/inspect", reply.reply)
+
+    def test_workspace_reply_refuses_repetitive_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "respondes siempre lo mismo?",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("No. I now answer by intent instead of repeating the same fallback.", reply.reply)
+        self.assertIn("route it to Codex first", reply.reply)
+        self.assertIn("return the next action", reply.reply)
+
+    def test_workspace_reply_default_fallback_is_actionable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "tell me something useful",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Give me a repo, goal, or question", reply.reply)
+        self.assertIn("task plan", reply.reply)
+        self.assertIn("/codex <task>", reply.reply)
+        self.assertIn("/claude <task>", reply.reply)
+
     def test_workspace_reply_includes_active_batch_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
