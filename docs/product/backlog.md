@@ -187,6 +187,7 @@ Initial implementation:
 - Document and presentation delegation remain blocked until a real Google Drive connector exists.
 - Shell profile commands remember tone, detail level, default workspace, and shortcut aliases in persistent memory, and the shell startup banner summarizes inferred operator habits from recent launches and conversation activity.
 - Shell agent commands launch allowlisted Codex or Claude tasks from the active workspace and record the launch.
+- Batch telemetry records start and end time, delegations, defects, and conversation activity so each iteration can be reported with duration and defect-driven churn.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 

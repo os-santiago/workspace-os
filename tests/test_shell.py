@@ -85,6 +85,25 @@ class ShellTests(unittest.TestCase):
         self.assertEqual("source", shell.active_workspace)
         self.assertEqual("/status", shell.profile.shortcuts["s"])
 
+    def test_shell_batch_commands_report_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_batch("start sprint-1 keep batches large")
+                shell.do_batch("status")
+                shell.do_batch("stop")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("batch_started=", rendered)
+        self.assertIn("Batch report", rendered)
+        self.assertIn("delegations=", rendered)
+
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
 

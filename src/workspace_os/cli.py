@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 from workspace_os.capture import build_capture_draft, write_capture
+from workspace_os.batch import current_batch_report, start_batch, stop_batch
 from workspace_os.classification import classify_content
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
@@ -57,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         return _memory(memory_path, args.memory_command, args)
     if args.command == "shell":
         return _shell(sources, memory_path, args.session_id)
+    if args.command == "batch":
+        return _batch(memory_path, args.batch_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -192,6 +195,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Open the terminal-first Workspace OS shell.",
     )
     shell_parser.add_argument("--session-id", default="shell", help="Memory session identifier.")
+
+    batch_parser = subparsers.add_parser(
+        "batch",
+        help="Track and report batch execution windows.",
+    )
+    batch_subparsers = batch_parser.add_subparsers(dest="batch_command", required=True)
+
+    batch_start = batch_subparsers.add_parser("start", help="Start a new batch window.")
+    batch_start.add_argument("--label", required=True, help="Batch label.")
+    batch_start.add_argument("--objective", required=True, help="Batch objective.")
+
+    batch_stop = batch_subparsers.add_parser("stop", help="Stop the active batch window.")
+
+    batch_report = batch_subparsers.add_parser("report", help="Render the active or selected batch report.")
+    batch_report.add_argument("--id", type=int, help="Batch identifier.")
+
+    batch_status = batch_subparsers.add_parser("status", help="Show the active batch window.")
+    batch_history = batch_subparsers.add_parser("history", help="List recent batch windows.")
+    batch_history.add_argument("--limit", type=int, default=5, help="Maximum batches to list.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -418,6 +440,60 @@ def _shell(sources: list[Source], memory_path: Path, session_id: str) -> int:
     except KeyboardInterrupt:
         print("")
     return 0
+
+
+def _batch(memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if command == "start":
+        try:
+            batch_id = start_batch(store, args.label, args.objective)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"batch_started={batch_id}")
+        return 0
+
+    if command == "stop":
+        report = stop_batch(store)
+        if report is None:
+            print("No active batch found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "report":
+        report = current_batch_report(store, batch_id=args.id)
+        if report is None:
+            print("No batch found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "status":
+        batch = store.active_batch()
+        if batch is None:
+            print("No active batch found.")
+            return 0
+        report = current_batch_report(store)
+        if report is not None:
+            print(report.render(), end="")
+        return 0
+
+    if command == "history":
+        batches = store.batch_history(limit=args.limit)
+        for batch in batches:
+            print(
+                f"- {batch['id']} {batch['label']}: {batch['objective']} "
+                f"({batch['started_at']} -> {batch['ended_at'] or 'active'})"
+            )
+        if not batches:
+            print("No batches found.")
+        return 0
+
+    print("error: unsupported batch command", file=sys.stderr)
+    return 2
 
 
 def _web(config_path: Path, host: str, port: int) -> int:

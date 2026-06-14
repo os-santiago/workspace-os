@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 
 from workspace_os.agent_adapter import launch_agent
+from workspace_os.batch import current_batch_report, start_batch, stop_batch
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
 from workspace_os.config import Source
@@ -35,8 +36,10 @@ class WorkspaceShell(cmd.Cmd):
         self.active_workspace: str | None = self.profile.default_workspace
         if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
             self.active_workspace = None
+        self.active_batch = self.memory_store.active_batch()
         self.intro = (
             f"Workspace OS shell. {self.habits.render_summary()}\n"
+            f"{self._render_batch_banner()}"
             "Type /help for commands, /exit to leave."
         )
         self.prompt = self._render_prompt()
@@ -83,6 +86,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/memory [query]     search persistent memory",
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
+                    "/batch ...          start, stop, report, status, or list batches",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
@@ -247,6 +251,50 @@ class WorkspaceShell(cmd.Cmd):
         habits = compute_habits(self.memory_store, self.profile)
         print(habits.render_full(), end="")
 
+    def do_batch(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_batch_status()
+            return
+        command = parts[0].casefold()
+        if command == "start":
+            if len(parts) < 3:
+                print("Usage: /batch start <label> <objective>")
+                return
+            label = parts[1]
+            objective = " ".join(parts[2:]).strip()
+            try:
+                batch_id = start_batch(self.memory_store, label, objective)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return
+            self.active_batch = self.memory_store.active_batch()
+            print(f"batch_started={batch_id}")
+            return
+        if command == "stop":
+            report = stop_batch(self.memory_store)
+            self.active_batch = self.memory_store.active_batch()
+            if report is None:
+                print("No active batch found.")
+                return
+            print(report.render(), end="")
+            return
+        if command == "report":
+            batch_id = int(parts[1]) if len(parts) > 1 else None
+            report = current_batch_report(self.memory_store, batch_id=batch_id)
+            if report is None:
+                print("No batch found.")
+                return
+            print(report.render(), end="")
+            return
+        if command == "status":
+            self._print_batch_status()
+            return
+        if command == "history":
+            self._print_batch_history()
+            return
+        print("Usage: /batch <start|stop|report|status|history>")
+
     def do_codex(self, arg: str) -> None:
         self._launch_agent("codex", arg)
 
@@ -360,6 +408,32 @@ class WorkspaceShell(cmd.Cmd):
     def _render_prompt(self) -> str:
         active = self.active_workspace or "all"
         return f"workspace[{active}]> "
+
+    def _render_batch_banner(self) -> str:
+        if self.active_batch is None:
+            return "Batch: none\n"
+        batch = self.active_batch
+        return (
+            "Batch: "
+            f"{batch['label']} | objective={batch['objective']} | started={batch['started_at']}\n"
+        )
+
+    def _print_batch_status(self) -> None:
+        report = current_batch_report(self.memory_store)
+        if report is None:
+            print("No active batch found.")
+            return
+        print(report.render(), end="")
+
+    def _print_batch_history(self) -> None:
+        batches = self.memory_store.batch_history(limit=5)
+        for batch in batches:
+            print(
+                f"- {batch['id']} {batch['label']}: {batch['objective']} "
+                f"({batch['started_at']} -> {batch['ended_at'] or 'active'})"
+            )
+        if not batches:
+            print("No batches found.")
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()

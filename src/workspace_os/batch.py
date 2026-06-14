@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+
+from workspace_os.memory import WorkspaceMemoryStore
+
+
+@dataclass(frozen=True)
+class BatchReport:
+    batch_id: int
+    label: str
+    objective: str
+    started_at: str
+    ended_at: str
+    duration_seconds: int
+    delegations: int
+    defect_iterations: int
+    task_success_count: int
+    task_failure_count: int
+    task_partial_count: int
+    conversation_turns: int
+
+    def render(self) -> str:
+        duration = _format_duration(self.duration_seconds)
+        lines = [
+            "Batch report",
+            f"batch_id={self.batch_id}",
+            f"label={self.label}",
+            f"objective={self.objective}",
+            f"started_at={self.started_at}",
+            f"ended_at={self.ended_at}",
+            f"duration={duration}",
+            f"delegations={self.delegations}",
+            f"defect_iterations={self.defect_iterations}",
+            f"task_success_count={self.task_success_count}",
+            f"task_failure_count={self.task_failure_count}",
+            f"task_partial_count={self.task_partial_count}",
+            f"conversation_turns={self.conversation_turns}",
+        ]
+        return "\n".join(lines) + "\n"
+
+
+def start_batch(memory_store: WorkspaceMemoryStore, label: str, objective: str, started_at: str | None = None) -> int:
+    return memory_store.start_batch(label, objective, started_at=started_at)
+
+
+def stop_batch(memory_store: WorkspaceMemoryStore, ended_at: str | None = None) -> BatchReport | None:
+    batch = memory_store.finish_active_batch(ended_at=ended_at)
+    if batch is None:
+        return None
+    report = memory_store.batch_metrics(batch_id=int(batch["id"]), now=ended_at)
+    return _build_report(report)
+
+
+def current_batch_report(memory_store: WorkspaceMemoryStore, batch_id: int | None = None, now: str | None = None) -> BatchReport | None:
+    report = memory_store.batch_metrics(batch_id=batch_id, now=now)
+    if report is None:
+        return None
+    return _build_report(report)
+
+
+def _build_report(data: dict[str, object]) -> BatchReport:
+    batch = data["batch"]
+    assert isinstance(batch, dict)
+    return BatchReport(
+        batch_id=int(data["batch_id"]),
+        label=str(batch["label"]),
+        objective=str(batch["objective"]),
+        started_at=str(batch["started_at"]),
+        ended_at=str(data["window_end"]),
+        duration_seconds=int(data["duration_seconds"]),
+        delegations=int(data["delegations"]),
+        defect_iterations=int(data["defect_iterations"]),
+        task_success_count=int(data["task_success_count"]),
+        task_failure_count=int(data["task_failure_count"]),
+        task_partial_count=int(data["task_partial_count"]),
+        conversation_turns=int(data["conversation_turns"]),
+    )
+
+
+def _format_duration(seconds: int) -> str:
+    return str(timedelta(seconds=max(0, seconds)))

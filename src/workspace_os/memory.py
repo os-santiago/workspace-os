@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,14 @@ class WorkspaceMemoryStore:
                     workspace TEXT,
                     launched_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS batch_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT NOT NULL,
+                    objective TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT
+                );
                 """
             )
             conn.execute("DELETE FROM schema_version")
@@ -150,6 +158,7 @@ class WorkspaceMemoryStore:
         context_hash: str,
         outcome: str,
         evidence_ref: str | None = None,
+        created_at: str | None = None,
     ) -> None:
         with self._connection() as conn:
             conn.execute(
@@ -161,7 +170,7 @@ class WorkspaceMemoryStore:
                     evidence_ref = excluded.evidence_ref,
                     created_at = excluded.created_at
                 """,
-                (task_type.strip(), context_hash.strip(), outcome.strip(), evidence_ref, _utc_now()),
+                (task_type.strip(), context_hash.strip(), outcome.strip(), evidence_ref, created_at or _utc_now()),
             )
             conn.commit()
 
@@ -189,6 +198,7 @@ class WorkspaceMemoryStore:
         risk_level: str,
         decision: str,
         missing_context: Iterable[str],
+        created_at: str | None = None,
     ) -> None:
         with self._connection() as conn:
             conn.execute(
@@ -201,32 +211,180 @@ class WorkspaceMemoryStore:
                     risk_level.strip(),
                     decision.strip(),
                     json.dumps([item.strip() for item in missing_context if item and item.strip()]),
-                    _utc_now(),
+                    created_at or _utc_now(),
                 ),
             )
             conn.commit()
 
-    def record_turn(self, session_id: str, role: str, message: str) -> None:
+    def record_turn(self, session_id: str, role: str, message: str, created_at: str | None = None) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO conversation_turns (session_id, role, message, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (session_id.strip(), role.strip(), message.strip(), _utc_now()),
+                (session_id.strip(), role.strip(), message.strip(), created_at or _utc_now()),
             )
             conn.commit()
 
-    def record_agent_launch(self, agent: str, task: str, workspace: str | None) -> None:
+    def record_agent_launch(self, agent: str, task: str, workspace: str | None, launched_at: str | None = None) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO agent_launches (agent, task, workspace, launched_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (agent.strip(), task.strip(), workspace.strip() if workspace else None, _utc_now()),
+                (agent.strip(), task.strip(), workspace.strip() if workspace else None, launched_at or _utc_now()),
             )
             conn.commit()
+
+    def start_batch(self, label: str, objective: str, started_at: str | None = None) -> int:
+        active = self.active_batch()
+        if active is not None:
+            raise ValueError("A batch is already active.")
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO batch_runs (label, objective, started_at, ended_at)
+                VALUES (?, ?, ?, NULL)
+                """,
+                (label.strip(), objective.strip(), started_at or _utc_now()),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def active_batch(self) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM batch_runs
+                WHERE ended_at IS NULL
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "objective": str(row["objective"]),
+                "started_at": str(row["started_at"]),
+                "ended_at": row["ended_at"],
+            }
+
+    def finish_active_batch(self, ended_at: str | None = None) -> dict[str, str | None] | None:
+        batch = self.active_batch()
+        if batch is None:
+            return None
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE batch_runs
+                SET ended_at = ?
+                WHERE id = ?
+                """,
+                (ended_at or _utc_now(), batch["id"]),
+            )
+            conn.commit()
+        return self.get_batch(int(batch["id"]))
+
+    def get_batch(self, batch_id: int) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM batch_runs
+                WHERE id = ?
+                """,
+                (batch_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "objective": str(row["objective"]),
+                "started_at": str(row["started_at"]),
+                "ended_at": row["ended_at"],
+            }
+
+    def batch_metrics(self, batch_id: int | None = None, now: str | None = None) -> dict[str, object] | None:
+        batch = self.get_batch(batch_id) if batch_id is not None else self.active_batch()
+        if batch is None:
+            return None
+        window_end = batch["ended_at"] or (now or _utc_now())
+        started_at = str(batch["started_at"])
+        batch_id_value = int(batch["id"])
+        with self._connection() as conn:
+            launch_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM agent_launches
+                WHERE launched_at >= ? AND launched_at <= ?
+                """,
+                (started_at, window_end),
+            ).fetchone()
+            outcome_rows = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+                    SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count
+                FROM task_outcomes
+                WHERE created_at >= ? AND created_at <= ?
+                """,
+                (started_at, window_end),
+            ).fetchone()
+            turn_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM conversation_turns
+                WHERE created_at >= ? AND created_at <= ?
+                """,
+                (started_at, window_end),
+            ).fetchone()
+        total = int(outcome_rows["total"] or 0)
+        success_count = int(outcome_rows["success_count"] or 0)
+        failure_count = int(outcome_rows["failure_count"] or 0)
+        partial_count = int(outcome_rows["partial_count"] or 0)
+        return {
+            "batch": batch,
+            "batch_id": batch_id_value,
+            "window_end": window_end,
+            "duration_seconds": _duration_seconds(started_at, window_end),
+            "delegations": int(launch_count["count"] or 0),
+            "defect_iterations": failure_count + partial_count,
+            "task_outcome_total": total,
+            "task_success_count": success_count,
+            "task_failure_count": failure_count,
+            "task_partial_count": partial_count,
+            "conversation_turns": int(turn_count["count"] or 0),
+        }
+
+    def batch_history(self, limit: int = 10) -> list[dict[str, str | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM batch_runs
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": str(row["id"]),
+                    "label": str(row["label"]),
+                    "objective": str(row["objective"]),
+                    "started_at": str(row["started_at"]),
+                    "ended_at": row["ended_at"],
+                }
+                for row in rows
+            ]
 
     def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
         with self._connection() as conn:
@@ -408,3 +566,9 @@ class WorkspaceMemoryStore:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _duration_seconds(started_at: str, ended_at: str) -> int:
+    start = datetime.fromisoformat(started_at)
+    end = datetime.fromisoformat(ended_at)
+    return max(0, int((end - start).total_seconds()))
