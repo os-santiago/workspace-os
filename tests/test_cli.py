@@ -607,6 +607,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, json_exit_code)
         self.assertEqual(0, capabilities_exit_code)
         self.assertIn("Workspace bridge:", rendered)
+        self.assertIn("Hardening: always-on malicious agentic protection", rendered)
         self.assertIn("Safe surfaces:", rendered)
         self.assertIn("Execution mode:", rendered)
         self.assertIn("analysis", rendered)

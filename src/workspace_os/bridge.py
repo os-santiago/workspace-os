@@ -143,6 +143,7 @@ def build_workspace_bridge_report(
     summary_lines = (
         f"State: sources={len(sources)} memory_entries={memory_store.stats()['conversation_turns']} turns "
         f"launches={memory_store.stats()['agent_launches']} feedback={feedback_metrics['total']}",
+        "Hardening: always-on malicious agentic protection",
         f"Execution mode: {execution_mode}",
         f"Process: {_render_process_summary(process)}",
         f"Batch: {_render_batch_summary(batch)}",
@@ -254,6 +255,7 @@ def build_workspace_bridge_next_report(
 
     detail_lines = (
         *next_action.summary_lines[:2],
+        "Hardening: always-on malicious agentic protection",
         *roots.recommendation_lines[:3],
         *analysis.recommendation_lines[:2],
     )

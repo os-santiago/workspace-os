@@ -320,6 +320,7 @@ class ShellTests(unittest.TestCase):
             capabilities_rendered = buffer.getvalue()
 
         self.assertIn("Workspace bridge:", rendered)
+        self.assertIn("Hardening: always-on malicious agentic protection", rendered)
         self.assertIn("Safe surfaces:", rendered)
         self.assertIn("Execution mode:", rendered)
         self.assertIn("Available surfaces:", detail_rendered)
