@@ -11,6 +11,8 @@ from workspace_os.web_server import (
     _context_snapshot_markdown_payload,
     _context_snapshot_payload,
     _conscience_preview_payload,
+    _conscience_metrics_markdown_payload,
+    _conscience_metrics_payload,
     _delegate_launch_payload,
     _extract_progress_map,
     _handoff_payload,
@@ -54,6 +56,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("conscienceRefresh", index)
         self.assertIn("conscienceOutput", index)
         self.assertIn("conscienceActions", index)
+        self.assertIn("conscienceMetricsRefresh", index)
+        self.assertIn("conscienceMetricsOutput", index)
         self.assertIn("chatContextToggle", index)
         self.assertIn("chatContextRefresh", index)
         self.assertIn("chatContextOutput", index)
@@ -64,6 +68,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("suggested_actions", app)
         self.assertIn("latestConscience", app)
         self.assertIn("latestSuggestedActions", app)
+        self.assertIn("latestConscienceMetrics", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
         self.assertIn("chatContextExpanded", app)
@@ -163,6 +168,33 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertEqual("ALLOW_WITH_LIMITS", result["conscience"]["decision"])
+
+    def test_conscience_metrics_payload_renders_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            store.record_decision(
+                "hash-1",
+                "medium",
+                "SAFE_REDIRECT",
+                ["missing_workspace"],
+                primary_agent="codex",
+                secondary_agent="claude",
+                routing_reason="workspace_inventory_first",
+            )
+
+            result = _conscience_metrics_payload(memory)
+            markdown = _conscience_metrics_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(1, result["report"]["summary"]["total"])
+        self.assertEqual(1, result["report"]["summary"]["decision_counts"]["SAFE_REDIRECT"])
+        self.assertIn("Conscience report", markdown["text"])
+        self.assertIn("total=1", markdown["text"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
         command = _agent_command("codex", Path("workspace"), "Do the task.")

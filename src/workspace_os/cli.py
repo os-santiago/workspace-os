@@ -7,6 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
+from workspace_os.conscience_report import build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
@@ -61,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handoff(sources, memory_path, args.launch_limit, args.output, args.compact)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
+    if args.command == "conscience":
+        return _conscience(memory_path, args.conscience_command, args)
     if args.command == "shell":
         return _shell(sources, memory_path, args.session_id)
     if args.command == "batch":
@@ -211,6 +214,16 @@ def _build_parser() -> argparse.ArgumentParser:
     outcome_add.add_argument("--context-hash", required=True, help="Stable context hash.")
     outcome_add.add_argument("--outcome", required=True, choices=["success", "failure", "partial"], help="Outcome.")
     outcome_add.add_argument("--evidence-ref", help="Optional evidence reference.")
+
+    conscience_parser = subparsers.add_parser(
+        "conscience",
+        help="Inspect the operational conscience decision history and metrics.",
+    )
+    conscience_subparsers = conscience_parser.add_subparsers(dest="conscience_command", required=True)
+    conscience_status = conscience_subparsers.add_parser("status", help="Show summary decision metrics.")
+    conscience_status.add_argument("--limit", type=int, default=20, help="Maximum decisions to summarize.")
+    conscience_history = conscience_subparsers.add_parser("history", help="Show recent conscience decisions.")
+    conscience_history.add_argument("--limit", type=int, default=20, help="Maximum decisions to list.")
 
     shell_parser = subparsers.add_parser(
         "shell",
@@ -508,6 +521,24 @@ def _memory(memory_path: Path, command: str, args: argparse.Namespace) -> int:
         return 0
 
     print("error: unsupported memory command", file=sys.stderr)
+    return 2
+
+
+def _conscience(memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if command == "status":
+        report = build_conscience_report(store, limit=args.limit)
+        print(render_conscience_report_text(report), end="")
+        return 0
+
+    if command == "history":
+        report = build_conscience_report(store, limit=args.limit)
+        print(render_conscience_report_text(report), end="")
+        return 0
+
+    print("error: unsupported conscience command", file=sys.stderr)
     return 2
 
 

@@ -16,10 +16,20 @@ class MemoryTests(unittest.TestCase):
             store.record_task_outcome("capture", "abc123", "success", "scanales-kb:captures/session/example.md")
             store.record_turn("session-1", "user", "Remember this lesson.")
             store.record_context_snapshot("global", "test", "summary text", "markdown text")
+            store.record_decision(
+                "hash-1",
+                "medium",
+                "SAFE_REDIRECT",
+                ["missing_workspace"],
+                primary_agent="codex",
+                secondary_agent="claude",
+                routing_reason="workspace_inventory_first",
+            )
 
             stats = store.stats()
             hits = store.search("concise", limit=10)
             snapshot = store.latest_context_snapshot("global")
+            report = store.decision_metrics_summary()
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
@@ -30,6 +40,10 @@ class MemoryTests(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertEqual("test", snapshot["reason"])
         self.assertEqual("summary text", snapshot["summary"])
+        self.assertEqual(1, report["total"])
+        self.assertEqual(1, report["decision_counts"]["SAFE_REDIRECT"])
+        self.assertEqual(1, report["primary_agent_counts"]["codex"])
+        self.assertEqual(1, report["routing_reason_counts"]["workspace_inventory_first"])
 
 
 if __name__ == "__main__":

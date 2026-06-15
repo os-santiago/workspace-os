@@ -11,6 +11,7 @@ from workspace_os.capture import build_capture_draft
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
+from workspace_os.conscience_report import build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
@@ -100,6 +101,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     _handoff_markdown_payload(sources, memory_path, workspace_root, query),
                     "text/markdown; charset=utf-8",
                     filename="handoff.md",
+                )
+                return
+            if parsed.path == "/api/conscience":
+                self._send_json(_conscience_metrics_payload(memory_path, query))
+                return
+            if parsed.path == "/api/conscience.md":
+                self._send_text(
+                    _conscience_metrics_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="conscience.md",
                 )
                 return
 
@@ -393,6 +404,35 @@ def _handoff_markdown_payload(
         compact=compact,
     )
     return {"ok": True, "text": text}
+
+
+def _conscience_metrics_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 20
+    if query is not None:
+        limit = _int_query(query, "limit", 20)
+    return {"ok": True, "report": build_conscience_report(store, limit=limit)}
+
+
+def _conscience_metrics_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 20
+    if query is not None:
+        limit = _int_query(query, "limit", 20)
+    report = build_conscience_report(store, limit=limit)
+    return {"ok": True, "text": render_conscience_report_text(report)}
 
 
 def _context_snapshot_payload(

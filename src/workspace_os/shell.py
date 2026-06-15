@@ -9,6 +9,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
+from workspace_os.conscience_report import build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
@@ -99,6 +100,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
                     "/alias ...          save, list, or invoke shortcuts",
+                    "/conscience ...     show decision metrics or recent decisions",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
                     "/launches           show recent agent launches",
@@ -323,6 +325,29 @@ class WorkspaceShell(cmd.Cmd):
     def do_habits(self, arg: str) -> None:
         habits = compute_habits(self.memory_store, self.profile)
         print(habits.render_full(), end="")
+
+    def do_conscience(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        limit = 20
+        if parts:
+            command = parts[0].casefold()
+            if command in {"status", "history"}:
+                if len(parts) > 1:
+                    try:
+                        limit = max(1, int(parts[1]))
+                    except ValueError:
+                        print("Usage: /conscience [status|history] [limit]")
+                        return
+                report = build_conscience_report(self.memory_store, limit=limit)
+                print(render_conscience_report_text(report), end="")
+                return
+            try:
+                limit = max(1, int(parts[0]))
+            except ValueError:
+                print("Usage: /conscience [status|history] [limit]")
+                return
+        report = build_conscience_report(self.memory_store, limit=limit)
+        print(render_conscience_report_text(report), end="")
 
     def do_batch(self, arg: str) -> None:
         parts = shlex.split(arg)

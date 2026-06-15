@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,9 @@ class WorkspaceMemoryStore:
                     risk_level TEXT NOT NULL,
                     decision TEXT NOT NULL,
                     missing_context TEXT NOT NULL,
+                    primary_agent TEXT,
+                    secondary_agent TEXT,
+                    routing_reason TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -134,6 +137,7 @@ class WorkspaceMemoryStore:
             )
             for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches"):
                 self._ensure_batch_column(conn, table)
+            self._ensure_decision_columns(conn)
             conn.execute("DELETE FROM schema_version")
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
             conn.commit()
@@ -237,20 +241,30 @@ class WorkspaceMemoryStore:
         risk_level: str,
         decision: str,
         missing_context: Iterable[str],
+        primary_agent: str | None = None,
+        secondary_agent: str | None = None,
+        routing_reason: str | None = None,
         created_at: str | None = None,
         batch_id: int | None = None,
     ) -> None:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT INTO decision_log (request_hash, risk_level, decision, missing_context, created_at, batch_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO decision_log (
+                    request_hash, risk_level, decision, missing_context,
+                    primary_agent, secondary_agent, routing_reason,
+                    created_at, batch_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request_hash.strip(),
                     risk_level.strip(),
                     decision.strip(),
                     json.dumps([item.strip() for item in missing_context if item and item.strip()]),
+                    primary_agent.strip() if primary_agent and primary_agent.strip() else None,
+                    secondary_agent.strip() if secondary_agent and secondary_agent.strip() else None,
+                    routing_reason.strip() if routing_reason and routing_reason.strip() else None,
                     created_at or _utc_now(),
                     batch_id if batch_id is not None else self.active_batch_id(conn),
                 ),
@@ -796,6 +810,14 @@ class WorkspaceMemoryStore:
             if "duplicate column name" not in str(exc).casefold():
                 raise
 
+    def _ensure_decision_columns(self, conn: sqlite3.Connection) -> None:
+        for column in ("primary_agent", "secondary_agent", "routing_reason"):
+            try:
+                conn.execute(f"ALTER TABLE decision_log ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).casefold():
+                    raise
+
     def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
         with self._connection() as conn:
             rows = conn.execute(
@@ -846,11 +868,11 @@ class WorkspaceMemoryStore:
                 for row in rows
             ]
 
-    def decision_metrics(self) -> list[dict[str, str]]:
+    def decision_metrics(self) -> list[dict[str, str | None]]:
         with self._connection() as conn:
             rows = conn.execute(
                 """
-                SELECT risk_level, missing_context
+                SELECT risk_level, missing_context, decision, primary_agent, secondary_agent, routing_reason
                 FROM decision_log
                 ORDER BY created_at DESC, id DESC
                 """
@@ -859,9 +881,66 @@ class WorkspaceMemoryStore:
                 {
                     "risk_level": str(row["risk_level"]),
                     "missing_context": str(row["missing_context"]),
+                    "decision": str(row["decision"]),
+                    "primary_agent": row["primary_agent"],
+                    "secondary_agent": row["secondary_agent"],
+                    "routing_reason": row["routing_reason"],
                 }
                 for row in rows
             ]
+
+    def decision_metrics_summary(self, limit: int | None = None) -> dict[str, object]:
+        decisions = self.decision_metrics()
+        if limit is not None:
+            decisions = decisions[:limit]
+
+        decision_counts: dict[str, int] = {}
+        risk_counts: dict[str, int] = {}
+        primary_agent_counts: dict[str, int] = {}
+        routing_reason_counts: dict[str, int] = {}
+        missing_context_counts: dict[str, int] = {}
+        redirect_count = 0
+        allow_count = 0
+        limit_count = 0
+        refuse_count = 0
+
+        for row in decisions:
+            decision = row["decision"]
+            risk_level = row["risk_level"]
+            primary_agent = row["primary_agent"] or "n/a"
+            routing_reason = row["routing_reason"] or "n/a"
+            decision_counts[decision] = decision_counts.get(decision, 0) + 1
+            risk_counts[risk_level] = risk_counts.get(risk_level, 0) + 1
+            primary_agent_counts[primary_agent] = primary_agent_counts.get(primary_agent, 0) + 1
+            routing_reason_counts[routing_reason] = routing_reason_counts.get(routing_reason, 0) + 1
+            try:
+                missing_items = json.loads(row["missing_context"] or "[]")
+            except json.JSONDecodeError:
+                missing_items = []
+            for item in missing_items:
+                missing_context_counts[item] = missing_context_counts.get(item, 0) + 1
+            if decision == "SAFE_REDIRECT":
+                redirect_count += 1
+            elif decision == "ALLOW":
+                allow_count += 1
+            elif decision == "ALLOW_WITH_LIMITS":
+                limit_count += 1
+            elif decision == "REFUSE":
+                refuse_count += 1
+
+        total = len(decisions)
+        return {
+            "total": total,
+            "decision_counts": decision_counts,
+            "risk_counts": risk_counts,
+            "primary_agent_counts": primary_agent_counts,
+            "routing_reason_counts": routing_reason_counts,
+            "missing_context_counts": dict(sorted(missing_context_counts.items(), key=lambda item: (-item[1], item[0]))),
+            "redirect_rate": (redirect_count / total) if total else 0.0,
+            "allow_rate": (allow_count / total) if total else 0.0,
+            "limit_rate": (limit_count / total) if total else 0.0,
+            "refusal_rate": (refuse_count / total) if total else 0.0,
+        }
 
     def recent_conversation_turns(self, limit: int = 30) -> list[dict[str, str]]:
         with self._connection() as conn:

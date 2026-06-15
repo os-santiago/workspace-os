@@ -47,6 +47,9 @@ def build_workspace_reply(
             risk_level=conscience.risk_level,
             decision=conscience.decision,
             missing_context=conscience.missing_context,
+            primary_agent=conscience.primary_agent,
+            secondary_agent=conscience.secondary_agent,
+            routing_reason=conscience.routing_reason,
         )
 
     answer_lines = _answer_lines(clean_message, sources, memory_store)

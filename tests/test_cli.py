@@ -96,8 +96,61 @@ class CliTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             self.assertIn("Workspace context snapshot:", rendered)
             self.assertIn("cli-test", rendered)
-            self.assertIn("State:", rendered)
-            self.assertIn("Next:", rendered)
+        self.assertIn("State:", rendered)
+        self.assertIn("Next:", rendered)
+
+    def test_conscience_status_command_renders_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            memory = root / "memory.sqlite3"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            store.record_decision(
+                "hash-1",
+                "medium",
+                "SAFE_REDIRECT",
+                ["missing_workspace"],
+                primary_agent="codex",
+                secondary_agent="claude",
+                routing_reason="workspace_inventory_first",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    exit_code = main(["--config", str(config), "conscience", "status"])
+                buffer.seek(0)
+                rendered = buffer.read()
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Conscience report", rendered)
+        self.assertIn("total=1", rendered)
+        self.assertIn("SAFE_REDIRECT=1", rendered)
+        self.assertIn("primary=codex", rendered)
 
     def test_batch_stop_auto_writes_handoff(self):
         with tempfile.TemporaryDirectory() as directory:

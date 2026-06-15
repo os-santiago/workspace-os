@@ -9,6 +9,7 @@ const state = {
   conscienceExpanded: false,
   latestConscience: null,
   latestSuggestedActions: [],
+  latestConscienceMetrics: null,
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
@@ -199,6 +200,46 @@ const renderConscienceActions = (actions = state.latestSuggestedActions) => {
   }
 };
 
+const renderConscienceMetrics = (data = null) => {
+  const output = qs("#conscienceMetricsOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load conscience metrics.";
+    return;
+  }
+  state.latestConscienceMetrics = data.report || null;
+  const summary = data.report?.summary || {};
+  const lines = [
+    `Total: ${summary.total || 0}`,
+    `Redirect rate: ${formatPercent(summary.redirect_rate)}`,
+    `Allow rate: ${formatPercent(summary.allow_rate)}`,
+    `Limit rate: ${formatPercent(summary.limit_rate)}`,
+    `Refusal rate: ${formatPercent(summary.refusal_rate)}`,
+    "",
+    "Decision counts:",
+    ...renderKeyValueLines(summary.decision_counts),
+    "",
+    "Primary agents:",
+    ...renderKeyValueLines(summary.primary_agent_counts),
+    "",
+    "Routing reasons:",
+    ...renderKeyValueLines(summary.routing_reason_counts),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const renderKeyValueLines = (value) => {
+  if (!value || typeof value !== "object") return ["- n/a=0"];
+  const entries = Object.entries(value);
+  if (entries.length === 0) return ["- n/a=0"];
+  return entries.map(([key, count]) => `- ${key}=${count}`);
+};
+
+const formatPercent = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "0%";
+  return `${Math.round(number * 100)}%`;
+};
+
 const loadSidebar = async () => {
   const [software, docs] = await Promise.all([
     getJson("/api/recent-software"),
@@ -211,6 +252,11 @@ const loadSidebar = async () => {
 const loadHandoff = async () => {
   const data = await getJson("/api/handoff?launch_limit=3");
   renderHandoff(data);
+};
+
+const loadConscienceMetrics = async () => {
+  const data = await getJson("/api/conscience?limit=10");
+  renderConscienceMetrics(data);
 };
 
 const loadContext = async () => {
@@ -372,6 +418,14 @@ const init = async () => {
   qs("#conscienceRefresh").addEventListener("click", () => {
     renderConscience(state.latestConscience);
   });
+  qs("#conscienceMetricsRefresh").addEventListener("click", async () => {
+    qs("#conscienceMetricsOutput").textContent = "Loading conscience metrics...";
+    try {
+      await loadConscienceMetrics();
+    } catch (error) {
+      qs("#conscienceMetricsOutput").textContent = error.message;
+    }
+  });
   qs("#chatContextRefresh").addEventListener("click", async () => {
     qs("#chatContextOutput").textContent = "Loading context...";
     try {
@@ -404,6 +458,7 @@ const init = async () => {
   setConscienceExpanded(readConsciencePreference(), false);
   await loadContext();
   await loadHandoff();
+  await loadConscienceMetrics();
   renderConscience(null);
   renderConscienceActions([]);
 };
