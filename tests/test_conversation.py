@@ -99,6 +99,27 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("return the next action", reply.reply)
         self.assertNotIn("Primary route:", reply.reply)
 
+    def test_workspace_reply_continuation_request_is_actionable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                "quiero continuar con la implementacion de workspace-os",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Ready. Continue with workspace-os.", reply.reply)
+        self.assertIn("Fastest path: /inspect, then /next.", reply.reply)
+        self.assertIn("Primary route: /codex", reply.reply)
+        self.assertIn("Optional cross-check: /claude", reply.reply)
+
     def test_workspace_reply_default_fallback_is_actionable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

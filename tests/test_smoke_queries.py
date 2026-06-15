@@ -65,6 +65,15 @@ class SmokeQueryTests(unittest.TestCase):
                     ],
                 ),
                 (
+                    "quiero continuar con la implementacion de workspace-os",
+                    [
+                        "Ready. Continue with workspace-os.",
+                        "Fastest path: /inspect, then /next.",
+                        "Primary route: /codex",
+                        "Optional cross-check: /claude",
+                    ],
+                ),
+                (
                     "what should we do next?",
                     [
                         "Primary route: /codex",

@@ -234,6 +234,7 @@ Initial implementation:
 - Launch decisions return risk level, moral categories, applicable norms, policy refs, context, decision, strategy, rationale, review requirement, and missing context.
 - Ambiguous requests can return `SAFE_REDIRECT` so the system can route them to Codex first and Claude as a parallel cross-check.
 - The chat surfaces keep the user-facing answer terse by default and expose the full answer-plus-trace payload only through `verbose` mode in the shell or web UI.
+- Continuation requests such as "keep going" or "continue the implementation" answer with a direct resume path instead of the generic fallback, usually pointing at `/inspect`, `/next`, and the active Codex/Claude route.
 - The web chat exposes redirect routes as launchable actions for ambiguous requests.
 - `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
 - `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.

@@ -222,6 +222,23 @@ def _is_repetition_query(message: str) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def _is_continuation_request(message: str) -> bool:
+    text = message.casefold()
+    keywords = (
+        "quiero continuar",
+        "continuar con la implementacion",
+        "continuar con la implementación",
+        "continue with the implementation",
+        "continue implementation",
+        "resume",
+        "retomar",
+        "siguiente lote",
+        "next batch",
+        "keep going",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
 def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
@@ -275,7 +292,7 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
 def _suggested_actions(message: str, conscience: ConscienceDecision, memory_store: WorkspaceMemoryStore | None) -> list[dict[str, str]]:
     if _is_greeting(message) or _is_app_overview_query(message) or _is_repetition_query(message):
         return []
-    if conscience.decision != "SAFE_REDIRECT" and not _is_workspace_status_query(message):
+    if conscience.decision != "SAFE_REDIRECT" and not (_is_workspace_status_query(message) or _is_continuation_request(message)):
         return []
     profile = load_profile(memory_store) if memory_store else None
     workspace_name = "all workspaces"
@@ -339,6 +356,16 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
             "No. I now answer by intent instead of repeating the same fallback.",
             "If a question is ambiguous, I route it to Codex first and use Claude in parallel when a second pass is useful.",
             "Ask for repo state, an objective, or a task and I'll return the next action instead of a canned reply.",
+        ]
+    if _is_continuation_request(message):
+        workspace_name = _workspace_name_from_sources(sources)
+        return [
+            f"Ready. Continue with {workspace_name}.",
+            "Fastest path: /inspect, then /next.",
+            f"Primary route: /codex",
+            f"Command: {_route_command('codex', workspace_name)}",
+            "Optional cross-check: /claude",
+            f"Command: {_route_command('claude', workspace_name)}",
         ]
     if memory_store and _is_workspace_status_query(message):
         return _workspace_status_answer_lines(sources, memory_store)
@@ -419,6 +446,15 @@ def _workspace_root_from_sources(sources: list[Source]) -> str:
     return root or "all workspaces"
 
 
+def _workspace_name_from_sources(sources: list[Source]) -> str:
+    for source in sources:
+        if source.name == "workspace-os":
+            return source.name
+    if len(sources) == 1:
+        return sources[0].name
+    return "workspace-os"
+
+
 def _agent_route_prompt(agent: str, workspace_name: str) -> str:
     if agent == "claude":
         return (
@@ -429,6 +465,10 @@ def _agent_route_prompt(agent: str, workspace_name: str) -> str:
         f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
         "active branches, blockers, and the next best action."
     )
+
+
+def _route_command(agent: str, workspace_name: str) -> str:
+    return f'/{agent} "{_agent_route_prompt(agent, workspace_name)}"'
 
 
 def _refine_route_with_history(
