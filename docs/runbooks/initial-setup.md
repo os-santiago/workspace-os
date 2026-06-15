@@ -14,6 +14,11 @@ Prepare the repository for product discovery and later implementation.
 6. Read `docs/product/operating-model.md`.
 7. Review architecture decisions.
 8. Copy `config/workspace.sources.example.json` to a local ignored config if your workspace root or memory path differs from the default and set `workspace_root`, `memory_db`, `WORKSPACE_OS_GIT_ROOT`, or `WORKSPACE_OS_MEMORY_DB`.
+9. Install the PowerShell `wos` command if you want a reusable local launcher:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-wos-command.ps1
+```
 
 ## Validation
 

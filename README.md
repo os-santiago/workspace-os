@@ -93,6 +93,20 @@ python -m workspace_os --config config/workspace.sources.example.json housekeepi
 python -m workspace_os --config config/workspace.sources.example.json validate --skip-housekeeping
 ```
 
+To install a reusable PowerShell `wos` command for the current user, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-wos-command.ps1
+```
+
+After that, `wos` defaults to the shell and forwards any additional arguments to Workspace OS:
+
+```powershell
+wos
+wos validate
+wos web
+```
+
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
 
 Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
