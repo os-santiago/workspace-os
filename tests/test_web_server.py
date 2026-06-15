@@ -277,6 +277,8 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertEqual("SAFE_REDIRECT", result["conscience"]["decision"])
+        self.assertEqual("codex", result["conscience"]["primary_agent"])
+        self.assertEqual("claude", result["conscience"]["secondary_agent"])
         self.assertEqual(2, len(result["suggested_actions"]))
         self.assertEqual("codex", result["suggested_actions"][0]["agent"])
         self.assertEqual("claude", result["suggested_actions"][1]["agent"])

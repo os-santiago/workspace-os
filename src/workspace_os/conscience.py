@@ -117,6 +117,9 @@ class ConscienceDecision:
     missing_context: list[str]
     policy_refs: list[str]
     context: dict[str, object]
+    primary_agent: str | None = None
+    secondary_agent: str | None = None
+    routing_reason: str | None = None
 
     def allows_execution(self) -> bool:
         return self.decision in {ALLOW, ALLOW_WITH_LIMITS, SAFE_REDIRECT}
@@ -133,6 +136,9 @@ class ConscienceDecision:
             "missing_context": self.missing_context,
             "policy_refs": self.policy_refs,
             "context": self.context,
+            "primary_agent": self.primary_agent,
+            "secondary_agent": self.secondary_agent,
+            "routing_reason": self.routing_reason,
         }
 
 
@@ -231,6 +237,9 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             missing_context=_unique([*context.missing_context, "google_drive_connector"]),
             policy_refs=normative.policy_refs,
             context=context.to_dict(),
+            primary_agent=None,
+            secondary_agent=None,
+            routing_reason="destination_requires_connector",
         )
 
     if context.risk_level == "critical":
@@ -245,6 +254,9 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             missing_context=[],
             policy_refs=normative.policy_refs,
             context=context.to_dict(),
+            primary_agent=None,
+            secondary_agent=None,
+            routing_reason="harm_prevention",
         )
 
     if context.requires_authority:
@@ -259,20 +271,27 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             missing_context=_unique(context.missing_context),
             policy_refs=normative.policy_refs,
             context=context.to_dict(),
+            primary_agent=None,
+            secondary_agent=None,
+            routing_reason="authority_required",
         )
 
     if context.user_intent == "ambiguous":
+        primary_agent, secondary_agent, routing_reason = _select_redirect_agents(context, normative)
         return ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=_unique([*context.affected_parties, "ambiguous_intent"]),
             applicable_norms=normative.applicable_norms,
             decision=SAFE_REDIRECT,
-            response_strategy="redirect_to_codex_then_claude",
+            response_strategy="redirect_to_primary_agent_then_fallback",
             rationale="The request is under-specified, so a workspace inventory or cross-check will produce a better next step.",
             human_review_required=False,
             missing_context=_unique(context.missing_context),
             policy_refs=normative.policy_refs,
             context=context.to_dict(),
+            primary_agent=primary_agent,
+            secondary_agent=secondary_agent,
+            routing_reason=routing_reason,
         )
 
     if context.risk_level == "medium":
@@ -287,6 +306,9 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             missing_context=_unique(context.missing_context),
             policy_refs=normative.policy_refs,
             context=context.to_dict(),
+            primary_agent=None,
+            secondary_agent=None,
+            routing_reason="sensitive_operation",
         )
 
     return ConscienceDecision(
@@ -300,6 +322,9 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
         missing_context=[],
         policy_refs=normative.policy_refs,
         context=context.to_dict(),
+        primary_agent=None,
+        secondary_agent=None,
+        routing_reason="standard_work",
     )
 
 
@@ -311,6 +336,9 @@ def render_decision_for_prompt(decision: ConscienceDecision) -> str:
         f"- Response strategy: {decision.response_strategy}",
         f"- Rationale: {decision.rationale}",
         f"- Policy refs: {', '.join(decision.policy_refs) if decision.policy_refs else 'n/a'}",
+        f"- Primary agent: {decision.primary_agent or 'n/a'}",
+        f"- Secondary agent: {decision.secondary_agent or 'n/a'}",
+        f"- Routing reason: {decision.routing_reason or 'n/a'}",
         "- Context:",
         f"  - intent={decision.context.get('user_intent', 'n/a')}",
         f"  - domain={decision.context.get('domain', 'n/a')}",
@@ -326,6 +354,18 @@ def render_decision_for_prompt(decision: ConscienceDecision) -> str:
 
 def _contains_any(value: str, patterns: tuple[str, ...]) -> bool:
     return any(pattern in value for pattern in patterns)
+
+
+def _select_redirect_agents(context: RequestContext, normative: NormativeAnalysis) -> tuple[str, str, str]:
+    if context.domain in {"security", "privacy", "legal", "finance", "health"}:
+        return "claude", "codex", f"domain_{context.domain}_cross_check"
+    if context.user_intent == "educational":
+        return "claude", "codex", "educational_explanation"
+    if context.domain == "workspace" or context.domain == "general":
+        return "codex", "claude", "workspace_inventory_first"
+    if normative.priority == "clarify_or_redirect":
+        return "codex", "claude", "clarify_or_redirect"
+    return "codex", "claude", "default_workspace_route"
 
 
 def _policy_root() -> Path:

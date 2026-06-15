@@ -53,7 +53,10 @@ class ConscienceTests(unittest.TestCase):
         decision = evaluate_request("What should we do next?")
 
         self.assertEqual(SAFE_REDIRECT, decision.decision)
-        self.assertEqual("redirect_to_codex_then_claude", decision.response_strategy)
+        self.assertEqual("redirect_to_primary_agent_then_fallback", decision.response_strategy)
+        self.assertEqual("codex", decision.primary_agent)
+        self.assertEqual("claude", decision.secondary_agent)
+        self.assertEqual("workspace_inventory_first", decision.routing_reason)
         self.assertIn("workspace.redirect.ambiguity", decision.policy_refs)
         self.assertIn("workspace.policy.global-safety", decision.policy_refs)
         self.assertIn("workspace.policy.orchestration", decision.policy_refs)

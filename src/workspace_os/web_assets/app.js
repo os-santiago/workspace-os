@@ -146,6 +146,8 @@ const renderConscience = (data = null) => {
     `Decision: ${data.decision || "n/a"}`,
     `Risk: ${data.risk_level || "n/a"}`,
     `Strategy: ${data.response_strategy || "n/a"}`,
+    `Primary: ${data.primary_agent || "n/a"}`,
+    `Secondary: ${data.secondary_agent || "n/a"}`,
     `Policy refs: ${(data.policy_refs || []).join(", ") || "n/a"}`,
     "",
     `Context:`,

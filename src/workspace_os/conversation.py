@@ -249,7 +249,7 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
             [
                 "- primary route=/codex \"Inspect the current workspace state and summarize projects in flight, active branches, blockers, and the next best action.\"",
                 "- fallback route=/claude \"Cross-check the same workspace inventory and add anything Codex missed; parallelize if faster.\"",
-                f"- codex prompt={codex_prompt}",
+                f"- codex prompt={_agent_route_prompt('codex', profile.default_workspace or 'all workspaces')}",
             ]
         )
     else:
@@ -266,30 +266,32 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
     workspace_name = "all workspaces"
     if profile and profile.default_workspace:
         workspace_name = profile.default_workspace
-    codex_task = _codex_inventory_prompt(workspace_name)
-    claude_task = _claude_cross_check_prompt(workspace_name)
+    primary_agent = conscience.primary_agent or "codex"
+    secondary_agent = conscience.secondary_agent or ("claude" if primary_agent == "codex" else "codex")
+    primary_task = _agent_route_prompt(primary_agent, workspace_name)
+    secondary_task = _agent_route_prompt(secondary_agent, workspace_name)
     return [
         {
-            "agent": "codex",
-            "task": codex_task,
+            "agent": primary_agent,
+            "task": primary_task,
             "brief": f"User request: {message}",
-            "command": f'/codex "{codex_task}"',
+            "command": f'/{primary_agent} "{primary_task}"',
         },
         {
-            "agent": "claude",
-            "task": claude_task,
+            "agent": secondary_agent,
+            "task": secondary_task,
             "brief": f"User request: {message}",
-            "command": f'/claude "{claude_task}"',
+            "command": f'/{secondary_agent} "{secondary_task}"',
         },
     ]
 
 
 def _redirect_guidance_lines(actions: list[dict[str, str]]) -> list[str]:
-    lines = ["Suggested route: /codex"]
+    lines = [f"Suggested route: /{actions[0]['agent']}"]
     if actions:
         lines.append(f"Suggested command: {actions[0]['command']}")
     if len(actions) > 1:
-        lines.extend(["Fallback route: /claude", f"Suggested command: {actions[1]['command']}"])
+        lines.extend([f"Fallback route: /{actions[1]['agent']}", f"Suggested command: {actions[1]['command']}"])
     return lines
 
 
@@ -346,15 +348,16 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
         lines.append(f"- {source.name}: {detail}")
 
     if process is None and batch is None:
+        workspace_name = profile.default_workspace if profile and profile.default_workspace else "all workspaces"
         lines.extend(
             [
                 "No active process or batch window is tracked.",
                 "Primary route=/codex",
                 "Use Codex to inventory the workspace and summarize active work.",
-                f"Suggested command: /codex \"{_codex_inventory_prompt(profile.default_workspace or 'all workspaces')}\"",
+                f"Suggested command: /codex \"{_agent_route_prompt('codex', workspace_name)}\"",
                 "Fallback route=/claude",
                 "Use Claude in parallel to cross-check the inventory and fill gaps.",
-                f"Suggested command: /claude \"{_claude_cross_check_prompt(profile.default_workspace or 'all workspaces')}\"",
+                f"Suggested command: /claude \"{_agent_route_prompt('claude', workspace_name)}\"",
             ]
         )
     else:
@@ -368,17 +371,15 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
     return lines
 
 
-def _codex_inventory_prompt(workspace_name: str) -> str:
+def _agent_route_prompt(agent: str, workspace_name: str) -> str:
+    if agent == "claude":
+        return (
+            f"Cross-check the workspace inventory for {workspace_name}; confirm any active work, "
+            "identify gaps, and suggest the fastest next step."
+        )
     return (
         f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
         "active branches, blockers, and the next best action."
-    )
-
-
-def _claude_cross_check_prompt(workspace_name: str) -> str:
-    return (
-        f"Cross-check the workspace inventory for {workspace_name}; confirm any active work, "
-        "identify gaps, and suggest the fastest next step."
     )
 
 
