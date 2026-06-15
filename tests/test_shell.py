@@ -272,6 +272,10 @@ class ShellTests(unittest.TestCase):
             detail_rendered = buffer.getvalue()
 
             with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_bridge("next")
+            next_rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_bridge("--format json")
             json_rendered = buffer.getvalue()
 
@@ -282,6 +286,7 @@ class ShellTests(unittest.TestCase):
         self.assertIn("Workspace bridge:", rendered)
         self.assertIn("Safe surfaces:", rendered)
         self.assertIn("Available surfaces:", detail_rendered)
+        self.assertIn("Workspace next:", next_rendered)
         self.assertIn("analysis", rendered)
         self.assertIn("claude", capabilities_rendered)
         self.assertIn('"workspace_root"', json_rendered)

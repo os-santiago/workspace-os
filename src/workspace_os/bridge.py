@@ -84,6 +84,39 @@ class WorkspaceBridgeReport:
         }
 
 
+@dataclass(frozen=True)
+class WorkspaceBridgeNextReport:
+    workspace: str
+    workspace_root: str
+    active_workspace: str
+    decision_line: str
+    command_line: str
+    detail_lines: tuple[str, ...]
+
+    def render(self, detail: bool = False) -> str:
+        lines = [f"Workspace next: {self.workspace}"]
+        lines.append(self.decision_line)
+        if self.command_line:
+            lines.append(self.command_line)
+        if detail and self.detail_lines:
+            lines.append("")
+            lines.append(f"Workspace root: {self.workspace_root}")
+            lines.append(f"Active workspace: {self.active_workspace}")
+            lines.append("")
+            lines.extend(self.detail_lines)
+        return "\n".join(lines) + "\n"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "workspace": self.workspace,
+            "workspace_root": self.workspace_root,
+            "active_workspace": self.active_workspace,
+            "decision_line": self.decision_line,
+            "command_line": self.command_line,
+            "detail_lines": list(self.detail_lines),
+        }
+
+
 def build_workspace_bridge_report(
     sources: list[Source],
     memory_store: WorkspaceMemoryStore,
@@ -181,6 +214,40 @@ def build_workspace_bridge_report(
     )
 
 
+def build_workspace_bridge_next_report(
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+) -> WorkspaceBridgeNextReport:
+    profile = load_profile(memory_store)
+    next_action = build_workspace_next_action(sources, memory_store, workspace=workspace)
+    analysis = build_workspace_analysis(sources, memory_store, workspace=workspace, compact=True)
+    overview = build_workspace_overview(sources, memory_store, workspace=workspace, compact=True)
+    active_workspace = workspace or profile.default_workspace or overview.workspace
+    workspace_root = _workspace_root_from_sources(sources)
+
+    decision_line = _extract_first_line(next_action.action_lines, prefix="Next:")
+    command_line = _extract_first_line(next_action.action_lines, prefix="Suggested command:")
+    if not command_line and analysis.recommendation_lines:
+        command_line = _extract_first_line(analysis.recommendation_lines, prefix="Suggested command:")
+    if not command_line:
+        command_line = "Suggested command: /analysis --compact"
+
+    detail_lines = (
+        *next_action.summary_lines[:2],
+        *analysis.recommendation_lines[:3],
+    )
+
+    return WorkspaceBridgeNextReport(
+        workspace=active_workspace,
+        workspace_root=workspace_root,
+        active_workspace=active_workspace,
+        decision_line=decision_line or "Next: review the workspace state before broad work.",
+        command_line=command_line,
+        detail_lines=detail_lines,
+    )
+
+
 def render_workspace_bridge_text(
     sources: list[Source],
     memory_store: WorkspaceMemoryStore,
@@ -198,12 +265,30 @@ def render_workspace_bridge_capabilities_text(
     return build_workspace_bridge_report(sources, memory_store, workspace=workspace).render_capabilities()
 
 
+def render_workspace_bridge_next_text(
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    detail: bool = False,
+) -> str:
+    return build_workspace_bridge_next_report(sources, memory_store, workspace=workspace).render(detail=detail)
+
+
 def render_workspace_bridge_json(
     sources: list[Source],
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
 ) -> str:
     report = build_workspace_bridge_report(sources, memory_store, workspace=workspace)
+    return json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n"
+
+
+def render_workspace_bridge_next_json(
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+) -> str:
+    report = build_workspace_bridge_next_report(sources, memory_store, workspace=workspace)
     return json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n"
 
 
@@ -245,3 +330,10 @@ def _render_context_summary(memory_store: WorkspaceMemoryStore) -> str:
     if snapshot is None:
         return "none"
     return f"{snapshot['reason']} @ {snapshot['created_at']}"
+
+
+def _extract_first_line(lines: tuple[str, ...], prefix: str) -> str:
+    for line in lines:
+        if line.startswith(prefix):
+            return line
+    return ""

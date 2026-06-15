@@ -11,7 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
-from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_text
+from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
@@ -101,7 +101,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/feedback add|history|status  manage request/result feedback signals",
                     "/inspect [opts]     show a condensed read-only workspace overview",
                     "/analysis [opts]    show recently updated repos and a recommended continuation",
-                    "/bridge [opts]      show non-interactive status and capability inventory",
+                    "/bridge [opts]      show next decision, status, or capability inventory",
                     "/handoff [opts]     show or export a concise handoff summary",
                     "/next               show the next operational action",
                     "/profile [k v]      get or set profile values",
@@ -343,11 +343,24 @@ class WorkspaceShell(cmd.Cmd):
         parser = argparse.ArgumentParser(prog="/bridge", add_help=False)
         parser.add_argument("--format", choices=["text", "json"], default="text")
         parser.add_argument("--detail", action="store_true")
-        parser.add_argument("bridge_command", nargs="?", choices=["status", "capabilities"], default="status")
+        parser.add_argument("bridge_command", nargs="?", choices=["status", "next", "capabilities"], default="status")
         try:
             options = parser.parse_args(parts)
         except SystemExit:
-            print("Usage: /bridge [status|capabilities] [--format text|json] [--detail]")
+            print("Usage: /bridge [status|next|capabilities] [--format text|json] [--detail]")
+            return
+        if options.bridge_command == "next":
+            rendered = (
+                render_workspace_bridge_next_json(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+                if options.format == "json"
+                else render_workspace_bridge_next_text(
+                    self._selected_sources(),
+                    self.memory_store,
+                    workspace=self.active_workspace,
+                    detail=options.detail,
+                )
+            )
+            self._emit(rendered, end="")
             return
         rendered = (
             render_workspace_bridge_json(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
@@ -982,6 +995,8 @@ class WorkspaceShell(cmd.Cmd):
             return paint("Workspace analysis:", bold + cyan, line[len("Workspace analysis:"):])
         if line.startswith("Workspace bridge:"):
             return paint("Workspace bridge:", bold + magenta, line[len("Workspace bridge:"):])
+        if line.startswith("Workspace next:"):
+            return paint("Workspace next:", bold + green, line[len("Workspace next:"):])
         if line == "Projects under root:":
             return paint(line, bold + blue)
         if line == "Analysis:" or line == "Recommendation:":

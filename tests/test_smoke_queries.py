@@ -161,6 +161,14 @@ class SmokeQueryTests(unittest.TestCase):
                 from contextlib import redirect_stdout
 
                 with redirect_stdout(buffer):
+                    bridge_next_exit_code = main(["--config", str(config), "bridge", "next"])
+                buffer.seek(0)
+                bridge_next_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
                     bridge_caps_exit_code = main(["--config", str(config), "bridge", "capabilities"])
                 buffer.seek(0)
                 bridge_caps_rendered = buffer.read()
@@ -177,6 +185,7 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertEqual(0, analysis_exit_code)
         self.assertEqual(0, bridge_exit_code)
         self.assertEqual(0, bridge_detail_exit_code)
+        self.assertEqual(0, bridge_next_exit_code)
         self.assertEqual(0, bridge_caps_exit_code)
         self.assertEqual(0, exit_code_oce)
         self.assertIn("Workspace next action:", next_rendered)
@@ -189,6 +198,8 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Workspace bridge:", bridge_rendered)
         self.assertIn("Safe surfaces:", bridge_rendered)
         self.assertIn("Available surfaces:", bridge_detail_rendered)
+        self.assertIn("Workspace next:", bridge_next_rendered)
+        self.assertIn("Suggested command:", bridge_next_rendered)
         self.assertIn("analysis", bridge_rendered)
         self.assertIn("claude", bridge_caps_rendered)
         self.assertIn("OCE report", oce_rendered)
@@ -210,6 +221,7 @@ class SmokeQueryTests(unittest.TestCase):
                     shell.do_analysis("")
                     shell.do_bridge("")
                     shell.do_bridge("--detail")
+                    shell.do_bridge("next")
                     shell.do_bridge("capabilities")
                     shell.do_oce("status 5")
                     shell.default("que proyectos tenemos en curso?")
@@ -221,6 +233,7 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Workspace bridge:", rendered)
         self.assertIn("Safe surfaces:", rendered)
         self.assertIn("Available surfaces:", rendered)
+        self.assertIn("Workspace next:", rendered)
         self.assertIn("Workspace root:", rendered)
         self.assertIn("Projects under root:", rendered)
         self.assertIn("Continue with:", rendered)
