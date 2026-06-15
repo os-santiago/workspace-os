@@ -126,13 +126,13 @@ Goal: make Workspace OS the bridge between raw operator requests and governed ex
 
 Capabilities:
 - Receive a request as input.
-- Run the request through an Operational Conscience Layer that extracts intent, outcome, priority, risk, and checkpoint needs.
+- Run the request through OCE, the Operational Conscience Engine model, which extracts intent, outcome, priority, risk, and checkpoint needs.
 - Run the interpreted request through a learning engine that applies ADEV and searches scanales-kb.
 - Route the result to software work in Git, deliverables in Google Workspace, or an agent brief.
 - Refuse or pause requests that conflict with privacy, safety, or repository rules.
 
 Exit criteria:
-- Operational Conscience Layer definition is captured in sanitized local documentation.
+- The ADEV -> OCE -> WOS stack is captured in sanitized local documentation.
 - Learning-engine inputs are explicitly ADEV and scanales-kb.
 - Every delegated task includes intent, risk, relevant learning, destination, and approval requirements.
 - Google Workspace routing is blocked until a real connector exists.

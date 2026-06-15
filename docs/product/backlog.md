@@ -226,7 +226,7 @@ Acceptance criteria:
 - Consciousness engine captures intent, desired outcome, risk, priority, timing, and checkpoint needs.
 - Learning engine applies ADEV doctrine and scanales-kb evidence before routing.
 - Routing output identifies destination: Git, Google Workspace, agent brief, answer, clarification, or refusal.
-- Operational Conscience Layer is captured as sanitized local architecture documentation.
+- OCE is captured as sanitized local architecture documentation, with Operational Conscience Layer retained as the historical predecessor.
 - The UI exposes the bridge state without overwhelming the first-use flow.
 
 Initial implementation:
@@ -237,6 +237,8 @@ Initial implementation:
 - `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
 - `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.
 - The web UI exposes a collapsible Conscience panel with decision, policy refs, and moral context.
+- The canonical architecture stack is documented as ADEV -> OCE -> WOS, where ADEV is the principle layer, OCE is the Operational Conscience Engine model layer, and WOS is the implementation layer.
+- The operating model distinguishes predictive routing from generative synthesis so the product can use low-cost interpretation before high-value generation.
 - The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 - Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.
 - Google Workspace destinations remain blocked until a real connector exists.

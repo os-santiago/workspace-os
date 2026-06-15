@@ -4,6 +4,17 @@
 
 Workspace OS is a local-first orchestration layer for AI-assisted work. It coordinates repositories, cloud deliverables, and agents without becoming the owner of all content.
 
+The canonical stack is:
+
+```text
+ADEV -> OCE -> WOS
+principle -> model -> implementation
+```
+
+- **ADEV** is the upstream principle layer.
+- **OCE** is the Operational Conscience Engine model layer.
+- **WOS** is the Workspace OS implementation surface.
+
 ## Core Components
 
 ```text
@@ -42,8 +53,9 @@ Initial commands:
 
 Interprets requests before routing them to execution.
 
-Workspace OS implements this concept as the Operational Conscience Layer defined in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
-The request bridge pipeline is further specified in `docs/architecture/decisions/0004-request-bridge-pipeline.md`.
+Workspace OS implements this concept as the Operational Conscience Engine model defined in `docs/architecture/decisions/0005-adev-oce-wos-stack.md`.
+The operational decision pipeline is further specified in `docs/architecture/decisions/0004-request-bridge-pipeline.md`.
+The original Operational Conscience Layer framing remains valid as the functional predecessor recorded in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
 The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 
 Initial scope:

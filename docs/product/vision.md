@@ -8,7 +8,21 @@ Work is distributed across repositories, local folders, Google Workspace, and mu
 
 Workspace OS provides one governed workspace model for AI-assisted work. It connects local repositories, knowledge bases, cloud deliverables, and agent tools while preserving clear ownership and rules.
 
-Workspace OS should act as the bridge between operator requests and execution. Requests pass first through a consciousness engine that interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents.
+The product follows the canonical stack:
+
+```text
+ADEV -> OCE -> WOS
+principle -> model -> implementation
+```
+
+Workspace OS should act as the bridge between operator requests and execution. Requests pass first through OCE, the Operational Conscience Engine model, which interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents.
+
+The intended AI mix is predictive-first and generative-last:
+
+- predictive and discriminative logic should handle intent detection, routing, confidence, ranking, and repeated decisions cheaply;
+- generative logic should handle synthesis, explanation, prompt drafting, and high-value final output.
+
+This lets Workspace OS optimize the request path before generation and reserve generative cost for the moments where it creates the most value.
 
 The long-term ambition is to let one operator execute work at organizational scale by delegating toil, preserving experience, and leading multiple product or delivery streams through checkpoints instead of constant manual execution.
 
@@ -23,6 +37,7 @@ The long-term ambition is to let one operator execute work at organizational sca
 - Produce consulting estimates, proposals, presentations, and software with higher speed and quality.
 - Let agents apply accumulated doctrine and daily learning by default.
 - Convert raw requests into conscious, learned, governed actions before execution.
+- Optimize the request path with predictive routing before invoking generative work.
 
 ## Primary Work Domains
 
@@ -42,6 +57,7 @@ The long-term ambition is to let one operator execute work at organizational sca
 - Train a model directly from private work in the MVP.
 - Execute arbitrary commands from chat.
 - Treat unverified external chat links as durable product definitions without capturing the sanitized definition in Git.
+- Treat generation as the final value layer, not the default control plane.
 
 ## Users
 
