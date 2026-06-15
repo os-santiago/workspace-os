@@ -137,6 +137,14 @@ class WorkspaceRoots:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class WorkspaceContinuationRecommendation:
+    target_workspace: str | None
+    reason: str
+    command_line: str
+    lines: tuple[str, ...]
+
+
 def build_workspace_overview(
     sources,
     memory_store: WorkspaceMemoryStore,
@@ -359,14 +367,14 @@ def build_workspace_roots(
     knowledge_activities = recent_source_activities(knowledge_sources, limit=limit)
     workspace_lines = tuple(_render_activity_lines(workspace_activities, compact=True))
     knowledge_base_lines = tuple(_render_activity_lines(knowledge_activities, compact=True))
-    recommendation_lines = _roots_recommendation_lines(workspace_activities, workspace_name)
+    recommendation = _build_workspace_continuation_recommendation(workspace_activities, workspace_name)
     return WorkspaceRoots(
         workspace=workspace_name,
         workspace_root=workspace_root,
         knowledge_base_root=knowledge_base_root,
         workspace_lines=workspace_lines,
         knowledge_base_lines=knowledge_base_lines,
-        recommendation_lines=recommendation_lines,
+        recommendation_lines=recommendation.lines,
     )
 
 
@@ -664,12 +672,20 @@ def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str
     )
 
 
-def _roots_recommendation_lines(activities, workspace_name: str) -> tuple[str, ...]:
+def _build_workspace_continuation_recommendation(
+    activities,
+    workspace_name: str,
+) -> WorkspaceContinuationRecommendation:
     if not activities:
-        return (
-            "Continue with: inspect the workspace first.",
-            "Suggested command: /inspect --compact",
-            "No updated repo was available to rank.",
+        return WorkspaceContinuationRecommendation(
+            target_workspace=None,
+            reason="No updated repo was available to rank.",
+            command_line="/inspect --compact",
+            lines=(
+                "Continue with: inspect the workspace first.",
+                "Reason: No updated repo was available to rank.",
+                "Suggested command: /inspect --compact",
+            ),
         )
     candidate = activities[0]
     status = candidate.status
@@ -678,10 +694,16 @@ def _roots_recommendation_lines(activities, workspace_name: str) -> tuple[str, .
         reason = "it has uncommitted changes and is likely the active work surface"
     elif status.ahead or status.behind:
         reason = "it is diverged from upstream and likely needs attention"
-    return (
-        f"Continue with: {candidate.source.name}",
-        f"Reason: {reason}",
-        f"Suggested command: {_route_command('codex', candidate.source.name or workspace_name)}",
+    command_line = _route_command('codex', candidate.source.name or workspace_name)
+    return WorkspaceContinuationRecommendation(
+        target_workspace=candidate.source.name,
+        reason=reason,
+        command_line=command_line,
+        lines=(
+            f"Continue with: {candidate.source.name}",
+            f"Reason: {reason}",
+            f"Suggested command: {command_line}",
+        ),
     )
 
 

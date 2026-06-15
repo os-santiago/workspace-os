@@ -421,6 +421,65 @@ class CliTests(unittest.TestCase):
         self.assertIn("Workspace repos:", rendered)
         self.assertIn("Knowledge base repos:", rendered)
 
+    def test_roots_and_bridge_next_share_the_same_recommendation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "older"
+            newer = root / "newer"
+            older.mkdir()
+            newer.mkdir()
+            self._init_git_repo(older, commit_date="2026-06-14T10:00:00+00:00")
+            self._init_git_repo(newer, commit_date="2026-06-14T12:00:00+00:00")
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "older",
+                                "type": "product",
+                                "responsibility": "Older repo.",
+                                "path": "older",
+                                "search": True,
+                            },
+                            {
+                                "name": "newer",
+                                "type": "product",
+                                "responsibility": "Newer repo.",
+                                "path": "newer",
+                                "search": True,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    roots_exit_code = main(["--config", str(config), "roots"])
+                buffer.seek(0)
+                roots_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    bridge_exit_code = main(["--config", str(config), "bridge", "next"])
+                buffer.seek(0)
+                bridge_rendered = buffer.read()
+
+        self.assertEqual(0, roots_exit_code)
+        self.assertEqual(0, bridge_exit_code)
+        self.assertIn("Continue with: newer", roots_rendered)
+        self.assertIn("Suggested command: /codex", roots_rendered)
+        self.assertIn("Workspace next: newer", bridge_rendered)
+        self.assertIn("Next: continue with newer", bridge_rendered)
+
     def test_feedback_command_records_and_reports_feedback(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
