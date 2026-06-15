@@ -70,7 +70,7 @@ Initial implementation:
 - Emits `ALLOW`, `ALLOW_WITH_LIMITS`, `SAFE_REDIRECT`, `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions.
 - Allows `ALLOW`, `ALLOW_WITH_LIMITS`, and `SAFE_REDIRECT` decisions to proceed to response generation or allowed redirection.
 - Blocks `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions before agent launch.
-- Adds malicious-agentic hardening in two directions: refuse routines that enable scams, evasion, or abuse, and allow bounded defensive guidance for detection, blocking, and recovery.
+- Applies malicious-agentic hardening implicitly to every request: refuse routines that enable scams, evasion, or abuse, and allow bounded defensive guidance for detection, blocking, and recovery.
 - Returns the decision, policy references, and compact context to the web UI so the operator can inspect the bridge state.
 
 ### Learning Engine

@@ -19,6 +19,7 @@ class ConscienceTests(unittest.TestCase):
         self.assertEqual(ALLOW, decision.decision)
         self.assertEqual("low", decision.risk_level)
         self.assertTrue(decision.allows_execution())
+        self.assertIn("workspace.policy.malicious-agentic-ai", decision.policy_refs)
 
     def test_allows_sensitive_work_with_limits(self):
         decision = evaluate_request("Improve secret sanitization in the capture workflow.")

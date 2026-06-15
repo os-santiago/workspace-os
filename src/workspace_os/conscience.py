@@ -483,6 +483,11 @@ def _policy_documents_for_context(context: RequestContext, destination: str = "s
     selected = []
     by_ref = {document.ref: document for document in _policy_documents()}
 
+    always_on_ref = "workspace.policy.malicious-agentic-ai"
+    document = by_ref.get(always_on_ref)
+    if document is not None:
+        selected.append(document)
+
     for ref in (
         "workspace.policy.global-safety",
         "workspace.policy.orchestration",
@@ -493,7 +498,7 @@ def _policy_documents_for_context(context: RequestContext, destination: str = "s
             selected.append(document)
 
     if context.threat_mode in {"prevent", "defend"}:
-        document = by_ref.get("workspace.policy.malicious-agentic-ai")
+        document = by_ref.get(always_on_ref)
         if document is not None and document not in selected:
             selected.append(document)
 
