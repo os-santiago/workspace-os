@@ -26,6 +26,8 @@ from workspace_os.web_server import (
     _promote_preview_payload,
     _recent_docs_payload,
     _recent_software_payload,
+    _roots_markdown_payload,
+    _roots_payload,
     STATIC_ROOT,
     _write_response_body,
 )
@@ -345,6 +347,38 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Continue with: newer", result["text"])
         self.assertIn("Recommended continue: newer", result["text"])
         self.assertIn("Workspace analysis:", markdown["text"])
+
+    def test_roots_payload_reports_workspace_and_knowledge_base_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace_root = root / "git"
+            kb_root = root / "kb"
+            (workspace_root / "workspace-os").mkdir(parents=True)
+            (workspace_root / "homedir").mkdir(parents=True)
+            (kb_root / "adev").mkdir(parents=True)
+            (kb_root / "scanales-kb").mkdir(parents=True)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+
+            sources = [
+                Source("workspace-os", "product", "Product.", workspace_root / "workspace-os", group="workspace"),
+                Source("homedir", "execution", "Execution.", workspace_root / "homedir", group="workspace"),
+                Source("adev", "doctrine", "Doctrine.", kb_root / "adev", group="knowledge_base"),
+                Source("scanales-kb", "evidence", "Evidence.", kb_root / "scanales-kb", group="knowledge_base"),
+            ]
+            result = _roots_payload(sources, memory_path=memory)
+            markdown = _roots_markdown_payload(sources, memory_path=memory)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Workspace roots:", result["text"])
+        self.assertIn("Workspace root:", result["text"])
+        self.assertIn("Knowledge base root:", result["text"])
+        self.assertIn("Workspace repos:", result["text"])
+        self.assertIn("Knowledge base repos:", result["text"])
+        self.assertIn("Workspace roots:", markdown["text"])
 
     def test_recent_docs_returns_recent_files(self):
         with tempfile.TemporaryDirectory() as directory:

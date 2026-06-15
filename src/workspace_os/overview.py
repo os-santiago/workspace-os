@@ -112,6 +112,31 @@ class WorkspaceAnalysis:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class WorkspaceRoots:
+    workspace: str
+    workspace_root: str
+    knowledge_base_root: str
+    workspace_lines: tuple[str, ...]
+    knowledge_base_lines: tuple[str, ...]
+    recommendation_lines: tuple[str, ...]
+
+    def render(self) -> str:
+        lines = [f"Workspace roots: {self.workspace}", f"Workspace root: {self.workspace_root}", f"Knowledge base root: {self.knowledge_base_root}"]
+        if self.workspace_lines:
+            lines.append("")
+            lines.append("Workspace repos:")
+            lines.extend(self.workspace_lines)
+        if self.knowledge_base_lines:
+            lines.append("")
+            lines.append("Knowledge base repos:")
+            lines.extend(self.knowledge_base_lines)
+        if self.recommendation_lines:
+            lines.append("")
+            lines.extend(self.recommendation_lines)
+        return "\n".join(lines) + "\n"
+
+
 def build_workspace_overview(
     sources,
     memory_store: WorkspaceMemoryStore,
@@ -318,6 +343,31 @@ def build_workspace_analysis(
     )
 
 
+def build_workspace_roots(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    limit: int = 5,
+) -> WorkspaceRoots:
+    profile = load_profile(memory_store)
+    workspace_sources = _sources_for_group(sources, "workspace")
+    knowledge_sources = _sources_for_group(sources, "knowledge_base")
+    workspace_root = _workspace_root_from_sources(workspace_sources)
+    knowledge_base_root = _workspace_root_from_sources(knowledge_sources)
+    workspace_name = workspace or workspace_root or profile.default_workspace or "all workspaces"
+    workspace_lines = tuple(_render_activity_lines(recent_source_activities(workspace_sources, limit=limit), compact=True))
+    knowledge_base_lines = tuple(_render_activity_lines(recent_source_activities(knowledge_sources, limit=limit), compact=True))
+    recommendation_lines = _analysis_recommendation_lines(recent_source_activities(workspace_sources, limit=limit), workspace_name)
+    return WorkspaceRoots(
+        workspace=workspace_name,
+        workspace_root=workspace_root,
+        knowledge_base_root=knowledge_base_root,
+        workspace_lines=workspace_lines,
+        knowledge_base_lines=knowledge_base_lines,
+        recommendation_lines=recommendation_lines[:3],
+    )
+
+
 def write_workspace_handoff(
     path: Path,
     sources,
@@ -395,6 +445,16 @@ def render_workspace_analysis_text(
         compact=compact,
     )
     return analysis.render()
+
+
+def render_workspace_roots_text(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    limit: int = 5,
+) -> str:
+    roots = build_workspace_roots(sources, memory_store, workspace=workspace, limit=limit)
+    return roots.render()
 
 
 def render_workspace_handoff_text(

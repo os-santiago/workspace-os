@@ -155,6 +155,11 @@ def _run_cli_checks(config: Path) -> list[SmokeCheckResult]:
             ["Workspace next action:", "Suggested command:"],
         ),
         (
+            "cli:roots",
+            ["--config", str(config), "roots"],
+            ["Workspace roots:", "Workspace root:", "Knowledge base root:"],
+        ),
+        (
             "cli:oce-status",
             ["--config", str(config), "oce", "status"],
             ["OCE report", "recommended_next_action"],
@@ -183,11 +188,13 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
     with StringIO() as buffer:
         with redirect_stdout(buffer):
             shell.do_next("")
+            shell.do_roots("")
             shell.do_oce("status 5")
             shell.default("que proyectos tenemos en curso?")
         rendered = buffer.getvalue()
     expectations = [
         ("shell:next", "Workspace next action:"),
+        ("shell:roots", "Workspace roots:"),
         ("shell:oce", "OCE report"),
         ("shell:reply", "Primary route: /codex"),
         ("shell:route", "Optional cross-check: /claude"),

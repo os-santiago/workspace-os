@@ -20,7 +20,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -101,6 +101,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/feedback add|history|status  manage request/result feedback signals",
                     "/inspect [opts]     show a condensed read-only workspace overview",
                     "/analysis [opts]    show recently updated repos and a recommended continuation",
+                    "/roots [opts]       show workspace and knowledge base roots",
                     "/bridge [opts]      show next decision, status, or capability inventory",
                     "/handoff [opts]     show or export a concise handoff summary",
                     "/next               show the next operational action",
@@ -337,6 +338,27 @@ class WorkspaceShell(cmd.Cmd):
         )
 
     do_analyze = do_analysis
+
+    def do_roots(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/roots", add_help=False)
+        parser.add_argument("limit", nargs="?", type=int, default=5)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /roots [limit]")
+            return
+        self._emit(
+            render_workspace_roots_text(
+                self.sources,
+                self.memory_store,
+                workspace=self.active_workspace,
+                limit=max(1, options.limit),
+            ),
+            end="",
+        )
+
+    do_kb = do_roots
 
     def do_bridge(self, arg: str) -> None:
         parts = shlex.split(arg)
@@ -988,6 +1010,8 @@ class WorkspaceShell(cmd.Cmd):
             return paint(line, bold + cyan)
         if line == "Trace:":
             return paint(line, dim)
+        if line.startswith("Workspace roots:"):
+            return paint("Workspace roots:", bold + cyan, line[len("Workspace roots:"):])
         if line.startswith("Workspace root:"):
             return paint("Workspace root:", bold + magenta, line[len("Workspace root:"):])
         if line.startswith("Workspace analysis:"):
@@ -999,6 +1023,10 @@ class WorkspaceShell(cmd.Cmd):
         if line == "Workspace projects under root:":
             return paint(line, bold + blue)
         if line == "Knowledge base projects:":
+            return paint(line, bold + yellow)
+        if line == "Workspace repos:":
+            return paint(line, bold + blue)
+        if line == "Knowledge base repos:":
             return paint(line, bold + yellow)
         if line.startswith("Knowledge base root:"):
             return paint("Knowledge base root:", bold + yellow, line[len("Knowledge base root:"):])

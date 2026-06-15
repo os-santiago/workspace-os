@@ -236,6 +236,40 @@ class ShellTests(unittest.TestCase):
         self.assertIn("Primary route: /codex", rendered)
         self.assertLess(rendered.index("newer"), rendered.index("older"))
 
+    def test_shell_roots_reports_workspace_and_knowledge_base_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace_root = root / "git"
+            kb_root = root / "kb"
+            (workspace_root / "workspace-os").mkdir(parents=True)
+            (workspace_root / "homedir").mkdir(parents=True)
+            (kb_root / "adev").mkdir(parents=True)
+            (kb_root / "scanales-kb").mkdir(parents=True)
+            shell = WorkspaceShell(
+                [
+                    Source("workspace-os", "product", "Product.", workspace_root / "workspace-os", group="workspace"),
+                    Source("homedir", "execution", "Execution.", workspace_root / "homedir", group="workspace"),
+                    Source("adev", "doctrine", "Doctrine.", kb_root / "adev", group="knowledge_base"),
+                    Source("scanales-kb", "evidence", "Evidence.", kb_root / "scanales-kb", group="knowledge_base"),
+                ],
+                root / "memory.sqlite3",
+            )
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_roots("")
+            rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_kb("")
+            alias_rendered = buffer.getvalue()
+
+        self.assertIn("Workspace roots:", rendered)
+        self.assertIn("Workspace root:", rendered)
+        self.assertIn("Knowledge base root:", rendered)
+        self.assertIn("Workspace repos:", rendered)
+        self.assertIn("Knowledge base repos:", rendered)
+        self.assertEqual(rendered, alias_rendered)
+
     def test_shell_feedback_records_and_reports_feedback(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

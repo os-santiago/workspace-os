@@ -351,6 +351,76 @@ class CliTests(unittest.TestCase):
         self.assertIn("Suggested command: /codex", rendered)
         self.assertLess(rendered.index("newer"), rendered.index("older"))
 
+    def test_roots_command_reports_workspace_and_knowledge_base_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace_root = root / "git"
+            kb_root = root / "kb"
+            (workspace_root / "workspace-os").mkdir(parents=True)
+            (workspace_root / "homedir").mkdir(parents=True)
+            (kb_root / "adev").mkdir(parents=True)
+            (kb_root / "scanales-kb").mkdir(parents=True)
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": "git",
+                        "knowledge_base_root": "kb",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "workspace-os",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "group": "workspace",
+                                "path": "workspace-os",
+                                "search": True,
+                            },
+                            {
+                                "name": "homedir",
+                                "type": "execution",
+                                "responsibility": "Execution.",
+                                "group": "workspace",
+                                "path": "homedir",
+                                "search": True,
+                            },
+                            {
+                                "name": "adev",
+                                "type": "doctrine",
+                                "responsibility": "Doctrine.",
+                                "group": "knowledge_base",
+                                "path": "adev",
+                                "search": True,
+                            },
+                            {
+                                "name": "scanales-kb",
+                                "type": "evidence",
+                                "responsibility": "Evidence.",
+                                "group": "knowledge_base",
+                                "path": "scanales-kb",
+                                "search": True,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    exit_code = main(["--config", str(config), "roots"])
+                buffer.seek(0)
+                rendered = buffer.read()
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Workspace roots:", rendered)
+        self.assertIn("Workspace root:", rendered)
+        self.assertIn("Knowledge base root:", rendered)
+        self.assertIn("Workspace repos:", rendered)
+        self.assertIn("Knowledge base repos:", rendered)
+
     def test_feedback_command_records_and_reports_feedback(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
