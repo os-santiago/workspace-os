@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "classify":
         return _classify(args.value, args.path)
     if args.command == "validate":
-        return _validate(sources, args.skip_housekeeping)
+        return _validate(sources, args.skip_housekeeping, args.skip_smoke_queries)
     if args.command == "capture":
         return _capture(sources, args.capture_type, args.title, args.text, args.file, args.write)
     if args.command == "promote":
@@ -130,6 +130,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--skip-housekeeping",
         action="store_true",
         help="Skip temporary artifact checks.",
+    )
+    validate_parser.add_argument(
+        "--skip-smoke-queries",
+        action="store_true",
+        help="Skip representative user query smoke checks.",
     )
 
     capture_parser = subparsers.add_parser(
@@ -381,8 +386,12 @@ def _classify(value: str, is_path: bool) -> int:
     return 0
 
 
-def _validate(sources: list[Source], skip_housekeeping: bool) -> int:
-    results = validate_workspace(sources=sources, include_housekeeping=not skip_housekeeping)
+def _validate(sources: list[Source], skip_housekeeping: bool, skip_smoke_queries: bool) -> int:
+    results = validate_workspace(
+        sources=sources,
+        include_housekeeping=not skip_housekeeping,
+        include_smoke_queries=not skip_smoke_queries,
+    )
     for result in results:
         state = "PASS" if result.passed else "FAIL"
         print(f"{state} {result.name}: {result.detail}")

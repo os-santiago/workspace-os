@@ -237,6 +237,8 @@ Initial implementation:
 - `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
 - `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.
 - `next` exposes the immediate operational step from the current workspace state so the operator can move without opening the full overview.
+- `tests/test_smoke_queries.py` provides a regression battery of representative user queries and command surfaces, and each batch should run it alongside the normal validation suite.
+- `workspace validate` includes the smoke regression battery by default, with `--skip-smoke-queries` available for narrower gates.
 - The web UI exposes a collapsible Conscience panel with decision, policy refs, and moral context.
 - The canonical architecture stack is documented as ADEV -> OCE -> WOS, where ADEV is the principle layer, OCE is the Operational Conscience Engine model layer, and WOS is the implementation layer.
 - The operating model distinguishes predictive routing from generative synthesis so the product can use low-cost interpretation before high-value generation.

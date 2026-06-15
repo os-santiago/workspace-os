@@ -89,7 +89,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/context <topic>    build governed context pack",
                     "/context latest     show the latest compacted global context snapshot",
                     "/classify <text>    classify content destination",
-                    "/validate           validate workspace health",
+                    "/validate [--skip-smoke-queries] validate workspace health",
                     "/capture <type>     capture session/incident/decision/daily notes",
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
@@ -182,7 +182,9 @@ class WorkspaceShell(cmd.Cmd):
         print(f"reason={classification.reason}")
 
     def do_validate(self, arg: str) -> None:
-        results = validate_workspace(self.sources)
+        parts = shlex.split(arg)
+        skip_smoke_queries = "--skip-smoke-queries" in parts
+        results = validate_workspace(self.sources, include_smoke_queries=not skip_smoke_queries)
         for result in results:
             state = "PASS" if result.passed else "FAIL"
             print(f"{state} {result.name}: {result.detail}")

@@ -14,10 +14,16 @@ class ValidationResult:
     detail: str
 
 
-def validate_workspace(sources: list[Source], include_housekeeping: bool = True) -> list[ValidationResult]:
+def validate_workspace(
+    sources: list[Source],
+    include_housekeeping: bool = True,
+    include_smoke_queries: bool = False,
+) -> list[ValidationResult]:
     results = [_validate_sources_exist(sources), *_validate_source_states(sources)]
     if include_housekeeping:
         results.append(_validate_housekeeping(sources))
+    if include_smoke_queries:
+        results.extend(_validate_smoke_queries())
     return results
 
 
@@ -58,3 +64,13 @@ def _validate_housekeeping(sources: list[Source]) -> ValidationResult:
             f"Temporary artifact found at {finding.source_name}:{finding.path}.",
         )
     return ValidationResult("housekeeping", True, "No temporary artifacts found.")
+
+
+def _validate_smoke_queries() -> list[ValidationResult]:
+    from workspace_os.smoke import run_smoke_regression_checks
+
+    smoke_results = run_smoke_regression_checks()
+    return [
+        ValidationResult(f"smoke:{result.name}", result.passed, result.detail)
+        for result in smoke_results
+    ]
