@@ -370,7 +370,10 @@ def _chat_payload(
     batch_report = current_batch_report(store) if store else None
     return {
         "ok": True,
-        "reply": reply.reply,
+        "reply": reply.answer,
+        "answer": reply.answer,
+        "verbose_reply": reply.reply,
+        "trace": reply.trace,
         "conscience": reply.conscience.to_dict(),
         "learning": reply.learning,
         "suggested_actions": reply.suggested_actions,

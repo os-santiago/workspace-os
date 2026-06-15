@@ -16,6 +16,8 @@ from workspace_os.search import SearchMatch, search_sources
 
 @dataclass(frozen=True)
 class WorkspaceReply:
+    answer: str
+    trace: str
     reply: str
     conscience: ConscienceDecision
     learning: dict[str, object]
@@ -112,6 +114,8 @@ def build_workspace_reply(
             ]
         )
 
+    answer = sanitize_text("\n".join(answer_lines))
+    trace = sanitize_text("\n".join(trace_lines))
     reply = sanitize_text("\n".join(["Answer:", *answer_lines, "", "Trace:", *trace_lines]))
 
     if memory_store:
@@ -127,6 +131,8 @@ def build_workspace_reply(
         memory_store.record_turn(session_id=session_id, role="assistant", message=reply)
 
     return WorkspaceReply(
+        answer=answer,
+        trace=trace,
         reply=reply,
         conscience=conscience,
         learning=learning,

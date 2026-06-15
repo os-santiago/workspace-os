@@ -7,6 +7,7 @@ const state = {
   handoffCount: 0,
   chatContextExpanded: false,
   conscienceExpanded: false,
+  chatVerbose: false,
   latestConscience: null,
   latestSuggestedActions: [],
   latestNextAction: null,
@@ -16,6 +17,7 @@ const state = {
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
 const CONSCIENCE_STORAGE_KEY = "workspace-os.conscience-expanded";
+const CHAT_VERBOSE_STORAGE_KEY = "workspace-os.chat-verbose";
 
 const getJson = async (url) => {
   const response = await fetch(url, { cache: "no-store" });
@@ -350,6 +352,22 @@ const saveConsciencePreference = (expanded) => {
   }
 };
 
+const readChatVerbosePreference = () => {
+  try {
+    return window.localStorage.getItem(CHAT_VERBOSE_STORAGE_KEY) === "on";
+  } catch {
+    return false;
+  }
+};
+
+const saveChatVerbosePreference = (enabled) => {
+  try {
+    window.localStorage.setItem(CHAT_VERBOSE_STORAGE_KEY, enabled ? "on" : "off");
+  } catch {
+    return;
+  }
+};
+
 const setChatContextExpanded = (expanded, persist = true) => {
   state.chatContextExpanded = expanded;
   const section = qs(".chat-context");
@@ -386,6 +404,48 @@ const toggleConscience = () => {
   setConscienceExpanded(!state.conscienceExpanded);
 };
 
+const setChatVerbose = (enabled, persist = true) => {
+  state.chatVerbose = enabled;
+  const button = qs("#chatVerboseToggle");
+  if (button) {
+    button.textContent = state.chatVerbose ? "Verbose On" : "Verbose Off";
+    button.setAttribute("aria-pressed", state.chatVerbose ? "true" : "false");
+  }
+  if (persist) {
+    saveChatVerbosePreference(state.chatVerbose);
+  }
+};
+
+const toggleChatVerbose = () => {
+  setChatVerbose(!state.chatVerbose);
+  appendMessage("system", `verbose=${state.chatVerbose ? "on" : "off"}`);
+};
+
+const handleLocalChatCommand = (message) => {
+  const text = message.trim();
+  if (!text.toLowerCase().startsWith("/verbose")) {
+    return false;
+  }
+  const parts = text.split(/\s+/, 2);
+  const arg = parts[1]?.toLowerCase() || "";
+  if (!arg) {
+    toggleChatVerbose();
+    return true;
+  }
+  if (["on", "1", "true", "yes"].includes(arg)) {
+    setChatVerbose(true);
+    appendMessage("system", "verbose=on");
+    return true;
+  }
+  if (["off", "0", "false", "no"].includes(arg)) {
+    setChatVerbose(false);
+    appendMessage("system", "verbose=off");
+    return true;
+  }
+  appendMessage("system", "Usage: /verbose [on|off]");
+  return true;
+};
+
 const bindChat = () => {
   const input = qs("#chatInput");
   input.addEventListener("keydown", (event) => {
@@ -398,6 +458,10 @@ const bindChat = () => {
     event.preventDefault();
     const message = input.value.trim();
     if (!message) return;
+    if (handleLocalChatCommand(message)) {
+      input.value = "";
+      return;
+    }
     appendMessage("user", message);
     input.value = "";
     appendMessage("system", "Thinking through conscience and learning engines...");
@@ -409,7 +473,12 @@ const bindChat = () => {
       return;
     }
     updateIndicators(Boolean(data.learning && data.learning.activated));
-    last.querySelector("p").textContent = data.reply;
+    last.querySelector("p").textContent = data.answer || data.reply;
+    if (state.chatVerbose) {
+      const verboseBlock = document.createElement("pre");
+      verboseBlock.textContent = data.verbose_reply || [data.answer || data.reply || "", "", `Trace:`, data.trace || ""].join("\n");
+      last.appendChild(verboseBlock);
+    }
     if (data.context_snapshot) {
       renderContextSnapshot({
         ok: true,
@@ -420,14 +489,6 @@ const bindChat = () => {
       renderConscience(data.conscience);
       state.latestSuggestedActions = data.suggested_actions || [];
       renderConscienceActions();
-      const details = [
-        `Decision: ${data.conscience.decision}`,
-        `Risk: ${data.conscience.risk_level}`,
-        `Strategy: ${data.conscience.response_strategy}`,
-      ].join("\n");
-      const detailBlock = document.createElement("pre");
-      detailBlock.textContent = details;
-      last.appendChild(detailBlock);
     }
     await loadNextAction();
     if (data.suggested_actions && data.suggested_actions.length > 0) {
@@ -465,6 +526,7 @@ const escapeHtml = (value) =>
 
 const init = async () => {
   bindChat();
+  setChatVerbose(readChatVerbosePreference(), false);
   qs("#handoffDownload").addEventListener("click", () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
   });
@@ -524,6 +586,7 @@ const init = async () => {
       qs("#contextOutput").textContent = error.message;
     }
   });
+  qs("#chatVerboseToggle").addEventListener("click", toggleChatVerbose);
   await loadSidebar();
   setChatContextExpanded(readChatContextPreference(), false);
   setConscienceExpanded(readConsciencePreference(), false);

@@ -38,6 +38,7 @@ class WorkspaceShell(cmd.Cmd):
         self.profile = load_profile(self.memory_store)
         self.habits = compute_habits(self.memory_store, self.profile)
         self.session_id = session_id
+        self.verbose = False
         self.active_workspace: str | None = self.profile.default_workspace
         if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
             self.active_workspace = None
@@ -74,7 +75,7 @@ class WorkspaceShell(cmd.Cmd):
             tone=self.profile.tone,
             detail_level=self.profile.detail_level,
         )
-        self._emit(reply.reply)
+        self._emit(self._render_reply(reply))
         self.habits = compute_habits(self.memory_store, self.profile)
         self.context_snapshot = self.memory_store.latest_context_snapshot()
         self.prompt = self._render_prompt()
@@ -105,6 +106,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/alias ...          save, list, or invoke shortcuts",
                     "/conscience ...     show decision metrics, history, or a compact recommendation",
                     "/oce ...           alias for /conscience",
+                    "/verbose [on|off]   toggle full answer+trace output (default is answer only)",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
                     "/launches           show recent agent launches",
@@ -549,9 +551,22 @@ class WorkspaceShell(cmd.Cmd):
             tone=self.profile.tone,
             detail_level=self.profile.detail_level,
         )
-        self._emit(reply.reply)
+        self._emit(self._render_reply(reply))
         self.habits = compute_habits(self.memory_store, self.profile)
         self.context_snapshot = self.memory_store.latest_context_snapshot()
+
+    def do_verbose(self, arg: str) -> None:
+        value = arg.strip().casefold()
+        if not value:
+            self.verbose = not self.verbose
+        elif value in {"on", "1", "true", "yes"}:
+            self.verbose = True
+        elif value in {"off", "0", "false", "no"}:
+            self.verbose = False
+        else:
+            self._emit("Usage: /verbose [on|off]")
+            return
+        self._emit(f"verbose={'on' if self.verbose else 'off'}")
 
     def _print_workspaces(self) -> None:
         for source in self.sources:
@@ -821,6 +836,9 @@ class WorkspaceShell(cmd.Cmd):
 
     def _emit(self, text: str, end: str = "\n") -> None:
         print(self._colorize(text), end=end)
+
+    def _render_reply(self, reply) -> str:
+        return reply.reply if self.verbose else reply.answer
 
     def _colorize(self, text: str) -> str:
         if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):

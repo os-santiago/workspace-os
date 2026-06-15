@@ -340,6 +340,9 @@ Batch 02 [NEXT] Web pilot
         )
 
         self.assertTrue(result["ok"])
+        self.assertIn("answer", result)
+        self.assertIn("trace", result)
+        self.assertIn("verbose_reply", result)
         self.assertTrue(result["learning"]["activated"])
         self.assertIn("conscience", result)
 

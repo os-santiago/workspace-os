@@ -294,7 +294,55 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         self.assertIn("Workspace next action:", rendered)
-        self.assertIn("Suggested command:", rendered)
+
+    def test_chat_command_renders_answer_only_by_default_and_verbose_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    exit_code = main(["--config", str(config), "chat", "hola"])
+                buffer.seek(0)
+                rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    verbose_exit_code = main(["--config", str(config), "chat", "--verbose", "hola"])
+                buffer.seek(0)
+                verbose_rendered = buffer.read()
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual(0, verbose_exit_code)
+        self.assertIn("Hola. Soy WOS", rendered)
+        self.assertNotIn("Trace:", rendered)
+        self.assertIn("Trace:", verbose_rendered)
+        self.assertIn("Learning engine: activated", verbose_rendered)
 
     def test_batch_stop_auto_writes_handoff(self):
         with tempfile.TemporaryDirectory() as directory:

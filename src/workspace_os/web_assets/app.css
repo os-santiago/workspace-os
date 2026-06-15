@@ -59,6 +59,10 @@ textarea {
   font-weight: 900;
 }
 
+button.engine-pill {
+  cursor: pointer;
+}
+
 .workspace-layout {
   width: min(1440px, calc(100vw - 24px));
   height: calc(100vh - 68px);

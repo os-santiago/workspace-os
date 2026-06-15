@@ -33,6 +33,7 @@ class ShellTests(unittest.TestCase):
 
             with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_ws("adev")
+                shell.do_verbose("on")
                 shell.default("Remember ADEV")
 
             rendered = buffer.getvalue()
@@ -41,6 +42,28 @@ class ShellTests(unittest.TestCase):
         self.assertIn("active workspace=adev", rendered)
         self.assertIn("Learning engine: activated", rendered)
         self.assertEqual(2, stats["conversation_turns"])
+
+    def test_shell_chat_defaults_to_answer_only_and_verbose_reveals_trace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.default("hola")
+            default_rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_verbose("on")
+                shell.default("hola")
+            verbose_rendered = buffer.getvalue()
+
+        self.assertIn("Hola. Soy WOS", default_rendered)
+        self.assertNotIn("Trace:", default_rendered)
+        self.assertIn("verbose=on", verbose_rendered)
+        self.assertIn("Trace:", verbose_rendered)
 
     def test_shell_lists_workspaces(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,11 +104,12 @@ class ShellTests(unittest.TestCase):
             rendered = buffer.getvalue()
 
         self.assertIn("saved profile tone", rendered)
-        self.assertIn("Style: terse / minimal", rendered)
         self.assertIn("Operator habits", rendered)
         self.assertEqual("/status", expanded)
         self.assertEqual("source", shell.active_workspace)
         self.assertEqual("/status", shell.profile.shortcuts["s"])
+        self.assertEqual("terse", shell.profile.tone)
+        self.assertEqual("minimal", shell.profile.detail_level)
 
     def test_shell_conscience_status_reports_metrics(self):
         with tempfile.TemporaryDirectory() as directory:

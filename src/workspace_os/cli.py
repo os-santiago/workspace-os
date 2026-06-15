@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "promote":
         return _promote(sources, args.target, args.rule, args.evidence, args.max_matches)
     if args.command == "chat":
-        return _chat(sources, memory_path, args.message, args.session_id, args.interactive)
+        return _chat(sources, memory_path, args.message, args.session_id, args.interactive, args.verbose)
     if args.command == "inspect":
         return _inspect(sources, memory_path, args.launch_limit, args.compact)
     if args.command == "handoff":
@@ -163,6 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     chat_parser.add_argument("message", nargs="?", help="Single message to process without entering interactive mode.")
     chat_parser.add_argument("--session-id", default="default", help="Memory session identifier.")
+    chat_parser.add_argument("--verbose", action="store_true", help="Show answer and trace instead of answer only.")
     chat_parser.add_argument(
         "--interactive",
         action="store_true",
@@ -447,7 +448,14 @@ def _promote(sources: list[Source], target: str, rule: str, evidence: str, max_m
     return 0
 
 
-def _chat(sources: list[Source], memory_path: Path, message: str | None, session_id: str, interactive: bool) -> int:
+def _chat(
+    sources: list[Source],
+    memory_path: Path,
+    message: str | None,
+    session_id: str,
+    interactive: bool,
+    verbose: bool,
+) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
     profile = load_profile(store)
@@ -461,7 +469,7 @@ def _chat(sources: list[Source], memory_path: Path, message: str | None, session
             tone=profile.tone,
             detail_level=profile.detail_level,
         )
-        print(reply.reply)
+        print(reply.reply if verbose else reply.answer)
         return 0
 
     print("Workspace OS chat. Type `exit` to leave.")
@@ -483,7 +491,7 @@ def _chat(sources: list[Source], memory_path: Path, message: str | None, session
             tone=profile.tone,
             detail_level=profile.detail_level,
         )
-        print(reply.reply)
+        print(reply.reply if verbose else reply.answer)
         print("")
     return 0
 
