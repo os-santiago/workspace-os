@@ -42,15 +42,6 @@ def build_workspace_reply(
     if memory_store:
         request_hash = _hash_text(clean_message)
         memory_store.record_turn(session_id=session_id, role="user", message=clean_message)
-        memory_store.record_decision(
-            request_hash=request_hash,
-            risk_level=conscience.risk_level,
-            decision=conscience.decision,
-            missing_context=conscience.missing_context,
-            primary_agent=conscience.primary_agent,
-            secondary_agent=conscience.secondary_agent,
-            routing_reason=conscience.routing_reason,
-        )
 
     answer_lines = _answer_lines(clean_message, sources, memory_store)
     suggested_actions = _suggested_actions(clean_message, conscience, memory_store)
@@ -104,6 +95,8 @@ def build_workspace_reply(
                     f"- salience={conscience.context.get('moral_salience', 'n/a')} confidence={conscience.context.get('confidence', 'n/a')}",
                 ]
             )
+        if suggested_actions and suggested_actions[0].get("reason"):
+            trace_lines.extend(["", f"History bias: {suggested_actions[0]['reason']}"])
 
     if memory_hits:
         trace_lines.extend(["", "Memory signals:"])
@@ -121,6 +114,15 @@ def build_workspace_reply(
     reply = sanitize_text("\n".join(["Answer:", *answer_lines, "", "Trace:", *trace_lines]))
 
     if memory_store:
+        memory_store.record_decision(
+            request_hash=request_hash,
+            risk_level=conscience.risk_level,
+            decision=conscience.decision,
+            missing_context=conscience.missing_context,
+            primary_agent=conscience.primary_agent,
+            secondary_agent=conscience.secondary_agent,
+            routing_reason=conscience.routing_reason,
+        )
         memory_store.record_turn(session_id=session_id, role="assistant", message=reply)
 
     return WorkspaceReply(
@@ -269,6 +271,12 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
         workspace_name = profile.default_workspace
     primary_agent = conscience.primary_agent or "codex"
     secondary_agent = conscience.secondary_agent or ("claude" if primary_agent == "codex" else "codex")
+    primary_agent, secondary_agent, route_reason = _refine_route_with_history(
+        primary_agent,
+        secondary_agent,
+        conscience,
+        memory_store,
+    )
     primary_task = _agent_route_prompt(primary_agent, workspace_name)
     secondary_task = _agent_route_prompt(secondary_agent, workspace_name)
     return [
@@ -277,12 +285,14 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
             "task": primary_task,
             "brief": f"User request: {message}",
             "command": f'/{primary_agent} "{primary_task}"',
+            "reason": route_reason,
         },
         {
             "agent": secondary_agent,
             "task": secondary_task,
             "brief": f"User request: {message}",
             "command": f'/{secondary_agent} "{secondary_task}"',
+            "reason": route_reason,
         },
     ]
 
@@ -331,6 +341,7 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     launches = memory_store.recent_launches(limit=3)
+    route_hint = _history_route_hint(memory_store)
     lines: list[str] = []
     lines.append("Tracked projects:")
     for source in sources:
@@ -361,6 +372,8 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
                 f"Suggested command: /claude \"{_agent_route_prompt('claude', workspace_name)}\"",
             ]
         )
+        if route_hint:
+            lines.append(f"History bias: {route_hint}")
     else:
         lines.append(f"Next step: {_next_step(process, batch)}")
 
@@ -382,6 +395,35 @@ def _agent_route_prompt(agent: str, workspace_name: str) -> str:
         f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
         "active branches, blockers, and the next best action."
     )
+
+
+def _refine_route_with_history(
+    primary_agent: str,
+    secondary_agent: str,
+    conscience: ConscienceDecision,
+    memory_store: WorkspaceMemoryStore | None,
+) -> tuple[str, str, str]:
+    route_hint = _history_route_hint(memory_store)
+    if route_hint == "route_to_claude_for_cross_check" and primary_agent != "claude":
+        return "claude", "codex", "history_prefers_claude_cross_check"
+    if route_hint == "route_to_codex_for_inventory" and primary_agent != "codex":
+        return "codex", "claude", "history_prefers_codex_inventory"
+    if route_hint == "keep_codex_as_primary_for_workspace_execution" and primary_agent != "codex":
+        return "codex", "claude", "history_prefers_codex_execution"
+    if route_hint == "keep_claude_as_primary_for_sensitive_reviews" and primary_agent != "claude":
+        return "claude", "codex", "history_prefers_claude_review"
+    if conscience.routing_reason == "authority_required":
+        return primary_agent, secondary_agent, "authority_clarification"
+    return primary_agent, secondary_agent, route_hint or conscience.routing_reason or "immediate_context"
+
+
+def _history_route_hint(memory_store: WorkspaceMemoryStore | None) -> str | None:
+    if memory_store is None:
+        return None
+    summary = memory_store.decision_metrics_summary(limit=20)
+    if summary.get("total", 0) <= 0:
+        return None
+    return str(summary.get("recommended_next_action") or "") or None
 
 
 def _next_step(process, batch) -> str:

@@ -256,8 +256,38 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(2, len(reply.suggested_actions))
         self.assertEqual("codex", reply.suggested_actions[0]["agent"])
         self.assertEqual("claude", reply.suggested_actions[1]["agent"])
-        self.assertIn("Suggested route: /codex", reply.reply)
-        self.assertIn("Fallback route: /claude", reply.reply)
+
+    def test_workspace_reply_uses_history_to_prefer_claude_for_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            store.record_decision(
+                "hash-privacy",
+                "medium",
+                "SAFE_REDIRECT",
+                ["privacy"],
+                primary_agent="claude",
+                secondary_agent="codex",
+                routing_reason="domain_privacy_cross_check",
+            )
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "What should we do next?",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertEqual("SAFE_REDIRECT", reply.conscience.decision)
+        self.assertEqual("claude", reply.suggested_actions[0]["agent"])
+        self.assertEqual("codex", reply.suggested_actions[1]["agent"])
+        self.assertIn("History bias:", reply.reply)
+        self.assertIn("Suggested route: /claude", reply.reply)
+        self.assertIn("Fallback route: /codex", reply.reply)
 
 
 if __name__ == "__main__":
