@@ -6,7 +6,12 @@ import json
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_analysis, build_workspace_next_action, build_workspace_overview
+from workspace_os.overview import (
+    build_workspace_analysis,
+    build_workspace_next_action,
+    build_workspace_overview,
+    build_workspace_roots,
+)
 from workspace_os.profile import load_profile
 
 
@@ -222,12 +227,23 @@ def build_workspace_bridge_next_report(
     profile = load_profile(memory_store)
     next_action = build_workspace_next_action(sources, memory_store, workspace=workspace)
     analysis = build_workspace_analysis(sources, memory_store, workspace=workspace, compact=True)
+    roots = build_workspace_roots(sources, memory_store, workspace=workspace, limit=5)
     overview = build_workspace_overview(sources, memory_store, workspace=workspace, compact=True)
-    active_workspace = workspace or profile.default_workspace or overview.workspace
+    recommended_workspace = _extract_first_line(roots.recommendation_lines, prefix="Continue with:")
+    if recommended_workspace:
+        recommended_workspace = recommended_workspace.removeprefix("Continue with: ").strip()
+    active_workspace = workspace or recommended_workspace or roots.workspace_root or profile.default_workspace or overview.workspace
     workspace_root = _workspace_root_from_sources(sources)
 
     decision_line = _extract_first_line(next_action.action_lines, prefix="Next:")
+    if decision_line == "Next: review the initial analysis before broad work." and roots.recommendation_lines:
+        recommendation = _extract_first_line(roots.recommendation_lines, prefix="Continue with:")
+        if recommendation:
+            target = recommendation.removeprefix("Continue with: ").strip()
+            decision_line = f"Next: continue with {target}"
     command_line = _extract_first_line(next_action.action_lines, prefix="Suggested command:")
+    if command_line == "Suggested command: /analysis --compact" and roots.recommendation_lines:
+        command_line = _extract_first_line(roots.recommendation_lines, prefix="Suggested command:")
     if not command_line and analysis.recommendation_lines:
         command_line = _extract_first_line(analysis.recommendation_lines, prefix="Suggested command:")
     if not command_line:
@@ -235,7 +251,8 @@ def build_workspace_bridge_next_report(
 
     detail_lines = (
         *next_action.summary_lines[:2],
-        *analysis.recommendation_lines[:3],
+        *roots.recommendation_lines[:3],
+        *analysis.recommendation_lines[:2],
     )
 
     return WorkspaceBridgeNextReport(

@@ -355,16 +355,18 @@ def build_workspace_roots(
     workspace_root = _workspace_root_from_sources(workspace_sources)
     knowledge_base_root = _workspace_root_from_sources(knowledge_sources)
     workspace_name = workspace or workspace_root or profile.default_workspace or "all workspaces"
-    workspace_lines = tuple(_render_activity_lines(recent_source_activities(workspace_sources, limit=limit), compact=True))
-    knowledge_base_lines = tuple(_render_activity_lines(recent_source_activities(knowledge_sources, limit=limit), compact=True))
-    recommendation_lines = _analysis_recommendation_lines(recent_source_activities(workspace_sources, limit=limit), workspace_name)
+    workspace_activities = recent_source_activities(workspace_sources, limit=limit)
+    knowledge_activities = recent_source_activities(knowledge_sources, limit=limit)
+    workspace_lines = tuple(_render_activity_lines(workspace_activities, compact=True))
+    knowledge_base_lines = tuple(_render_activity_lines(knowledge_activities, compact=True))
+    recommendation_lines = _roots_recommendation_lines(workspace_activities, workspace_name)
     return WorkspaceRoots(
         workspace=workspace_name,
         workspace_root=workspace_root,
         knowledge_base_root=knowledge_base_root,
         workspace_lines=workspace_lines,
         knowledge_base_lines=knowledge_base_lines,
-        recommendation_lines=recommendation_lines[:3],
+        recommendation_lines=recommendation_lines,
     )
 
 
@@ -659,6 +661,27 @@ def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str
         f"Primary route: /codex",
         f"Suggested command: {_route_command('codex', candidate.source.name or workspace_name)}",
         f"Optional cross-check: {_route_command('claude', candidate.source.name or workspace_name)}",
+    )
+
+
+def _roots_recommendation_lines(activities, workspace_name: str) -> tuple[str, ...]:
+    if not activities:
+        return (
+            "Continue with: inspect the workspace first.",
+            "Suggested command: /inspect --compact",
+            "No updated repo was available to rank.",
+        )
+    candidate = activities[0]
+    status = candidate.status
+    reason = "most recent repo activity"
+    if status.state == "dirty":
+        reason = "it has uncommitted changes and is likely the active work surface"
+    elif status.ahead or status.behind:
+        reason = "it is diverged from upstream and likely needs attention"
+    return (
+        f"Continue with: {candidate.source.name}",
+        f"Reason: {reason}",
+        f"Suggested command: {_route_command('codex', candidate.source.name or workspace_name)}",
     )
 
 
