@@ -50,6 +50,14 @@ def render_conscience_report_text(report: dict[str, object]) -> str:
         lines.append("missing_context_counts:")
         lines.extend(missing_context_counts)
 
+    top_missing_context = summary.get("top_missing_context")
+    if top_missing_context:
+        lines.append(f"top_missing_context={top_missing_context}")
+
+    recommended_next_action = summary.get("recommended_next_action")
+    if recommended_next_action:
+        lines.append(f"recommended_next_action={recommended_next_action}")
+
     if history:
         lines.append("recent_decisions:")
         for decision in history:

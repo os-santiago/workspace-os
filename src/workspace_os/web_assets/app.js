@@ -214,6 +214,8 @@ const renderConscienceMetrics = (data = null) => {
     `Allow rate: ${formatPercent(summary.allow_rate)}`,
     `Limit rate: ${formatPercent(summary.limit_rate)}`,
     `Refusal rate: ${formatPercent(summary.refusal_rate)}`,
+    `Top missing context: ${summary.top_missing_context || "n/a"}`,
+    `Next action: ${summary.recommended_next_action || "n/a"}`,
     "",
     "Decision counts:",
     ...renderKeyValueLines(summary.decision_counts),
@@ -223,6 +225,9 @@ const renderConscienceMetrics = (data = null) => {
     "",
     "Routing reasons:",
     ...renderKeyValueLines(summary.routing_reason_counts),
+    "",
+    "Missing context:",
+    ...renderKeyValueLines(summary.missing_context_counts),
   ];
   output.textContent = lines.join("\n").trim();
 };

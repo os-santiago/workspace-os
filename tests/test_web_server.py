@@ -193,8 +193,12 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertEqual(1, result["report"]["summary"]["total"])
         self.assertEqual(1, result["report"]["summary"]["decision_counts"]["SAFE_REDIRECT"])
+        self.assertEqual("missing_workspace", result["report"]["summary"]["top_missing_context"])
+        self.assertEqual("route_to_codex_for_inventory", result["report"]["summary"]["recommended_next_action"])
         self.assertIn("Conscience report", markdown["text"])
         self.assertIn("total=1", markdown["text"])
+        self.assertIn("top_missing_context=missing_workspace", markdown["text"])
+        self.assertIn("recommended_next_action=route_to_codex_for_inventory", markdown["text"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
         command = _agent_command("codex", Path("workspace"), "Do the task.")

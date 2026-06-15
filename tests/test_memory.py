@@ -44,6 +44,8 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(1, report["decision_counts"]["SAFE_REDIRECT"])
         self.assertEqual(1, report["primary_agent_counts"]["codex"])
         self.assertEqual(1, report["routing_reason_counts"]["workspace_inventory_first"])
+        self.assertEqual("missing_workspace", report["top_missing_context"])
+        self.assertEqual("route_to_codex_for_inventory", report["recommended_next_action"])
 
 
 if __name__ == "__main__":

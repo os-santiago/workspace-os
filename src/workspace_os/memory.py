@@ -936,6 +936,8 @@ class WorkspaceMemoryStore:
             "primary_agent_counts": primary_agent_counts,
             "routing_reason_counts": routing_reason_counts,
             "missing_context_counts": dict(sorted(missing_context_counts.items(), key=lambda item: (-item[1], item[0]))),
+            "top_missing_context": _top_missing_context(missing_context_counts),
+            "recommended_next_action": _recommended_next_action(missing_context_counts, routing_reason_counts, primary_agent_counts),
             "redirect_rate": (redirect_count / total) if total else 0.0,
             "allow_rate": (allow_count / total) if total else 0.0,
             "limit_rate": (limit_count / total) if total else 0.0,
@@ -1069,3 +1071,39 @@ def _duration_seconds(started_at: str, ended_at: str) -> float:
     start = datetime.fromisoformat(started_at)
     end = datetime.fromisoformat(ended_at)
     return max(0.0, (end - start).total_seconds())
+
+
+def _top_missing_context(counts: dict[str, int]) -> str | None:
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda item: (item[1], item[0]))[0]
+
+
+def _recommended_next_action(
+    missing_context_counts: dict[str, int],
+    routing_reason_counts: dict[str, int],
+    primary_agent_counts: dict[str, int],
+) -> str:
+    top_missing = _top_missing_context(missing_context_counts)
+    top_routing = _top_context_key(routing_reason_counts)
+    top_agent = _top_context_key(primary_agent_counts)
+
+    if top_missing in {"authorization", "role", "permission", "owner", "ownership"}:
+        return "ask_clarification_before_delegating"
+    if top_missing in {"workspace", "inventory", "repo", "branch", "status", "missing_workspace"}:
+        return "route_to_codex_for_inventory"
+    if top_missing in {"safety", "privacy", "legal", "policy"}:
+        return "route_to_claude_for_cross_check"
+    if top_routing and "clarify" in top_routing:
+        return "prefer_minimal_clarification_then_delegate"
+    if top_agent == "claude":
+        return "keep_claude_as_primary_for_sensitive_reviews"
+    if top_agent == "codex":
+        return "keep_codex_as_primary_for_workspace_execution"
+    return "keep_ambiguous_requests_explicit_and_actionable"
+
+
+def _top_context_key(counts: dict[str, int]) -> str | None:
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda item: (item[1], item[0]))[0]
