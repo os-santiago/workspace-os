@@ -477,8 +477,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, bridge_exit_code)
         self.assertIn("Continue with: newer", roots_rendered)
         self.assertIn("Suggested command: /codex", roots_rendered)
+        self.assertIn("Parallel review: codex + claude", roots_rendered)
         self.assertIn("Workspace next: newer", bridge_rendered)
         self.assertIn("Next: continue with newer", bridge_rendered)
+        self.assertIn("parallel review", bridge_rendered)
 
     def test_feedback_command_records_and_reports_feedback(self):
         with tempfile.TemporaryDirectory() as directory:

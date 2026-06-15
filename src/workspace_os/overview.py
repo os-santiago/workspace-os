@@ -141,7 +141,9 @@ class WorkspaceRoots:
 class WorkspaceContinuationRecommendation:
     target_workspace: str | None
     reason: str
-    command_line: str
+    primary_command: str
+    parallel_recommended: bool
+    parallel_command: str | None
     lines: tuple[str, ...]
 
 
@@ -680,11 +682,14 @@ def _build_workspace_continuation_recommendation(
         return WorkspaceContinuationRecommendation(
             target_workspace=None,
             reason="No updated repo was available to rank.",
-            command_line="/inspect --compact",
+            primary_command="/inspect --compact",
+            parallel_recommended=False,
+            parallel_command=None,
             lines=(
                 "Continue with: inspect the workspace first.",
                 "Reason: No updated repo was available to rank.",
                 "Suggested command: /inspect --compact",
+                "Parallel review: not needed",
             ),
         )
     candidate = activities[0]
@@ -694,15 +699,21 @@ def _build_workspace_continuation_recommendation(
         reason = "it has uncommitted changes and is likely the active work surface"
     elif status.ahead or status.behind:
         reason = "it is diverged from upstream and likely needs attention"
-    command_line = _route_command('codex', candidate.source.name or workspace_name)
+    primary_command = _route_command("codex", candidate.source.name or workspace_name)
+    parallel_recommended = len(activities) > 1 or status.state == "dirty" or status.ahead or status.behind
+    parallel_command = _route_command("claude", candidate.source.name or workspace_name) if parallel_recommended else None
     return WorkspaceContinuationRecommendation(
         target_workspace=candidate.source.name,
         reason=reason,
-        command_line=command_line,
+        primary_command=primary_command,
+        parallel_recommended=parallel_recommended,
+        parallel_command=parallel_command,
         lines=(
             f"Continue with: {candidate.source.name}",
             f"Reason: {reason}",
-            f"Suggested command: {command_line}",
+            f"Suggested command: {primary_command}",
+            f"Parallel review: {'codex + claude' if parallel_recommended else 'not needed'}",
+            f"Parallel cross-check: {parallel_command}" if parallel_command else "Parallel cross-check: optional",
         ),
     )
 

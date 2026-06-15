@@ -11,6 +11,7 @@ from workspace_os.overview import (
     build_workspace_next_action,
     build_workspace_overview,
     build_workspace_roots,
+    WorkspaceRoots,
 )
 from workspace_os.profile import load_profile
 
@@ -236,11 +237,10 @@ def build_workspace_bridge_next_report(
     workspace_root = _workspace_root_from_sources(sources)
 
     decision_line = _extract_first_line(next_action.action_lines, prefix="Next:")
-    if decision_line == "Next: review the initial analysis before broad work." and roots.recommendation_lines:
-        recommendation = _extract_first_line(roots.recommendation_lines, prefix="Continue with:")
-        if recommendation:
-            target = recommendation.removeprefix("Continue with: ").strip()
-            decision_line = f"Next: continue with {target}"
+    if roots.recommendation_lines and recommended_workspace:
+        decision_line = f"Next: continue with {recommended_workspace}"
+        if root_continuation_is_parallel(roots):
+            decision_line += " with parallel review"
     command_line = _extract_first_line(next_action.action_lines, prefix="Suggested command:")
     if command_line == "Suggested command: /analysis --compact" and roots.recommendation_lines:
         command_line = _extract_first_line(roots.recommendation_lines, prefix="Suggested command:")
@@ -254,6 +254,12 @@ def build_workspace_bridge_next_report(
         *roots.recommendation_lines[:3],
         *analysis.recommendation_lines[:2],
     )
+    if root_continuation_is_parallel(roots):
+        detail_lines = (
+            *detail_lines,
+            "Parallel review: codex + claude",
+            "Use Codex for the first pass and Claude for the cross-check in parallel.",
+        )
 
     return WorkspaceBridgeNextReport(
         workspace=active_workspace,
@@ -263,6 +269,13 @@ def build_workspace_bridge_next_report(
         command_line=command_line,
         detail_lines=detail_lines,
     )
+
+
+def root_continuation_is_parallel(roots: WorkspaceBridgeReport | WorkspaceRoots) -> bool:
+    for line in getattr(roots, "recommendation_lines", ()):
+        if line.startswith("Parallel review:"):
+            return "not needed" not in line
+    return False
 
 
 def render_workspace_bridge_text(
