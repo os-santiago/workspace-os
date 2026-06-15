@@ -321,6 +321,7 @@ class ShellTests(unittest.TestCase):
 
         self.assertIn("Workspace bridge:", rendered)
         self.assertIn("Safe surfaces:", rendered)
+        self.assertIn("Execution mode:", rendered)
         self.assertIn("Available surfaces:", detail_rendered)
         self.assertIn("Workspace next:", next_rendered)
         self.assertIn("analysis", rendered)

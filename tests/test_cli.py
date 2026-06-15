@@ -608,6 +608,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, capabilities_exit_code)
         self.assertIn("Workspace bridge:", rendered)
         self.assertIn("Safe surfaces:", rendered)
+        self.assertIn("Execution mode:", rendered)
         self.assertIn("analysis", rendered)
         self.assertIn("feedback", rendered)
         self.assertIn("Available surfaces:", detail_rendered)

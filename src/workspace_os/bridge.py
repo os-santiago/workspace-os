@@ -132,15 +132,18 @@ def build_workspace_bridge_report(
     overview = build_workspace_overview(sources, memory_store, workspace=workspace, compact=True)
     next_action = build_workspace_next_action(sources, memory_store, workspace=workspace)
     analysis = build_workspace_analysis(sources, memory_store, workspace=workspace, compact=True)
+    roots = build_workspace_roots(sources, memory_store, workspace=workspace, limit=5)
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     feedback_metrics = memory_store.feedback_metrics()
     active_workspace = workspace or profile.default_workspace or overview.workspace
     workspace_root = _workspace_root_from_sources(sources)
+    execution_mode = "parallel (codex + claude)" if root_continuation_is_parallel(roots) else "sequential (codex first)"
 
     summary_lines = (
         f"State: sources={len(sources)} memory_entries={memory_store.stats()['conversation_turns']} turns "
         f"launches={memory_store.stats()['agent_launches']} feedback={feedback_metrics['total']}",
+        f"Execution mode: {execution_mode}",
         f"Process: {_render_process_summary(process)}",
         f"Batch: {_render_batch_summary(batch)}",
         f"Context: {_render_context_summary(memory_store)}",
