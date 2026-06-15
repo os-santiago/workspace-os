@@ -14,7 +14,8 @@
       "type": "evidence",
       "responsibility": "Sanitized evidence, implementation notes, decisions, and verified lessons.",
       "path": "../../scanales-knowledge-base",
-      "search": true
+      "search": true,
+      "required": false
     },
     {
       "name": "homedir",

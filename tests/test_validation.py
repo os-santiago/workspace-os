@@ -33,6 +33,15 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(validation_failed(results))
         self.assertTrue(any(result.name == "source:missing" and not result.passed for result in results))
 
+    def test_validate_workspace_allows_missing_optional_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Source("missing", "product", "Example.", Path(directory) / "missing", required=False)
+
+            results = validate_workspace([source], include_housekeeping=False)
+
+        self.assertFalse(validation_failed(results))
+        self.assertTrue(any(result.name == "source:missing" and result.passed for result in results))
+
     def test_validate_workspace_fails_on_temporary_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

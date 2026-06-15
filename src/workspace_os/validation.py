@@ -42,10 +42,16 @@ def _validate_source_states(sources: list[Source]) -> list[ValidationResult]:
     for source in sources:
         status = inspect_source(source)
         if not status.exists:
-            results.append(ValidationResult(f"source:{source.name}", False, "Configured path is missing."))
+            if source.required:
+                results.append(ValidationResult(f"source:{source.name}", False, "Configured path is missing."))
+            else:
+                results.append(ValidationResult(f"source:{source.name}", True, "Optional path is missing."))
             continue
         if not status.is_git_repo:
-            results.append(ValidationResult(f"source:{source.name}", False, "Configured path is not a Git repository."))
+            if source.required:
+                results.append(ValidationResult(f"source:{source.name}", False, "Configured path is not a Git repository."))
+            else:
+                results.append(ValidationResult(f"source:{source.name}", True, "Optional path is not a Git repository."))
             continue
         if status.error:
             results.append(ValidationResult(f"source:{source.name}", False, "Git status inspection failed."))

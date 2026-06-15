@@ -13,6 +13,7 @@ class Source:
     responsibility: str
     path: Path
     search: bool = True
+    required: bool = True
 
 
 def load_sources(config_path: Path) -> list[Source]:
@@ -35,6 +36,9 @@ def load_sources(config_path: Path) -> list[Source]:
         search = raw.get("search", True)
         if not isinstance(search, bool):
             raise ValueError(f"Source '{name}' field 'search' must be boolean.")
+        required = raw.get("required", True)
+        if not isinstance(required, bool):
+            raise ValueError(f"Source '{name}' field 'required' must be boolean.")
 
         path = Path(raw_path).expanduser()
         if not path.is_absolute():
@@ -47,6 +51,7 @@ def load_sources(config_path: Path) -> list[Source]:
                 responsibility=responsibility,
                 path=path.resolve(),
                 search=search,
+                required=required,
             )
         )
 
