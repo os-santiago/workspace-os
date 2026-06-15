@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import json
 import tempfile
 import unittest
@@ -295,6 +296,59 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, exit_code)
         self.assertIn("Workspace next action:", rendered)
 
+    def test_analysis_command_reports_recently_updated_repos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "older"
+            newer = root / "newer"
+            older.mkdir()
+            newer.mkdir()
+            self._init_git_repo(older, commit_date="2026-06-14T10:00:00+00:00")
+            self._init_git_repo(newer, commit_date="2026-06-14T12:00:00+00:00")
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "older",
+                                "type": "product",
+                                "responsibility": "Older repo.",
+                                "path": "older",
+                                "search": True,
+                            },
+                            {
+                                "name": "newer",
+                                "type": "product",
+                                "responsibility": "Newer repo.",
+                                "path": "newer",
+                                "search": True,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    exit_code = main(["--config", str(config), "analysis"])
+                buffer.seek(0)
+                rendered = buffer.read()
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Workspace analysis:", rendered)
+        self.assertIn("Workspace root:", rendered)
+        self.assertIn("Projects under root:", rendered)
+        self.assertIn("Continue with: newer", rendered)
+        self.assertIn("Recommended continue: newer", rendered)
+        self.assertIn("Suggested command: /codex", rendered)
+        self.assertLess(rendered.index("newer"), rendered.index("older"))
+
     def test_chat_command_renders_answer_only_by_default_and_verbose_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -508,7 +562,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("Process summary", rendered)
             self.assertIn("Workspace handoff:", rendered)
 
-    def _init_git_repo(self, path: Path) -> None:
+    def _init_git_repo(self, path: Path, commit_date: str | None = None) -> None:
         import subprocess
 
         subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
@@ -516,7 +570,11 @@ class CliTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.name", "Workspace"], cwd=path, check=True, capture_output=True)
         (path / ".gitignore").write_text("", encoding="utf-8")
         subprocess.run(["git", "add", ".gitignore"], cwd=path, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
+        env = os.environ.copy()
+        if commit_date is not None:
+            env["GIT_AUTHOR_DATE"] = commit_date
+            env["GIT_COMMITTER_DATE"] = commit_date
+        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True, env=env)
 
 
 if __name__ == "__main__":

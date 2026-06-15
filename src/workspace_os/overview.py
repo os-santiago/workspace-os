@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from workspace_os.batch import current_batch_report, current_process_report
-from workspace_os.git_status import inspect_source
+from workspace_os.git_status import inspect_source, recent_source_activities
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.profile import load_profile
@@ -91,6 +91,23 @@ class WorkspaceNextAction:
         if self.action_lines:
             lines.append("")
             lines.extend(self.action_lines)
+        return "\n".join(lines) + "\n"
+
+
+@dataclass(frozen=True)
+class WorkspaceAnalysis:
+    workspace: str
+    source_lines: tuple[str, ...]
+    recommendation_lines: tuple[str, ...]
+
+    def render(self) -> str:
+        lines = [f"Workspace analysis: {self.workspace}"]
+        if self.source_lines:
+            lines.append("")
+            lines.extend(self.source_lines)
+        if self.recommendation_lines:
+            lines.append("")
+            lines.extend(self.recommendation_lines)
         return "\n".join(lines) + "\n"
 
 
@@ -222,12 +239,14 @@ def build_workspace_next_action(
     )
 
     if process is None and batch is None:
+        analysis = build_workspace_analysis(sources, memory_store, workspace=workspace_name, limit=5, compact=True)
         action_lines = (
-            "Next: inventory the workspace before broad work.",
+            "Next: review the initial analysis before broad work.",
             f"Primary route={route_hint}",
             f"Suggested command: {_route_command(route_hint, workspace_name)}",
-            "Fallback route=/inspect --compact",
-            "Use inspect to confirm sources, memory, and current work windows before delegating.",
+            "Fallback route=/analysis --compact",
+            "Use analysis to pick the repo that changed most recently, then inspect it before delegating.",
+            *analysis.recommendation_lines,
         )
     elif process is not None and batch is None:
         action_lines = (
@@ -252,6 +271,39 @@ def build_workspace_next_action(
         workspace=workspace_name,
         summary_lines=summary_lines,
         action_lines=action_lines,
+    )
+
+
+def build_workspace_analysis(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    limit: int = 5,
+    compact: bool = False,
+) -> WorkspaceAnalysis:
+    profile = load_profile(memory_store)
+    workspace_root = _workspace_root_from_sources(sources)
+    workspace_name = workspace or workspace_root or profile.default_workspace or "all workspaces"
+    activities = recent_source_activities(sources, limit=limit)
+
+    if compact:
+        source_lines = (
+            f"Workspace root: {workspace_root}",
+            "Projects under root:",
+            *_render_activity_lines(activities, compact=True),
+        )
+    else:
+        source_lines = (
+            f"Workspace root: {workspace_root}",
+            "Projects under root:",
+            *_render_activity_lines(activities, compact=False),
+        )
+
+    recommendation_lines = _analysis_recommendation_lines(activities, workspace_name)
+    return WorkspaceAnalysis(
+        workspace=workspace_name,
+        source_lines=source_lines,
+        recommendation_lines=recommendation_lines,
     )
 
 
@@ -315,6 +367,23 @@ def render_latest_workspace_context_text(memory_store: WorkspaceMemoryStore) -> 
 def render_workspace_next_action_text(sources, memory_store: WorkspaceMemoryStore, workspace: str | None = None) -> str:
     next_action = build_workspace_next_action(sources, memory_store, workspace=workspace)
     return next_action.render()
+
+
+def render_workspace_analysis_text(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+    limit: int = 5,
+    compact: bool = False,
+) -> str:
+    analysis = build_workspace_analysis(
+        sources,
+        memory_store,
+        workspace=workspace,
+        limit=limit,
+        compact=compact,
+    )
+    return analysis.render()
 
 
 def render_workspace_handoff_text(
@@ -464,6 +533,64 @@ def _render_launch_lines(launches, compact: bool = False) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _render_activity_lines(activities, compact: bool = False) -> tuple[str, ...]:
+    if not activities:
+        return ("- no recent repo activity found",)
+    lines = []
+    for activity in activities:
+        status = activity.status
+        source = activity.source
+        branch = status.branch or "detached"
+        if status.state == "missing":
+            lines.append(f"- [MISSING] {source.name}: path={source.path}")
+            continue
+        if status.state == "not-git":
+            lines.append(f"- [NOT-GIT] {source.name}: path={source.path}")
+            continue
+        if status.state == "error":
+            lines.append(f"- [ERROR] {source.name}: error={status.error}")
+            continue
+        if compact:
+            lines.append(
+                f"- [DEV] {source.name}: updated={activity.updated} branch={branch} "
+                f"changes={status.dirty_count} untracked={status.untracked_count}"
+            )
+            continue
+        lines.append(
+            f"- [DEV] {source.name}: updated={activity.updated} branch={branch} "
+            f"changes={status.dirty_count} untracked={status.untracked_count}"
+        )
+        if status.ahead or status.behind:
+            lines[-1] += f" ahead={status.ahead} behind={status.behind}"
+    return tuple(lines)
+
+
+def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str, ...]:
+    if not activities:
+        return (
+            "Continue with: inspect the workspace first.",
+            "Recommended continue: inspect the workspace first.",
+            "Primary route: /codex",
+            "Suggested command: /inspect --compact",
+            "No updated repo was available to rank.",
+        )
+    candidate = activities[0]
+    status = candidate.status
+    reason = "most recent repo activity"
+    if status.state == "dirty":
+        reason = "it has uncommitted changes and is likely the active work surface"
+    elif status.ahead or status.behind:
+        reason = "it is diverged from upstream and likely needs attention"
+    return (
+        f"Continue with: {candidate.source.name}",
+        f"Recommended continue: {candidate.source.name}",
+        f"Reason: {reason}",
+        f"Primary route: /codex",
+        f"Suggested command: {_route_command('codex', candidate.source.name or workspace_name)}",
+        f"Optional cross-check: {_route_command('claude', candidate.source.name or workspace_name)}",
+    )
+
+
 def _summary_line(label: str, item) -> str:
     if item is None:
         return f"{label}: none"
@@ -526,22 +653,19 @@ def _context_summary_text(lines: tuple[str, ...]) -> str:
     return lines[1].removeprefix("- ").strip()
 
 
-def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | None = None) -> str:
-    summary = memory_store.decision_metrics_summary(limit=20)
-    recommended = str(summary.get("recommended_next_action") or "")
-    if recommended == "route_to_claude_for_cross_check":
-        return "claude"
-    if recommended == "route_to_codex_for_inventory":
-        return "codex"
-    if default_agent in {"codex", "claude"}:
-        return default_agent
-    return "codex"
+def _workspace_root_from_sources(sources) -> str:
+    paths = [str(source.path) for source in sources if getattr(source, "path", None)]
+    if not paths:
+        return "all workspaces"
+    try:
+        import os
 
-
-def _route_command(agent: str, workspace_name: str) -> str:
-    if agent == "claude":
-        return f'/claude "Cross-check the workspace inventory for {workspace_name}; confirm any active work, identify gaps, and suggest the fastest next step."'
-    return f'/codex "Inspect the current workspace state for {workspace_name}, list the projects in flight, active branches, blockers, and the next best action."'
+        common = os.path.commonpath(paths)
+    except ValueError:
+        return "all workspaces"
+    except OSError:
+        return "all workspaces"
+    return common or "all workspaces"
 
 
 def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | None = None) -> str:

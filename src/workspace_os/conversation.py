@@ -9,6 +9,7 @@ from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
 from workspace_os.git_status import inspect_source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
+from workspace_os.overview import build_workspace_analysis
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import SearchMatch, search_sources
@@ -416,10 +417,18 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
     )
 
     if process is None and batch is None:
+        analysis = build_workspace_analysis(
+            sources,
+            memory_store,
+            workspace=_workspace_name_from_sources(sources),
+            limit=5,
+            compact=True,
+        )
         lines.extend(
             [
                 "No active work window is tracked.",
-                "Next action: inventory the workspace with Codex.",
+                "Analysis:",
+                *analysis.recommendation_lines,
             ]
         )
     else:

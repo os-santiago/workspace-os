@@ -204,6 +204,36 @@ class ShellTests(unittest.TestCase):
         self.assertIn("Workspace next action:", rendered)
         self.assertIn("Suggested command:", rendered)
 
+    def test_shell_analysis_reports_recently_updated_repos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "older"
+            newer = root / "newer"
+            older.mkdir()
+            newer.mkdir()
+            self._init_git_repo(older, commit_date="2026-06-14T10:00:00+00:00")
+            self._init_git_repo(newer, commit_date="2026-06-14T12:00:00+00:00")
+            shell = WorkspaceShell(
+                [
+                    Source("older", "product", "Older repo.", older),
+                    Source("newer", "product", "Newer repo.", newer),
+                ],
+                root / "memory.sqlite3",
+            )
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_analysis("")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("Workspace analysis:", rendered)
+        self.assertIn("Workspace root:", rendered)
+        self.assertIn("Projects under root:", rendered)
+        self.assertIn("Continue with: newer", rendered)
+        self.assertIn("Recommended continue: newer", rendered)
+        self.assertIn("Primary route: /codex", rendered)
+        self.assertLess(rendered.index("newer"), rendered.index("older"))
+
     def test_shell_batch_commands_report_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -393,15 +423,20 @@ class ShellTests(unittest.TestCase):
         self.assertIn("State:", rendered)
         self.assertIn("Next:", rendered)
 
-    def _init_git_repo(self, path: Path) -> None:
+    def _init_git_repo(self, path: Path, commit_date: str | None = None) -> None:
         import subprocess
+        import os
 
         subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
         subprocess.run(["git", "config", "user.email", "workspace@example.com"], cwd=path, check=True, capture_output=True)
         subprocess.run(["git", "config", "user.name", "Workspace"], cwd=path, check=True, capture_output=True)
         (path / ".gitignore").write_text("", encoding="utf-8")
         subprocess.run(["git", "add", ".gitignore"], cwd=path, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
+        env = os.environ.copy()
+        if commit_date is not None:
+            env["GIT_AUTHOR_DATE"] = commit_date
+            env["GIT_COMMITTER_DATE"] = commit_date
+        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True, env=env)
 
 
 if __name__ == "__main__":

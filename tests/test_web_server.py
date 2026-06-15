@@ -6,6 +6,8 @@ import tempfile
 from workspace_os.config import Source
 from workspace_os.web_server import (
     _agent_command,
+    _analysis_markdown_payload,
+    _analysis_payload,
     _capture_preview_payload,
     _chat_payload,
     _context_snapshot_markdown_payload,
@@ -66,6 +68,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("conscienceMetricsOutput", index)
         self.assertIn("conscienceRecommendRefresh", index)
         self.assertIn("conscienceRecommendationOutput", index)
+        self.assertIn("analysisRefresh", index)
+        self.assertIn("analysisOutput", index)
         self.assertIn("chatContextToggle", index)
         self.assertIn("chatContextRefresh", index)
         self.assertIn("chatContextOutput", index)
@@ -300,6 +304,44 @@ Batch 02 [NEXT] Web pilot
 
         self.assertEqual(5, len(result["items"]))
 
+    def test_analysis_payload_reports_recently_updated_repos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "older"
+            newer = root / "newer"
+            older.mkdir()
+            newer.mkdir()
+            self._init_git_repo(older, commit_date="2026-06-14T10:00:00+00:00")
+            self._init_git_repo(newer, commit_date="2026-06-14T12:00:00+00:00")
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+
+            result = _analysis_payload(
+                [
+                    Source("older", "product", "Older repo.", older),
+                    Source("newer", "product", "Newer repo.", newer),
+                ],
+                memory_path=memory,
+            )
+            markdown = _analysis_markdown_payload(
+                [
+                    Source("older", "product", "Older repo.", older),
+                    Source("newer", "product", "Newer repo.", newer),
+                ],
+                memory_path=memory,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Workspace analysis:", result["text"])
+        self.assertIn("Workspace root:", result["text"])
+        self.assertIn("Projects under root:", result["text"])
+        self.assertIn("Continue with: newer", result["text"])
+        self.assertIn("Recommended continue: newer", result["text"])
+        self.assertIn("Workspace analysis:", markdown["text"])
+
     def test_recent_docs_returns_recent_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -518,6 +560,21 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertIn("Workspace context snapshot:", result["text"])
         self.assertIn("compact context", result["text"])
+
+    def _init_git_repo(self, path: Path, commit_date: str | None = None) -> None:
+        import os
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "workspace@example.com"], cwd=path, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Workspace"], cwd=path, check=True, capture_output=True)
+        (path / ".gitignore").write_text("", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=path, check=True, capture_output=True)
+        env = os.environ.copy()
+        if commit_date is not None:
+            env["GIT_AUTHOR_DATE"] = commit_date
+            env["GIT_COMMITTER_DATE"] = commit_date
+        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True, env=env)
 
 
 if __name__ == "__main__":

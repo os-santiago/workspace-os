@@ -18,7 +18,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -97,6 +97,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
                     "/inspect [opts]     show a condensed read-only workspace overview",
+                    "/analysis [opts]    show recently updated repos and a recommended continuation",
                     "/handoff [opts]     show or export a concise handoff summary",
                     "/next               show the next operational action",
                     "/profile [k v]      get or set profile values",
@@ -257,6 +258,29 @@ class WorkspaceShell(cmd.Cmd):
             compact=options.compact,
         )
         self._emit(overview.render(), end="")
+
+    def do_analysis(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/analysis", add_help=False)
+        parser.add_argument("--compact", action="store_true")
+        parser.add_argument("limit", nargs="?", type=int, default=5)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /analysis [--compact] [limit]")
+            return
+        self._emit(
+            render_workspace_analysis_text(
+                self.sources,
+                self.memory_store,
+                workspace=self.active_workspace,
+                limit=max(1, options.limit),
+                compact=options.compact,
+            ),
+            end="",
+        )
+
+    do_analyze = do_analysis
 
     def do_handoff(self, arg: str) -> None:
         try:
@@ -865,8 +889,12 @@ class WorkspaceShell(cmd.Cmd):
             return paint(line, dim)
         if line.startswith("Workspace root:"):
             return paint("Workspace root:", bold + magenta, line[len("Workspace root:"):])
+        if line.startswith("Workspace analysis:"):
+            return paint("Workspace analysis:", bold + cyan, line[len("Workspace analysis:"):])
         if line == "Projects under root:":
             return paint(line, bold + blue)
+        if line == "Analysis:" or line == "Recommendation:":
+            return paint(line, bold + cyan)
         if line.startswith("- [DEV]"):
             return paint("- [DEV]", green, line[len("- [DEV]"):])
         if line.startswith("- [MISSING]"):
@@ -882,6 +910,8 @@ class WorkspaceShell(cmd.Cmd):
         if line.startswith("No active work window is tracked.") or line.startswith("No active process found.") or line.startswith("No active batch found.") or line.startswith("No active workspace selected."):
             return paint(line, yellow)
         if line.startswith("Next action:") or line.startswith("Next step:") or line.startswith("Suggested command:"):
+            return paint(line, bold + green)
+        if line.startswith("Continue with:") or line.startswith("Recommended continue:"):
             return paint(line, bold + green)
         if line.startswith("Primary route:") or line.startswith("Optional cross-check:"):
             return paint(line, cyan)

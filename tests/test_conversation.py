@@ -162,7 +162,8 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Projects under root:", reply.reply)
         self.assertIn("[NOT-GIT]", reply.reply)
         self.assertIn("No active work window is tracked.", reply.reply)
-        self.assertIn("Next action: inventory the workspace with Codex.", reply.reply)
+        self.assertIn("Analysis:", reply.reply)
+        self.assertIn("Continue with:", reply.reply)
         self.assertIn("Primary route: /codex", reply.reply)
         self.assertIn("Optional cross-check: /claude", reply.reply)
 

@@ -18,7 +18,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, render_workspace_handoff_text, render_workspace_next_action_text
+from workspace_os.overview import build_workspace_handoff, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -79,6 +79,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/recent-software":
                 self._send_json(_recent_software_payload(root=workspace_root))
+                return
+            if parsed.path == "/api/analysis":
+                self._send_json(_analysis_payload(sources, memory_path, query))
+                return
+            if parsed.path == "/api/analysis.md":
+                self._send_text(
+                    _analysis_markdown_payload(sources, memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="analysis.md",
+                )
                 return
             if parsed.path == "/api/recent-docs":
                 self._send_json(_recent_docs_payload())
@@ -692,6 +702,35 @@ def _recent_software_payload(root: Path | None = None, limit: int = 5) -> dict[s
     projects = [_project_summary(path) for path in workspace_root.iterdir() if path.is_dir()]
     projects.sort(key=lambda item: item["updated_epoch"], reverse=True)
     return {"root": str(workspace_root), "items": [_public_item(item) for item in projects[:limit]]}
+
+
+def _analysis_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 5
+    compact = False
+    if query is not None:
+        limit = _int_query(query, "limit", 5)
+        compact = (_first(query, "compact") or "false").casefold() == "true"
+    text = render_workspace_analysis_text(sources, store, limit=limit, compact=compact)
+    return {"ok": True, "text": text}
+
+
+def _analysis_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _analysis_payload(sources, memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load analysis.")}
+    return {"ok": True, "text": payload["text"]}
 
 
 DOCUMENT_ACTIVITY_EXTENSIONS = {

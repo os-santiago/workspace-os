@@ -14,7 +14,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -58,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         return _chat(sources, memory_path, args.message, args.session_id, args.interactive, args.verbose)
     if args.command == "inspect":
         return _inspect(sources, memory_path, args.launch_limit, args.compact)
+    if args.command == "analysis":
+        return _analysis(sources, memory_path, args.limit, args.compact)
     if args.command == "handoff":
         return _handoff(sources, memory_path, args.launch_limit, args.output, args.compact)
     if args.command == "next":
@@ -176,6 +178,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.add_argument("--launch-limit", type=int, default=5, help="Maximum recent launches to show.")
     inspect_parser.add_argument("--compact", action="store_true", help="Render a shorter overview with summary lines.")
+
+    analysis_parser = subparsers.add_parser(
+        "analysis",
+        help="Render an initial analysis of recently updated repositories and a recommended continuation.",
+    )
+    analysis_parser.add_argument("--limit", type=int, default=5, help="Maximum recently updated repositories to show.")
+    analysis_parser.add_argument("--compact", action="store_true", help="Render a shorter analysis summary.")
 
     handoff_parser = subparsers.add_parser(
         "handoff",
@@ -501,6 +510,13 @@ def _inspect(sources: list[Source], memory_path: Path, launch_limit: int, compac
     store.ensure_schema()
     overview = build_workspace_overview(sources, store, launch_limit=launch_limit, compact=compact)
     print(overview.render(), end="")
+    return 0
+
+
+def _analysis(sources: list[Source], memory_path: Path, limit: int, compact: bool) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    print(render_workspace_analysis_text(sources, store, limit=limit, compact=compact), end="")
     return 0
 
 

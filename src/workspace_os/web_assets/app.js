@@ -11,6 +11,7 @@ const state = {
   latestConscience: null,
   latestSuggestedActions: [],
   latestNextAction: null,
+  latestAnalysis: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
 };
@@ -273,6 +274,16 @@ const renderNextAction = (data = null) => {
   output.textContent = data.text || "No next action available.";
 };
 
+const renderAnalysis = (data = null) => {
+  const output = qs("#analysisOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load analysis.";
+    return;
+  }
+  state.latestAnalysis = data.text || "";
+  output.textContent = data.text || "No analysis available.";
+};
+
 const renderKeyValueLines = (value) => {
   if (!value || typeof value !== "object") return ["- n/a=0"];
   const entries = Object.entries(value);
@@ -313,6 +324,11 @@ const loadConscienceRecommendation = async () => {
 const loadNextAction = async () => {
   const data = await getJson("/api/next");
   renderNextAction(data);
+};
+
+const loadAnalysis = async () => {
+  const data = await getJson("/api/analysis");
+  renderAnalysis(data);
 };
 
 const loadContext = async () => {
@@ -570,6 +586,14 @@ const init = async () => {
       qs("#nextOutput").textContent = error.message;
     }
   });
+  qs("#analysisRefresh").addEventListener("click", async () => {
+    qs("#analysisOutput").textContent = "Loading analysis...";
+    try {
+      await loadAnalysis();
+    } catch (error) {
+      qs("#analysisOutput").textContent = error.message;
+    }
+  });
   qs("#handoffRefresh").addEventListener("click", async () => {
     qs("#handoffOutput").textContent = "Loading handoff...";
     try {
@@ -591,6 +615,7 @@ const init = async () => {
   setChatContextExpanded(readChatContextPreference(), false);
   setConscienceExpanded(readConsciencePreference(), false);
   await loadContext();
+  await loadAnalysis();
   await loadNextAction();
   await loadHandoff();
   await loadConscienceRecommendation();
