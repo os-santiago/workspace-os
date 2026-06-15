@@ -14,6 +14,7 @@ from workspace_os.classification import classify_content
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
+from workspace_os.feedback import assess_feedback
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
@@ -96,6 +97,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/capture <type>     capture session/incident/decision/daily notes",
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
+                    "/feedback add|history|status  manage request/result feedback signals",
                     "/inspect [opts]     show a condensed read-only workspace overview",
                     "/analysis [opts]    show recently updated repos and a recommended continuation",
                     "/handoff [opts]     show or export a concise handoff summary",
@@ -239,6 +241,58 @@ class WorkspaceShell(cmd.Cmd):
             self._emit(hit.render())
         if not hits:
             self._emit("No memory entries found.")
+
+    def do_feedback(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/feedback", add_help=False)
+        subparsers = parser.add_subparsers(dest="feedback_command", required=True)
+
+        add_parser = subparsers.add_parser("add", add_help=False)
+        add_parser.add_argument("--request", required=True)
+        add_parser.add_argument("--result", required=True)
+        add_parser.add_argument("--feedback", required=True)
+
+        history_parser = subparsers.add_parser("history", add_help=False)
+        history_parser.add_argument("--limit", type=int, default=10)
+
+        subparsers.add_parser("status", add_help=False)
+
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /feedback add --request <text> --result <text> --feedback <text>")
+            print("       /feedback history [--limit N]")
+            print("       /feedback status")
+            return
+
+        if options.feedback_command == "add":
+            assessment = assess_feedback(options.request, options.result, options.feedback)
+            entry_id = self.memory_store.record_feedback_event(
+                request_text=options.request,
+                result_text=options.result,
+                feedback_text=options.feedback,
+                status=assessment.status,
+                reason=assessment.reason,
+                has_objection=assessment.has_objection,
+                has_praise=assessment.has_praise,
+            )
+            self._emit(f"saved feedback {entry_id}")
+            self._emit(f"status={assessment.status}")
+            self._emit(f"reason={assessment.reason}")
+            return
+        if options.feedback_command == "history":
+            entries = self.memory_store.feedback_history(limit=options.limit)
+            for entry in entries:
+                self._emit(f"- {entry['id']} {entry['status']}: {entry['feedback_text']} ({entry['created_at']})")
+            if not entries:
+                self._emit("No feedback entries found.")
+            return
+        if options.feedback_command == "status":
+            metrics = self.memory_store.feedback_metrics()
+            self._emit("Feedback report")
+            for key, value in metrics.items():
+                self._emit(f"{key}={value}")
+            return
 
     def do_inspect(self, arg: str) -> None:
         parts = shlex.split(arg)
@@ -918,6 +972,8 @@ class WorkspaceShell(cmd.Cmd):
         if line.startswith("Command:"):
             return paint(line, dim)
         if line.startswith("OCE:") or line.startswith("OCE report") or line.startswith("OCE recommendation"):
+            return paint(line, bold + yellow)
+        if line.startswith("Feedback report") or line.startswith("saved feedback") or line.startswith("status=") or line.startswith("reason="):
             return paint(line, bold + yellow)
         if line.startswith("Policy refs:") or line.startswith("Learning engine:") or line.startswith("Memory signals:") or line.startswith("Related knowledge:") or line.startswith("Global context:") or line.startswith("Active process:") or line.startswith("Active batch:") or line.startswith("Context:"):
             return paint(line, dim)

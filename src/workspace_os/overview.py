@@ -447,7 +447,7 @@ def _render_memory_lines(stats: dict[str, int], compact: bool = False) -> tuple[
     line = (
         f"Memory: preferences={stats['operator_preferences']} lessons={stats['reusable_lessons']} "
         f"outcomes={stats['task_outcomes']} decisions={stats['decision_log']} turns={stats['conversation_turns']} "
-        f"launches={stats['agent_launches']} snapshots={stats.get('context_snapshots', 0)}"
+        f"feedback={stats.get('feedback_events', 0)} launches={stats['agent_launches']} snapshots={stats.get('context_snapshots', 0)}"
     )
     return (line,)
 

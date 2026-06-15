@@ -7,6 +7,7 @@ import os
 from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
+from workspace_os.feedback import assess_feedback
 from workspace_os.git_status import inspect_source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
 from workspace_os.overview import build_workspace_analysis
@@ -42,6 +43,7 @@ def build_workspace_reply(
     source_matches = search_sources(sources, clean_message, max_results=source_limit)
     memory_hits = memory_store.search(clean_message, limit=memory_limit) if memory_store else []
     learning = _learning_signal(clean_message, memory_hits)
+    prior_turns = memory_store.recent_conversation_turns(limit=6, session_id=session_id) if memory_store else []
 
     if memory_store:
         request_hash = _hash_text(clean_message)
@@ -102,6 +104,17 @@ def build_workspace_reply(
         if suggested_actions and suggested_actions[0].get("reason"):
             trace_lines.extend(["", f"History bias: {suggested_actions[0]['reason']}"])
 
+    feedback_event = _record_feedback_event(memory_store, session_id, clean_message, prior_turns) if memory_store else None
+    if feedback_event is not None:
+        trace_lines.extend(
+            [
+                "",
+                "Feedback layer:",
+                f"- status={feedback_event['status']} objection={feedback_event['has_objection']} praise={feedback_event['has_praise']}",
+                f"- reason={feedback_event['reason']}",
+            ]
+        )
+
     if memory_hits:
         trace_lines.extend(["", "Memory signals:"])
         trace_lines.extend([hit.render() for hit in memory_hits[:3]])
@@ -153,6 +166,37 @@ def _learning_signal(message: str, memory_hits: list[MemoryHit]) -> dict[str, ob
         "activated": True,
         "summary": "Potential learning detected. Stored turn and context can be reused in later requests.",
         "candidate_destinations": ["workspace-memory", "ADEV", "scanales-kb"],
+    }
+
+
+def _record_feedback_event(
+    memory_store: WorkspaceMemoryStore,
+    session_id: str,
+    feedback_text: str,
+    prior_turns: list[dict[str, str]],
+) -> dict[str, object] | None:
+    if not _is_feedback_message(feedback_text):
+        return None
+    request_turn = next((turn for turn in prior_turns if turn["role"] == "user"), None)
+    result_turn = next((turn for turn in prior_turns if turn["role"] == "assistant"), None)
+    if request_turn is None or result_turn is None:
+        return None
+    assessment = assess_feedback(request_turn["message"], result_turn["message"], feedback_text)
+    memory_store.record_feedback_event(
+        request_text=request_turn["message"],
+        result_text=result_turn["message"],
+        feedback_text=feedback_text,
+        status=assessment.status,
+        reason=assessment.reason,
+        has_objection=assessment.has_objection,
+        has_praise=assessment.has_praise,
+    )
+    return {
+        "status": assessment.status,
+        "reason": assessment.reason,
+        "has_objection": assessment.has_objection,
+        "has_praise": assessment.has_praise,
+        "session_id": session_id,
     }
 
 
@@ -236,6 +280,35 @@ def _is_continuation_request(message: str) -> bool:
         "siguiente lote",
         "next batch",
         "keep going",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
+def _is_feedback_message(message: str) -> bool:
+    text = message.casefold()
+    keywords = (
+        "gracias",
+        "thank you",
+        "thanks",
+        "good",
+        "great",
+        "excellent",
+        "well done",
+        "bien",
+        "perfect",
+        "excellent work",
+        "no sirve",
+        "not useful",
+        "not helpful",
+        "objection",
+        "object",
+        "problem",
+        "issue",
+        "wrong",
+        "incorrect",
+        "mejorar",
+        "fix",
+        "fail",
     )
     return any(keyword in text for keyword in keywords)
 
@@ -367,6 +440,14 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
             f"Command: {_route_command('codex', workspace_name)}",
             "Optional cross-check: /claude",
             f"Command: {_route_command('claude', workspace_name)}",
+        ]
+    if _is_feedback_message(message):
+        assessment = assess_feedback("", "", message)
+        signal = assessment.status.replace("_", " ")
+        return [
+            "Feedback received.",
+            f"Signal: {signal}",
+            assessment.reason,
         ]
     if memory_store and _is_workspace_status_query(message):
         return _workspace_status_answer_lines(sources, memory_store)

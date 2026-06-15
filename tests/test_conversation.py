@@ -35,6 +35,36 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Trace:", reply.reply)
 
+    def test_workspace_reply_records_feedback_signals_from_follow_up_messages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            store.record_turn("session-1", "user", "Please summarize the repo state.")
+            store.record_turn("session-1", "assistant", "Workspace analysis is ready.")
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "Great, that is exactly what I needed.",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+            feedback_history = store.feedback_history(limit=10)
+            feedback_metrics = store.feedback_metrics()
+
+        self.assertEqual(1, feedback_metrics["total"])
+        self.assertEqual(1, feedback_metrics["over_expectation_count"])
+        self.assertEqual(1, len(feedback_history))
+        self.assertEqual("over_expectation", feedback_history[0]["status"])
+        self.assertIn("Feedback received.", reply.answer)
+        self.assertIn("Signal: over expectation", reply.answer)
+        self.assertIn("Feedback layer:", reply.reply)
+        self.assertIn("status=over_expectation", reply.reply)
+
     def test_workspace_reply_greeting_is_actionable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

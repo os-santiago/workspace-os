@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,20 @@ class WorkspaceMemoryStore:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS feedback_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_text TEXT NOT NULL,
+                    result_text TEXT NOT NULL,
+                    feedback_text TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('positive', 'questionable', 'over_expectation')),
+                    reason TEXT NOT NULL,
+                    has_objection INTEGER NOT NULL DEFAULT 0,
+                    has_praise INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    batch_id INTEGER,
+                    process_id INTEGER
+                );
+
                 CREATE TABLE IF NOT EXISTS agent_launches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     agent TEXT NOT NULL CHECK(agent IN ('codex', 'claude')),
@@ -135,7 +149,7 @@ class WorkspaceMemoryStore:
                 );
                 """
             )
-            for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches"):
+            for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches", "feedback_events"):
                 self._ensure_batch_column(conn, table)
             self._ensure_decision_columns(conn)
             conn.execute("DELETE FROM schema_version")
@@ -294,6 +308,44 @@ class WorkspaceMemoryStore:
                 ),
             )
             conn.commit()
+
+    def record_feedback_event(
+        self,
+        request_text: str,
+        result_text: str,
+        feedback_text: str,
+        status: str,
+        reason: str,
+        has_objection: bool = False,
+        has_praise: bool = False,
+        created_at: str | None = None,
+        batch_id: int | None = None,
+        process_id: int | None = None,
+    ) -> int:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO feedback_events (
+                    request_text, result_text, feedback_text, status, reason,
+                    has_objection, has_praise, created_at, batch_id, process_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    request_text.strip(),
+                    result_text.strip(),
+                    feedback_text.strip(),
+                    status.strip(),
+                    reason.strip(),
+                    1 if has_objection else 0,
+                    1 if has_praise else 0,
+                    created_at or _utc_now(),
+                    batch_id if batch_id is not None else self.active_batch_id(conn),
+                    process_id if process_id is not None else self.active_process_id(conn),
+                ),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
 
     def record_agent_launch(
         self,
@@ -944,17 +996,21 @@ class WorkspaceMemoryStore:
             "refusal_rate": (refuse_count / total) if total else 0.0,
         }
 
-    def recent_conversation_turns(self, limit: int = 30) -> list[dict[str, str]]:
+    def recent_conversation_turns(self, limit: int = 30, session_id: str | None = None) -> list[dict[str, str]]:
         with self._connection() as conn:
-            rows = conn.execute(
-                """
+            query = """
                 SELECT session_id, role, message, created_at
                 FROM conversation_turns
-                ORDER BY created_at DESC, id DESC
-                LIMIT ?
-                """,
-                (limit,),
-            )
+            """
+            params: tuple[object, ...]
+            if session_id is not None:
+                query += " WHERE session_id = ?"
+                params = (session_id.strip(), limit)
+                query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+            else:
+                params = (limit,)
+                query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+            rows = conn.execute(query, params)
             return [
                 {
                     "session_id": str(row["session_id"]),
@@ -964,6 +1020,57 @@ class WorkspaceMemoryStore:
                 }
                 for row in rows
             ]
+
+    def feedback_history(self, limit: int = 20) -> list[dict[str, str | int | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, request_text, result_text, feedback_text, status, reason, has_objection, has_praise, created_at, batch_id, process_id
+                FROM feedback_events
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": int(row["id"]),
+                    "request_text": str(row["request_text"]),
+                    "result_text": str(row["result_text"]),
+                    "feedback_text": str(row["feedback_text"]),
+                    "status": str(row["status"]),
+                    "reason": str(row["reason"]),
+                    "has_objection": int(row["has_objection"] or 0),
+                    "has_praise": int(row["has_praise"] or 0),
+                    "created_at": str(row["created_at"]),
+                    "batch_id": int(row["batch_id"]) if row["batch_id"] is not None else None,
+                    "process_id": int(row["process_id"]) if row["process_id"] is not None else None,
+                }
+                for row in rows
+            ]
+
+    def feedback_metrics(self) -> dict[str, int]:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                    SUM(CASE WHEN status = 'questionable' THEN 1 ELSE 0 END) AS questionable_count,
+                    SUM(CASE WHEN status = 'over_expectation' THEN 1 ELSE 0 END) AS over_expectation_count,
+                    SUM(has_objection) AS objection_count,
+                    SUM(has_praise) AS praise_count
+                FROM feedback_events
+                """
+            ).fetchone()
+            return {
+                "total": int(row["total"] or 0) if row else 0,
+                "positive_count": int(row["positive_count"] or 0) if row else 0,
+                "questionable_count": int(row["questionable_count"] or 0) if row else 0,
+                "over_expectation_count": int(row["over_expectation_count"] or 0) if row else 0,
+                "objection_count": int(row["objection_count"] or 0) if row else 0,
+                "praise_count": int(row["praise_count"] or 0) if row else 0,
+            }
 
     def search(self, query: str, limit: int = 8) -> list[MemoryHit]:
         needle = f"%{query.strip()}%"
@@ -993,6 +1100,10 @@ class WorkspaceMemoryStore:
                     SELECT 'conversation' AS kind, role AS title, message AS body, created_at
                     FROM conversation_turns
                     WHERE session_id LIKE :needle OR role LIKE :needle OR message LIKE :needle
+                    UNION ALL
+                    SELECT 'feedback' AS kind, status AS title, feedback_text AS body, created_at
+                    FROM feedback_events
+                    WHERE request_text LIKE :needle OR result_text LIKE :needle OR feedback_text LIKE :needle OR status LIKE :needle OR reason LIKE :needle
                     UNION ALL
                     SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary AS body, created_at
                     FROM context_snapshots
@@ -1025,6 +1136,9 @@ class WorkspaceMemoryStore:
                     SELECT 'conversation' AS kind, role AS title, message AS body, created_at
                     FROM conversation_turns
                     UNION ALL
+                    SELECT 'feedback' AS kind, status AS title, feedback_text AS body, created_at
+                    FROM feedback_events
+                    UNION ALL
                     SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary AS body, created_at
                     FROM context_snapshots
                 )
@@ -1045,6 +1159,7 @@ class WorkspaceMemoryStore:
                 "reusable_lessons",
                 "decision_log",
                 "conversation_turns",
+                "feedback_events",
                 "agent_launches",
                 "context_snapshots",
             ):

@@ -236,6 +236,7 @@ Initial implementation:
 - The chat surfaces keep the user-facing answer terse by default and expose the full answer-plus-trace payload only through `verbose` mode in the shell or web UI.
 - Continuation requests such as "keep going" or "continue the implementation" answer with a direct resume path instead of the generic fallback, usually pointing at `/inspect`, `/next`, and the active Codex/Claude route.
 - `analysis` surfaces the workspace root, the projects under that root, and a recommendation for which repo to continue first, so the initial workspace scan can start from the highest-leverage repo.
+- `feedback` should record the request, result, and follow-up reaction, then classify the signal as positive, questionable, or over expectation so WOS can reinforce what worked and discourage what did not.
 - The web chat exposes redirect routes as launchable actions for ambiguous requests.
 - `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
 - `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.

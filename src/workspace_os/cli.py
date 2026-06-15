@@ -66,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         return _next_action(sources, memory_path, args.compact)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
+    if args.command == "feedback":
+        return _memory(memory_path, "feedback", args)
     if args.command in {"conscience", "oce"}:
         return _conscience(memory_path, args.conscience_command, args)
     if args.command == "shell":
@@ -237,6 +239,29 @@ def _build_parser() -> argparse.ArgumentParser:
     outcome_add.add_argument("--context-hash", required=True, help="Stable context hash.")
     outcome_add.add_argument("--outcome", required=True, choices=["success", "failure", "partial"], help="Outcome.")
     outcome_add.add_argument("--evidence-ref", help="Optional evidence reference.")
+
+    feedback_parser = memory_subparsers.add_parser("feedback", help="Record or inspect user feedback signals.")
+    feedback_subparsers = feedback_parser.add_subparsers(dest="feedback_command", required=True)
+    feedback_add = feedback_subparsers.add_parser("add", help="Add a feedback signal for a request/result pair.")
+    feedback_add.add_argument("--request", required=True, help="Original request text.")
+    feedback_add.add_argument("--result", required=True, help="Result text that was reviewed.")
+    feedback_add.add_argument("--feedback", required=True, help="User feedback text.")
+    feedback_history = feedback_subparsers.add_parser("history", help="List recent feedback signals.")
+    feedback_history.add_argument("--limit", type=int, default=10, help="Maximum feedback entries to list.")
+    feedback_status = feedback_subparsers.add_parser("status", help="Show feedback metrics.")
+
+    feedback_root_parser = subparsers.add_parser(
+        "feedback",
+        help="Record or inspect request/result feedback signals.",
+    )
+    feedback_root_subparsers = feedback_root_parser.add_subparsers(dest="feedback_command", required=True)
+    feedback_root_add = feedback_root_subparsers.add_parser("add", help="Add a feedback signal for a request/result pair.")
+    feedback_root_add.add_argument("--request", required=True, help="Original request text.")
+    feedback_root_add.add_argument("--result", required=True, help="Result text that was reviewed.")
+    feedback_root_add.add_argument("--feedback", required=True, help="User feedback text.")
+    feedback_root_history = feedback_root_subparsers.add_parser("history", help="List recent feedback signals.")
+    feedback_root_history.add_argument("--limit", type=int, default=10, help="Maximum feedback entries to list.")
+    feedback_root_subparsers.add_parser("status", help="Show feedback metrics.")
 
     conscience_parser = subparsers.add_parser(
         "conscience",
@@ -574,6 +599,41 @@ def _memory(memory_path: Path, command: str, args: argparse.Namespace) -> int:
         store.record_task_outcome(args.task_type, args.context_hash, args.outcome, args.evidence_ref)
         print(f"saved outcome {args.task_type}")
         return 0
+
+    if command == "feedback":
+        if args.feedback_command == "add":
+            from workspace_os.feedback import assess_feedback
+
+            assessment = assess_feedback(args.request, args.result, args.feedback)
+            entry_id = store.record_feedback_event(
+                request_text=args.request,
+                result_text=args.result,
+                feedback_text=args.feedback,
+                status=assessment.status,
+                reason=assessment.reason,
+                has_objection=assessment.has_objection,
+                has_praise=assessment.has_praise,
+            )
+            print(f"saved feedback {entry_id}")
+            print(f"status={assessment.status}")
+            print(f"reason={assessment.reason}")
+            return 0
+        if args.feedback_command == "history":
+            entries = store.feedback_history(limit=args.limit)
+            for entry in entries:
+                print(
+                    f"- {entry['id']} {entry['status']}: {entry['feedback_text']} "
+                    f"({entry['created_at']})"
+                )
+            if not entries:
+                print("No feedback entries found.")
+            return 0
+        if args.feedback_command == "status":
+            metrics = store.feedback_metrics()
+            print("Feedback report")
+            for key, value in metrics.items():
+                print(f"{key}={value}")
+            return 0
 
     print("error: unsupported memory command", file=sys.stderr)
     return 2

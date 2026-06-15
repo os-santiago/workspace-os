@@ -349,6 +349,58 @@ class CliTests(unittest.TestCase):
         self.assertIn("Suggested command: /codex", rendered)
         self.assertLess(rendered.index("newer"), rendered.index("older"))
 
+    def test_feedback_command_records_and_reports_feedback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    exit_code = main(
+                        [
+                            "--config",
+                            str(config),
+                            "feedback",
+                            "add",
+                            "--request",
+                            "Please summarize the repo state.",
+                            "--result",
+                            "Workspace analysis is ready.",
+                            "--feedback",
+                            "Great, that is exactly what I needed.",
+                        ]
+                    )
+                buffer.seek(0)
+                rendered = buffer.read()
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("saved feedback", rendered)
+        self.assertIn("status=over_expectation", rendered)
+        self.assertIn("reason=", rendered)
+
     def test_chat_command_renders_answer_only_by_default_and_verbose_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

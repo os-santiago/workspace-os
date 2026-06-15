@@ -234,6 +234,27 @@ class ShellTests(unittest.TestCase):
         self.assertIn("Primary route: /codex", rendered)
         self.assertLess(rendered.index("newer"), rendered.index("older"))
 
+    def test_shell_feedback_records_and_reports_feedback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_feedback(
+                    'add --request "Please summarize the repo state." '
+                    '--result "Workspace analysis is ready." '
+                    '--feedback "Great, that is exactly what I needed."'
+                )
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("saved feedback", rendered)
+        self.assertIn("status=over_expectation", rendered)
+        self.assertIn("reason=", rendered)
+
     def test_shell_batch_commands_report_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
