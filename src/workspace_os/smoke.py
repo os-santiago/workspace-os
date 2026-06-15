@@ -79,8 +79,6 @@ def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeC
             "hola",
             [
                 "Hola. Soy WOS",
-                "OCE recommendation: /codex",
-                "Suggested command: /codex",
             ],
         ),
         (
@@ -96,10 +94,12 @@ def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeC
             "chat:projects",
             "que proyectos tenemos en curso?",
             [
-                "Tracked projects:",
+                "Workspace status:",
+                "Workspace root:",
+                "Projects under root:",
                 "Next step: record the first process checkpoint",
-                "OCE recommendation: /codex",
-                "Fallback route: /claude",
+                "Primary route: /codex",
+                "Optional cross-check: /claude",
             ],
         ),
         (
@@ -108,16 +108,14 @@ def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeC
             [
                 "No. I now answer by intent instead of repeating the same fallback.",
                 "route it to Codex first",
-                "OCE recommendation: /codex",
             ],
         ),
         (
             "chat:next",
             "what should we do next?",
             [
-                "OCE recommendation: /codex",
-                "Suggested command: /codex",
-                "Fallback route: /claude",
+                "Primary route: /codex",
+                "Optional cross-check: /claude",
             ],
         ),
     ]
@@ -189,8 +187,8 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
     expectations = [
         ("shell:next", "Workspace next action:"),
         ("shell:oce", "OCE report"),
-        ("shell:reply", "OCE recommendation: /codex"),
-        ("shell:route", "Fallback route: /claude"),
+        ("shell:reply", "Primary route: /codex"),
+        ("shell:route", "Optional cross-check: /claude"),
     ]
     results: list[SmokeCheckResult] = []
     for name, expectation in expectations:

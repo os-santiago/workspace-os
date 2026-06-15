@@ -329,6 +329,10 @@ textarea {
   min-height: 0;
 }
 
+.rail-root {
+  border-left-color: var(--tp-cyan);
+}
+
 .rail-item strong,
 .rail-item small,
 .rail-item span {

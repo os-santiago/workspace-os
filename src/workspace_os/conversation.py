@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+import os
 
 from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
@@ -221,12 +222,15 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     launches = memory_store.recent_launches(limit=3)
     profile = load_profile(memory_store)
     workspace_name = profile.default_workspace or "all workspaces"
+    workspace_root = _workspace_root_from_sources([])
     codex_prompt = (
         f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
         "active branches, current process or batch windows, blockers, and the next best action."
     )
 
     lines = ["Projects in flight:"]
+    if workspace_root != "all workspaces":
+        lines.append(f"- root={workspace_root}")
     lines.append(f"- workspace={workspace_name}")
     if process is None:
         lines.append("- process=none")
@@ -263,6 +267,8 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
 
 
 def _suggested_actions(message: str, conscience: ConscienceDecision, memory_store: WorkspaceMemoryStore | None) -> list[dict[str, str]]:
+    if _is_greeting(message) or _is_app_overview_query(message) or _is_repetition_query(message):
+        return []
     if conscience.decision != "SAFE_REDIRECT" and not _is_workspace_status_query(message):
         return []
     profile = load_profile(memory_store) if memory_store else None
@@ -298,11 +304,11 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
 
 
 def _redirect_guidance_lines(actions: list[dict[str, str]]) -> list[str]:
-    lines = [f"OCE recommendation: /{actions[0]['agent']}"]
+    lines = [f"Primary route: /{actions[0]['agent']}"]
     if actions:
-        lines.append(f"Suggested command: {actions[0]['command']}")
-    if len(actions) > 1:
-        lines.extend([f"Fallback route: /{actions[1]['agent']}", f"Suggested command: {actions[1]['command']}"])
+        lines.append(f"Command: {actions[0]['command']}")
+    if len(actions) > 1 and actions[1]["agent"] != actions[0]["agent"]:
+        lines.extend([f"Optional cross-check: /{actions[1]['agent']}", f"Command: {actions[1]['command']}"])
     return lines
 
 
@@ -337,44 +343,52 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
 
 
 def _workspace_status_answer_lines(sources: list[Source], memory_store: WorkspaceMemoryStore) -> list[str]:
-    profile = load_profile(memory_store)
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     launches = memory_store.recent_launches(limit=3)
-    route_hint = _history_route_hint(memory_store)
     lines: list[str] = []
-    lines.append("Tracked projects:")
+    source_states: list[str] = []
+    workspace_root = _workspace_root_from_sources(sources)
+    lines.append(f"Workspace root: {workspace_root}")
+    lines.append("Projects under root:")
     for source in sources:
         status = inspect_source(source)
         branch = status.branch or "n/a"
         if status.state == "missing":
-            detail = f"missing path={source.path}"
+            detail = f"[MISSING] {source.name}: path={source.path}"
+            source_states.append("missing")
         elif status.state == "not-git":
-            detail = f"not-git path={source.path}"
+            detail = f"[NOT-GIT] {source.name}: path={source.path}"
+            source_states.append("not-git")
         elif status.state == "error":
-            detail = f"error={status.error}"
+            detail = f"[ERROR] {source.name}: error={status.error}"
+            source_states.append("error")
         else:
-            detail = f"branch={branch} changes={status.dirty_count} untracked={status.untracked_count}"
+            detail = (
+                f"[DEV] {source.name}: branch={branch} changes={status.dirty_count} "
+                f"untracked={status.untracked_count}"
+            )
             if status.ahead or status.behind:
                 detail += f" ahead={status.ahead} behind={status.behind}"
-        lines.append(f"- {source.name}: {detail}")
+            source_states.append("ready")
+        lines.append(f"- {detail}")
+
+    ready_count = source_states.count("ready")
+    missing_count = source_states.count("missing")
+    not_git_count = source_states.count("not-git")
+    error_count = source_states.count("error")
+    lines.insert(
+        0,
+        f"Workspace status: {ready_count} ready, {missing_count} missing, {not_git_count} not-git, {error_count} error.",
+    )
 
     if process is None and batch is None:
-        workspace_name = profile.default_workspace if profile and profile.default_workspace else "all workspaces"
         lines.extend(
             [
-                "No active process or batch window is tracked.",
-                "OCE says the fastest path is to inventory the workspace before asking for a broad summary.",
-                "Primary route=/codex",
-                "Use Codex to inventory the workspace and summarize active work.",
-                f"Suggested command: /codex \"{_agent_route_prompt('codex', workspace_name)}\"",
-                "Fallback route=/claude",
-                "Use Claude in parallel to cross-check the inventory and fill gaps.",
-                f"Suggested command: /claude \"{_agent_route_prompt('claude', workspace_name)}\"",
+                "No active work window is tracked.",
+                "Next action: inventory the workspace with Codex.",
             ]
         )
-        if route_hint:
-            lines.append(f"History bias: {route_hint}")
     else:
         lines.append(f"Next step: {_next_step(process, batch)}")
 
@@ -384,6 +398,19 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
             workspace = launch["workspace"] or "all"
             lines.append(f"- {launch['agent']} {workspace}: {launch['task']}")
     return lines
+
+
+def _workspace_root_from_sources(sources: list[Source]) -> str:
+    if not sources:
+        return "all workspaces"
+    paths = [str(source.path) for source in sources if source.path]
+    if not paths:
+        return "all workspaces"
+    try:
+        root = os.path.commonpath(paths)
+    except ValueError:
+        return "all workspaces"
+    return root or "all workspaces"
 
 
 def _agent_route_prompt(agent: str, workspace_name: str) -> str:

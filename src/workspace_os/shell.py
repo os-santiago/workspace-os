@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import cmd
+import os
 from pathlib import Path
 import shlex
+import sys
 
 from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
@@ -72,7 +74,7 @@ class WorkspaceShell(cmd.Cmd):
             tone=self.profile.tone,
             detail_level=self.profile.detail_level,
         )
-        print(reply.reply)
+        self._emit(reply.reply)
         self.habits = compute_habits(self.memory_store, self.profile)
         self.context_snapshot = self.memory_store.latest_context_snapshot()
         self.prompt = self._render_prompt()
@@ -133,11 +135,11 @@ class WorkspaceShell(cmd.Cmd):
             self._print_workspaces()
             return
         if not any(source.name == name for source in self.sources):
-            print(f"Unknown workspace: {name}")
+            self._emit(f"Unknown workspace: {name}")
             return
         self.active_workspace = name
         self.prompt = self._render_prompt()
-        print(f"active workspace={name}")
+        self._emit(f"active workspace={name}")
 
     def do_workspaces(self, arg: str) -> None:
         self._print_workspaces()
@@ -148,38 +150,38 @@ class WorkspaceShell(cmd.Cmd):
     def do_search(self, arg: str) -> None:
         query = arg.strip()
         if not query:
-            print("Usage: /search <query>")
+            self._emit("Usage: /search <query>")
             return
         matches = search_sources(self._selected_sources(), query, max_results=20)
         for match in matches:
-            print(f"{match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}")
+            self._emit(f"{match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}")
         if not matches:
-            print("No matches found.")
+            self._emit("No matches found.")
 
     def do_context(self, arg: str) -> None:
         topic = arg.strip()
         if not topic:
-            print("Usage: /context <topic>")
+            self._emit("Usage: /context <topic>")
             return
         if topic.casefold() == "latest":
-            print(render_latest_workspace_context_text(self.memory_store), end="")
+            self._emit(render_latest_workspace_context_text(self.memory_store), end="")
             return
         pack = build_context_pack(
             sources=self.sources,
             topic=topic,
             memory_path=self.memory_store.path,
         )
-        print(pack.render_markdown(), end="")
+        self._emit(pack.render_markdown(), end="")
 
     def do_classify(self, arg: str) -> None:
         value = arg.strip()
         if not value:
-            print("Usage: /classify <text>")
+            self._emit("Usage: /classify <text>")
             return
         classification = classify_content(value)
-        print(f"target={classification.target}")
-        print(f"confidence={classification.confidence}")
-        print(f"reason={classification.reason}")
+        self._emit(f"target={classification.target}")
+        self._emit(f"confidence={classification.confidence}")
+        self._emit(f"reason={classification.reason}")
 
     def do_validate(self, arg: str) -> None:
         parts = shlex.split(arg)
@@ -187,31 +189,31 @@ class WorkspaceShell(cmd.Cmd):
         results = validate_workspace(self.sources, include_smoke_queries=not skip_smoke_queries)
         for result in results:
             state = "PASS" if result.passed else "FAIL"
-            print(f"{state} {result.name}: {result.detail}")
+            self._emit(f"{state} {result.name}: {result.detail}")
         if validation_failed(results):
-            print("validation_failed=true")
+            self._emit("validation_failed=true")
 
     def do_capture(self, arg: str) -> None:
         parts = shlex.split(arg)
         if len(parts) < 2:
-            print("Usage: /capture <type> <title> | /capture <type> --title <title>")
+            self._emit("Usage: /capture <type> <title> | /capture <type> --title <title>")
             return
         capture_type = parts[0]
         title = " ".join(parts[1:]).strip()
         try:
             draft = build_capture_draft(self.sources, capture_type, title, "")
         except (OSError, ValueError) as exc:
-            print(f"error: {exc}")
+            self._emit(f"error: {exc}")
             return
-        print("dry_run=true")
-        print(f"target={draft.source_name}:{draft.relative_path}")
-        print("")
-        print(draft.content, end="")
+        self._emit("dry_run=true")
+        self._emit(f"target={draft.source_name}:{draft.relative_path}")
+        self._emit("")
+        self._emit(draft.content, end="")
 
     def do_promote(self, arg: str) -> None:
         parts = shlex.split(arg)
         if len(parts) < 2:
-            print("Usage: /promote <target> <rule>")
+            self._emit("Usage: /promote <target> <rule>")
             return
         target = parts[0]
         rule = " ".join(parts[1:]).strip()
@@ -223,17 +225,17 @@ class WorkspaceShell(cmd.Cmd):
                 evidence="workspace-shell",
             )
         except ValueError as exc:
-            print(f"error: {exc}")
+            self._emit(f"error: {exc}")
             return
-        print(proposal.render_markdown(), end="")
+        self._emit(proposal.render_markdown(), end="")
 
     def do_memory(self, arg: str) -> None:
         query = arg.strip()
         hits = self.memory_store.search(query, limit=10) if query else self.memory_store.recent(limit=10)
         for hit in hits:
-            print(hit.render())
+            self._emit(hit.render())
         if not hits:
-            print("No memory entries found.")
+            self._emit("No memory entries found.")
 
     def do_inspect(self, arg: str) -> None:
         parts = shlex.split(arg)
@@ -252,7 +254,7 @@ class WorkspaceShell(cmd.Cmd):
             launch_limit=max(1, options.launch_limit),
             compact=options.compact,
         )
-        print(overview.render(), end="")
+        self._emit(overview.render(), end="")
 
     def do_handoff(self, arg: str) -> None:
         try:
@@ -272,7 +274,7 @@ class WorkspaceShell(cmd.Cmd):
             )
             print(f"written={options.output}")
             return
-        print(
+        self._emit(
             render_workspace_handoff_text(
                 self._selected_sources(),
                 self.memory_store,
@@ -289,10 +291,10 @@ class WorkspaceShell(cmd.Cmd):
             print("Usage: /next [--compact]")
             return
         if compact:
-            print(render_workspace_next_action_text(self._selected_sources(), self.memory_store, workspace=self.active_workspace), end="")
+            self._emit(render_workspace_next_action_text(self._selected_sources(), self.memory_store, workspace=self.active_workspace), end="")
             return
         next_action = build_workspace_next_action(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
-        print(next_action.render(), end="")
+        self._emit(next_action.render(), end="")
 
     def do_profile(self, arg: str) -> None:
         parts = shlex.split(arg)
@@ -354,7 +356,7 @@ class WorkspaceShell(cmd.Cmd):
                         print("Usage: /conscience [status|history|recommend] [limit]")
                         return
                 report = build_conscience_report(self.memory_store, limit=limit)
-                print(render_conscience_report_text(report), end="")
+                self._emit(render_conscience_report_text(report), end="")
                 return
             if command == "recommend":
                 if len(parts) > 1:
@@ -363,7 +365,7 @@ class WorkspaceShell(cmd.Cmd):
                     except ValueError:
                         print("Usage: /conscience [status|history|recommend] [limit]")
                         return
-                print(build_conscience_recommendation_text(self.memory_store, limit=limit), end="")
+                self._emit(build_conscience_recommendation_text(self.memory_store, limit=limit), end="")
                 return
             try:
                 limit = max(1, int(parts[0]))
@@ -371,7 +373,7 @@ class WorkspaceShell(cmd.Cmd):
                 print("Usage: /conscience [status|history|recommend] [limit]")
                 return
         report = build_conscience_report(self.memory_store, limit=limit)
-        print(render_conscience_report_text(report), end="")
+        self._emit(render_conscience_report_text(report), end="")
 
     do_oce = do_conscience
 
@@ -401,7 +403,7 @@ class WorkspaceShell(cmd.Cmd):
             if report is None:
                 print("No active batch found.")
                 return
-            print(report.render(), end="")
+            self._emit(report.render(), end="")
             handoff_path = default_workspace_handoff_path(self.memory_store.path)
             context_path = default_workspace_context_path(self.memory_store.path)
             write_workspace_handoff(
@@ -429,7 +431,7 @@ class WorkspaceShell(cmd.Cmd):
             if report is None:
                 print("No batch found.")
                 return
-            print(report.render(), end="")
+            self._emit(report.render(), end="")
             return
         if command == "handoff":
             self._batch_handoff(arg[len(parts[0]) :].strip())
@@ -547,7 +549,7 @@ class WorkspaceShell(cmd.Cmd):
             tone=self.profile.tone,
             detail_level=self.profile.detail_level,
         )
-        print(reply.reply)
+        self._emit(reply.reply)
         self.habits = compute_habits(self.memory_store, self.profile)
         self.context_snapshot = self.memory_store.latest_context_snapshot()
 
@@ -797,13 +799,13 @@ class WorkspaceShell(cmd.Cmd):
 
     def _process_checkpoint(self, args: list[str]) -> None:
         if not args:
-            print("Usage: /process checkpoint <label> [note]")
+            self._emit("Usage: /process checkpoint <label> [note]")
             return
         label = args[0]
         note = " ".join(args[1:]).strip() or None
         process = self.memory_store.active_process()
         if process is None:
-            print("No active process found.")
+            self._emit("No active process found.")
             return
         try:
             checkpoint_id = self.memory_store.record_process_checkpoint(
@@ -812,10 +814,72 @@ class WorkspaceShell(cmd.Cmd):
                 process_id=int(process["id"]),
             )
         except ValueError as exc:
-            print(f"error: {exc}")
+            self._emit(f"error: {exc}")
             return
         self.active_process = self.memory_store.active_process()
-        print(f"checkpoint_recorded={checkpoint_id}")
+        self._emit(f"checkpoint_recorded={checkpoint_id}")
+
+    def _emit(self, text: str, end: str = "\n") -> None:
+        print(self._colorize(text), end=end)
+
+    def _colorize(self, text: str) -> str:
+        if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+            return text
+        return "\n".join(self._colorize_line(line) for line in text.splitlines())
+
+    def _colorize_line(self, line: str) -> str:
+        reset = "\033[0m"
+        bold = "\033[1m"
+        dim = "\033[2m"
+        cyan = "\033[36m"
+        green = "\033[32m"
+        yellow = "\033[33m"
+        red = "\033[31m"
+        magenta = "\033[35m"
+        blue = "\033[34m"
+
+        def paint(prefix: str, color: str, remainder: str = "") -> str:
+            return f"{color}{prefix}{reset}{remainder}"
+
+        if line == "Answer:":
+            return paint(line, bold + cyan)
+        if line == "Trace:":
+            return paint(line, dim)
+        if line.startswith("Workspace root:"):
+            return paint("Workspace root:", bold + magenta, line[len("Workspace root:"):])
+        if line == "Projects under root:":
+            return paint(line, bold + blue)
+        if line.startswith("- [DEV]"):
+            return paint("- [DEV]", green, line[len("- [DEV]"):])
+        if line.startswith("- [MISSING]"):
+            return paint("- [MISSING]", red, line[len("- [MISSING]"):])
+        if line.startswith("- [NOT-GIT]"):
+            return paint("- [NOT-GIT]", yellow, line[len("- [NOT-GIT]"):])
+        if line.startswith("- [ERROR]"):
+            return paint("- [ERROR]", red, line[len("- [ERROR]"):])
+        if line.startswith("Workspace status:"):
+            return paint("Workspace status:", bold + blue, line[len("Workspace status:"):])
+        if line == "Recent launches:":
+            return paint(line, blue)
+        if line.startswith("No active work window is tracked.") or line.startswith("No active process found.") or line.startswith("No active batch found.") or line.startswith("No active workspace selected."):
+            return paint(line, yellow)
+        if line.startswith("Next action:") or line.startswith("Next step:") or line.startswith("Suggested command:"):
+            return paint(line, bold + green)
+        if line.startswith("Primary route:") or line.startswith("Optional cross-check:"):
+            return paint(line, cyan)
+        if line.startswith("Command:"):
+            return paint(line, dim)
+        if line.startswith("OCE:") or line.startswith("OCE report") or line.startswith("OCE recommendation"):
+            return paint(line, bold + yellow)
+        if line.startswith("Policy refs:") or line.startswith("Learning engine:") or line.startswith("Memory signals:") or line.startswith("Related knowledge:") or line.startswith("Global context:") or line.startswith("Active process:") or line.startswith("Active batch:") or line.startswith("Context:"):
+            return paint(line, dim)
+        if line.startswith("History bias:"):
+            return paint(line, magenta)
+        if line.startswith("Process:") or line.startswith("Batch:") or line.startswith("Profile:") or line.startswith("Habits:") or line.startswith("Memory:"):
+            return paint(line, blue)
+        if line.startswith("["):
+            return paint(line, green)
+        return line
 
     def _normalize_line(self, line: str) -> str:
         return line.lstrip("\ufeff").strip()

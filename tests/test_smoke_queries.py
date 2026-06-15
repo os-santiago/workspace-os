@@ -37,8 +37,6 @@ class SmokeQueryTests(unittest.TestCase):
                     "hola",
                     [
                         "Hola. Soy WOS",
-                        "OCE recommendation: /codex",
-                        "Suggested command: /codex",
                     ],
                 ),
                 (
@@ -52,26 +50,25 @@ class SmokeQueryTests(unittest.TestCase):
                 (
                     "que proyectos tenemos en curso?",
                     [
-                        "Tracked projects:",
-                        "Next step: record the first process checkpoint",
-                        "OCE recommendation: /codex",
-                        "Fallback route: /claude",
+                        "Workspace status:",
+                        "Workspace root:",
+                        "Projects under root:",
+                        "Next step:",
+                        "Primary route: /codex",
+                        "Optional cross-check: /claude",
                     ],
                 ),
                 (
                     "respondes siempre lo mismo?",
                     [
                         "No. I now answer by intent instead of repeating the same fallback.",
-                        "route it to Codex first",
-                        "OCE recommendation: /codex",
                     ],
                 ),
                 (
                     "what should we do next?",
                     [
-                        "OCE recommendation: /codex",
-                        "Suggested command: /codex",
-                        "Fallback route: /claude",
+                        "Primary route: /codex",
+                        "Optional cross-check: /claude",
                     ],
                 ),
             ]
@@ -162,8 +159,8 @@ class SmokeQueryTests(unittest.TestCase):
 
         self.assertIn("Workspace next action:", rendered)
         self.assertIn("OCE report", rendered)
-        self.assertIn("OCE recommendation: /codex", rendered)
-        self.assertIn("Fallback route: /claude", rendered)
+        self.assertIn("Primary route: /codex", rendered)
+        self.assertIn("Optional cross-check: /claude", rendered)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

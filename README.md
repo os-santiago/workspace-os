@@ -110,6 +110,7 @@ wos web
 ```
 
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
+In the default workspace setup, `D:\git` is the canonical workspace root and each configured project under that root is treated as a workspace-in-development candidate. The terminal surfaces use colored, prefixed sections so `Answer`, `Next`, `Workspace root`, `Projects under root`, and `Trace` are easy to scan at a glance.
 
 Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, and `/launches`.
 /context latest renders the most recent compacted global context snapshot directly from memory, while `/context <topic>` still builds a governed context pack for a task. The chat CLI opens by showing that latest compacted context before prompting for input. The web chat now also shows the latest compacted context above the chat history, keeps it refreshed from the most recent reply, lets you expand or collapse that block when you need more detail, and remembers that preference across reloads. Chat replies now split into an `Answer:` section for the user-facing result and a `Trace:` section for the reasoning/log layer; ambiguous status questions surface Codex as the primary route and Claude as a parallel fallback.

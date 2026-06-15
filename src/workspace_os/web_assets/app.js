@@ -88,8 +88,25 @@ const launchSuggestedAction = async (action, button) => {
 const renderRail = (selector, data, emptyText) => {
   const list = qs(selector);
   list.innerHTML = "";
+  if (data.root) {
+    const rootRow = document.createElement("div");
+    rootRow.className = "rail-item rail-root";
+    rootRow.innerHTML = `
+      <strong>Root</strong>
+      <span>${escapeHtml(data.root)}</span>
+      <small>workspace root</small>
+    `;
+    list.appendChild(rootRow);
+  }
   if (!data.items || data.items.length === 0) {
-    list.innerHTML = `<div class="rail-item muted">${emptyText}</div>`;
+    if (!data.root) {
+      list.innerHTML = `<div class="rail-item muted">${emptyText}</div>`;
+    } else {
+      const emptyRow = document.createElement("div");
+      emptyRow.className = "rail-item muted";
+      emptyRow.textContent = emptyText;
+      list.appendChild(emptyRow);
+    }
     return;
   }
   for (const item of data.items) {

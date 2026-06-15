@@ -53,8 +53,8 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Hola. Soy WOS", reply.reply)
-        self.assertIn("Codex", reply.reply)
-        self.assertIn("Claude", reply.reply)
+        self.assertNotIn("Primary route:", reply.reply)
+        self.assertNotIn("Optional cross-check:", reply.reply)
 
     def test_workspace_reply_explains_application(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -76,6 +76,7 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("tracks repos and git state", reply.reply)
         self.assertIn("delegates execution and cross-checks", reply.reply)
         self.assertIn("/inspect", reply.reply)
+        self.assertNotIn("Primary route:", reply.reply)
 
     def test_workspace_reply_refuses_repetitive_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -96,6 +97,7 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("No. I now answer by intent instead of repeating the same fallback.", reply.reply)
         self.assertIn("route it to Codex first", reply.reply)
         self.assertIn("return the next action", reply.reply)
+        self.assertNotIn("Primary route:", reply.reply)
 
     def test_workspace_reply_default_fallback_is_actionable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -134,9 +136,14 @@ class ConversationTests(unittest.TestCase):
                 session_id="session-1",
             )
 
-        self.assertIn("OCE says the fastest path is to inventory the workspace", reply.reply)
-        self.assertIn("Primary route=/codex", reply.reply)
-        self.assertIn("Fallback route=/claude", reply.reply)
+        self.assertIn("Workspace status:", reply.reply)
+        self.assertIn("Workspace root:", reply.reply)
+        self.assertIn("Projects under root:", reply.reply)
+        self.assertIn("[NOT-GIT]", reply.reply)
+        self.assertIn("No active work window is tracked.", reply.reply)
+        self.assertIn("Next action: inventory the workspace with Codex.", reply.reply)
+        self.assertIn("Primary route: /codex", reply.reply)
+        self.assertIn("Optional cross-check: /claude", reply.reply)
 
     def test_workspace_reply_includes_active_batch_summary(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -223,7 +230,7 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Trace:", reply.reply)
-        self.assertIn("Tracked projects:", reply.reply)
+        self.assertIn("Workspace status:", reply.reply)
         self.assertIn("process-1", reply.reply)
         self.assertIn("batch-1", reply.reply)
         self.assertIn("Next step:", reply.reply)
@@ -247,11 +254,10 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Trace:", reply.reply)
-        self.assertIn("OCE recommendation: /codex", reply.reply)
-        self.assertIn("Primary route=/codex", reply.reply)
-        self.assertIn("Fallback route=/claude", reply.reply)
-        self.assertIn("Suggested command: /codex", reply.reply)
-        self.assertIn("Suggested command: /claude", reply.reply)
+        self.assertIn("Primary route: /codex", reply.reply)
+        self.assertIn("Optional cross-check: /claude", reply.reply)
+        self.assertIn("Command: /codex", reply.reply)
+        self.assertIn("Command: /claude", reply.reply)
         self.assertNotIn("start a new process window before the next batch", reply.reply)
         self.assertEqual(2, len(reply.suggested_actions))
         self.assertEqual("codex", reply.suggested_actions[0]["agent"])
@@ -306,9 +312,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual("SAFE_REDIRECT", reply.conscience.decision)
         self.assertEqual("claude", reply.suggested_actions[0]["agent"])
         self.assertEqual("codex", reply.suggested_actions[1]["agent"])
-        self.assertIn("History bias:", reply.reply)
-        self.assertIn("OCE recommendation: /claude", reply.reply)
-        self.assertIn("Fallback route: /codex", reply.reply)
+        self.assertIn("Primary route: /claude", reply.reply)
+        self.assertIn("Optional cross-check: /codex", reply.reply)
 
 
 if __name__ == "__main__":

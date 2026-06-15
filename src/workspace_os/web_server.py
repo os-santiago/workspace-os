@@ -685,10 +685,10 @@ def _roadmap_payload() -> dict[str, object]:
 def _recent_software_payload(root: Path | None = None, limit: int = 5) -> dict[str, object]:
     workspace_root = root or _git_workspace_root()
     if not workspace_root.exists():
-        return {"root": "local-git-workspace", "items": []}
+        return {"root": "D:\\git", "items": []}
     projects = [_project_summary(path) for path in workspace_root.iterdir() if path.is_dir()]
     projects.sort(key=lambda item: item["updated_epoch"], reverse=True)
-    return {"root": "local-git-workspace", "items": [_public_item(item) for item in projects[:limit]]}
+    return {"root": str(workspace_root), "items": [_public_item(item) for item in projects[:limit]]}
 
 
 DOCUMENT_ACTIVITY_EXTENSIONS = {
@@ -837,7 +837,7 @@ def _process_summary(process: object | None) -> dict[str, object] | None:
 def _workspace_name_from_root(workspace_root: Path | None) -> str:
     if workspace_root is None:
         return "all workspaces"
-    return workspace_root.name or "all workspaces"
+    return str(workspace_root) or "all workspaces"
 
 
 def _git_workspace_root() -> Path:
@@ -851,6 +851,9 @@ def _git_workspace_root() -> Path:
     env_root = os.environ.get("WORKSPACE_OS_GIT_ROOT", "").strip()
     if env_root:
         return Path(env_root).expanduser().resolve()
+    default_root = Path("D:/git")
+    if default_root.exists():
+        return default_root.resolve()
     return (Path.home() / "git").resolve()
 
 
