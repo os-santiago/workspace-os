@@ -21,6 +21,8 @@ class PowerShellScriptTests(unittest.TestCase):
         self.assertIn("function wos", rendered)
         self.assertIn("scripts/wos.ps1", rendered)
         self.assertIn("# Workspace OS command", rendered)
+        self.assertIn("Add-UserPathEntry", rendered)
+        self.assertIn("added_to_path=", rendered)
 
     def test_wos_wrapper_starts_workspace_next_action(self):
         script = Path(__file__).resolve().parents[1] / "scripts" / "wos.ps1"
@@ -69,6 +71,13 @@ class PowerShellScriptTests(unittest.TestCase):
 
         self.assertIn("function wos", rendered)
         self.assertIn("wos.ps1", rendered)
+
+    def test_cmd_wrapper_forwards_to_powershell_launcher(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "wos.cmd"
+        rendered = script.read_text(encoding="utf-8")
+
+        self.assertIn("powershell -NoProfile -ExecutionPolicy Bypass -File", rendered)
+        self.assertIn("%~dp0wos.ps1", rendered)
 
 
 if __name__ == "__main__":

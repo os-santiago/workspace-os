@@ -99,6 +99,8 @@ To install a reusable PowerShell `wos` command for the current user, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-wos-command.ps1
 ```
 
+That installer writes the `wos` function into the current user's all-hosts PowerShell profile and adds `scripts/` to the user PATH, so `wos` is available in future PowerShell and `cmd.exe` sessions on that machine.
+
 After that, `wos` defaults to the shell and forwards any additional arguments to Workspace OS:
 
 ```powershell

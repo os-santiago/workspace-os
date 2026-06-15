@@ -4,6 +4,7 @@ param(
 )
 
 $repoRootPath = (Resolve-Path $RepoRoot).Path
+$scriptsPath = Join-Path $repoRootPath "scripts"
 $scriptPath = Join-Path $repoRootPath "scripts/wos.ps1"
 $marker = "# Workspace OS command"
 $profileDirectory = Split-Path -Parent $ProfilePath
@@ -33,4 +34,24 @@ if (Test-Path $ProfilePath) {
     Set-Content -Path $ProfilePath -Value $profileContent
 }
 
+function Add-UserPathEntry {
+    param([string]$Entry)
+
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ([string]::IsNullOrWhiteSpace($current)) {
+        [Environment]::SetEnvironmentVariable("Path", $Entry, "User")
+        return
+    }
+
+    $parts = $current.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+    if ($parts -notcontains $Entry) {
+        $updated = ($parts + $Entry) -join ';'
+        [Environment]::SetEnvironmentVariable("Path", $updated, "User")
+    }
+}
+
+Add-UserPathEntry -Entry $scriptsPath
+$env:Path = "$scriptsPath;$env:Path"
+
 Write-Output "wos installed in $ProfilePath"
+Write-Output "added_to_path=$scriptsPath"

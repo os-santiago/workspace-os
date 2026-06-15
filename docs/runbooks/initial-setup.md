@@ -20,6 +20,8 @@ Prepare the repository for product discovery and later implementation.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-wos-command.ps1
 ```
 
+The installer writes the `wos` function into the current user's all-hosts PowerShell profile and adds `scripts/` to the user PATH so the launcher works in future PowerShell and `cmd.exe` sessions on that machine.
+
 ## Validation
 
 ```bash
