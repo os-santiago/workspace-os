@@ -19,6 +19,8 @@ from workspace_os.web_server import (
     _extract_progress_map,
     _handoff_payload,
     _handoff_markdown_payload,
+    _next_action_markdown_payload,
+    _next_action_payload,
     _promote_preview_payload,
     _recent_docs_payload,
     _recent_software_payload,
@@ -54,6 +56,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("handoffDownload", index)
         self.assertIn("contextRefresh", index)
         self.assertIn("contextOutput", index)
+        self.assertIn("nextRefresh", index)
+        self.assertIn("nextOutput", index)
         self.assertIn("conscienceToggle", index)
         self.assertIn("conscienceRefresh", index)
         self.assertIn("conscienceOutput", index)
@@ -74,6 +78,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestSuggestedActions", app)
         self.assertIn("latestConscienceMetrics", app)
         self.assertIn("latestConscienceRecommendation", app)
+        self.assertIn("latestNextAction", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
         self.assertIn("chatContextExpanded", app)
@@ -461,6 +466,24 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertIn("Workspace handoff:", result["text"])
         self.assertIn("batch-1", result["text"])
+
+    def test_next_action_payload_renders_operational_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = Source("example", "doctrine", "Example.", root)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+
+            result = _next_action_payload([source], memory_path=memory, query={})
+            markdown = _next_action_markdown_payload([source], memory_path=memory, query={})
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Workspace next action:", result["markdown"])
+        self.assertIn("Suggested command:", result["markdown"])
+        self.assertIn("Workspace next action:", markdown["text"])
 
     def test_context_snapshot_payload_renders_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -5,7 +5,7 @@ import unittest
 from workspace_os.batch import start_batch, start_process
 from workspace_os.config import Source
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview
 
 
 class OverviewTests(unittest.TestCase):
@@ -75,6 +75,26 @@ class OverviewTests(unittest.TestCase):
         self.assertIn("Process:", rendered)
         self.assertIn("Batch:", rendered)
         self.assertIn("Context:", rendered)
+        self.assertIn("Next:", rendered)
+        self.assertIn("source", rendered)
+
+    def test_workspace_next_action_renders_operational_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            memory = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_process(store, "process-1", "next action flow", started_at="2026-06-14T09:00:00+00:00")
+            start_batch(store, "batch-1", "next action batch", started_at="2026-06-14T09:05:00+00:00")
+
+            next_action = build_workspace_next_action([Source("source", "product", "Product.", source_root)], store, workspace="source")
+
+        rendered = next_action.render()
+
+        self.assertIn("Workspace next action:", rendered)
         self.assertIn("Next:", rendered)
         self.assertIn("source", rendered)
 

@@ -77,6 +77,23 @@ class WorkspaceContextSnapshot:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class WorkspaceNextAction:
+    workspace: str
+    summary_lines: tuple[str, ...]
+    action_lines: tuple[str, ...]
+
+    def render(self) -> str:
+        lines = [f"Workspace next action: {self.workspace}"]
+        if self.summary_lines:
+            lines.append("")
+            lines.extend(self.summary_lines)
+        if self.action_lines:
+            lines.append("")
+            lines.extend(self.action_lines)
+        return "\n".join(lines) + "\n"
+
+
 def build_workspace_overview(
     sources,
     memory_store: WorkspaceMemoryStore,
@@ -183,6 +200,61 @@ def build_workspace_context_snapshot(
     )
 
 
+def build_workspace_next_action(
+    sources,
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+) -> WorkspaceNextAction:
+    profile = load_profile(memory_store)
+    habits = compute_habits(memory_store, profile)
+    process = current_process_report(memory_store)
+    batch = current_batch_report(memory_store)
+    stats = memory_store.stats()
+    workspace_name = workspace or profile.default_workspace or "all workspaces"
+    route_hint = _recommended_route(memory_store, habits.primary_agent)
+
+    summary_lines = (
+        f"State: sources={len(sources)} memory_entries={stats['conversation_turns']} turns launches={stats['agent_launches']}",
+        f"Profile: tone={profile.tone} detail={profile.detail_level} default_workspace={profile.default_workspace or ''}",
+        f"Habits: {habits.render_summary()}",
+        _summary_line("Process", process),
+        _summary_line("Batch", batch),
+    )
+
+    if process is None and batch is None:
+        action_lines = (
+            "Next: inventory the workspace before broad work.",
+            f"Primary route={route_hint}",
+            f"Suggested command: {_route_command(route_hint, workspace_name)}",
+            "Fallback route=/inspect --compact",
+            "Use inspect to confirm sources, memory, and current work windows before delegating.",
+        )
+    elif process is not None and batch is None:
+        action_lines = (
+            "Next: start a batch inside the active process.",
+            "Suggested command: /batch start <label> <objective>",
+            "Use a batch when the process needs a focused execution window.",
+        )
+    elif process is not None:
+        action_lines = (
+            "Next: record the next checkpoint or close the process when complete.",
+            "Suggested command: /process checkpoint <label> <note>",
+            "If the batch is complete, stop the batch and process to persist the handoff.",
+        )
+    else:
+        action_lines = (
+            "Next: start a process window before the next batch.",
+            "Suggested command: /process start <label> <objective>",
+            "Use a process when work is spread across several batches.",
+        )
+
+    return WorkspaceNextAction(
+        workspace=workspace_name,
+        summary_lines=summary_lines,
+        action_lines=action_lines,
+    )
+
+
 def write_workspace_handoff(
     path: Path,
     sources,
@@ -238,6 +310,11 @@ def render_latest_workspace_context_text(memory_store: WorkspaceMemoryStore) -> 
     if snapshot is None:
         return "No context snapshot found.\n"
     return f"{snapshot['markdown'].rstrip()}\n"
+
+
+def render_workspace_next_action_text(sources, memory_store: WorkspaceMemoryStore, workspace: str | None = None) -> str:
+    next_action = build_workspace_next_action(sources, memory_store, workspace=workspace)
+    return next_action.render()
 
 
 def render_workspace_handoff_text(
@@ -447,3 +524,39 @@ def _context_summary_text(lines: tuple[str, ...]) -> str:
     if lines[0] == "Context: none":
         return "none"
     return lines[1].removeprefix("- ").strip()
+
+
+def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | None = None) -> str:
+    summary = memory_store.decision_metrics_summary(limit=20)
+    recommended = str(summary.get("recommended_next_action") or "")
+    if recommended == "route_to_claude_for_cross_check":
+        return "claude"
+    if recommended == "route_to_codex_for_inventory":
+        return "codex"
+    if default_agent in {"codex", "claude"}:
+        return default_agent
+    return "codex"
+
+
+def _route_command(agent: str, workspace_name: str) -> str:
+    if agent == "claude":
+        return f'/claude "Cross-check the workspace inventory for {workspace_name}; confirm any active work, identify gaps, and suggest the fastest next step."'
+    return f'/codex "Inspect the current workspace state for {workspace_name}, list the projects in flight, active branches, blockers, and the next best action."'
+
+
+def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | None = None) -> str:
+    summary = memory_store.decision_metrics_summary(limit=20)
+    recommended = str(summary.get("recommended_next_action") or "")
+    if recommended == "route_to_claude_for_cross_check":
+        return "claude"
+    if recommended == "route_to_codex_for_inventory":
+        return "codex"
+    if default_agent in {"codex", "claude"}:
+        return default_agent
+    return "codex"
+
+
+def _route_command(agent: str, workspace_name: str) -> str:
+    if agent == "claude":
+        return f'/claude "Cross-check the workspace inventory for {workspace_name}; confirm any active work, identify gaps, and suggest the fastest next step."'
+    return f'/codex "Inspect the current workspace state for {workspace_name}, list the projects in flight, active branches, blockers, and the next best action."'

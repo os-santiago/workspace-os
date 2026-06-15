@@ -18,7 +18,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, render_workspace_handoff_text
+from workspace_os.overview import build_workspace_handoff, render_workspace_handoff_text, render_workspace_next_action_text
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -101,6 +101,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     _handoff_markdown_payload(sources, memory_path, workspace_root, query),
                     "text/markdown; charset=utf-8",
                     filename="handoff.md",
+                )
+                return
+            if parsed.path == "/api/next":
+                self._send_json(_next_action_payload(sources, memory_path, query))
+                return
+            if parsed.path == "/api/next.md":
+                self._send_text(
+                    _next_action_markdown_payload(sources, memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="next.md",
                 )
                 return
             if parsed.path == "/api/conscience":
@@ -424,6 +434,34 @@ def _handoff_markdown_payload(
         compact=compact,
     )
     return {"ok": True, "text": text}
+
+
+def _next_action_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    workspace = _first(query or {}, "workspace") or None
+    return {
+        "ok": True,
+        "workspace": workspace or _workspace_name_from_root(None),
+        "markdown": render_workspace_next_action_text(sources, store, workspace=workspace),
+    }
+
+
+def _next_action_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _next_action_payload(sources, memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load next action.")}
+    return {"ok": True, "text": payload.get("markdown", "")}
 
 
 def _conscience_metrics_payload(

@@ -9,6 +9,7 @@ const state = {
   conscienceExpanded: false,
   latestConscience: null,
   latestSuggestedActions: [],
+  latestNextAction: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
 };
@@ -243,6 +244,16 @@ const renderConscienceRecommendation = (data = null) => {
   output.textContent = data.text || "No recommendation available.";
 };
 
+const renderNextAction = (data = null) => {
+  const output = qs("#nextOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load next action.";
+    return;
+  }
+  state.latestNextAction = data.text || "";
+  output.textContent = data.text || "No next action available.";
+};
+
 const renderKeyValueLines = (value) => {
   if (!value || typeof value !== "object") return ["- n/a=0"];
   const entries = Object.entries(value);
@@ -278,6 +289,11 @@ const loadConscienceMetrics = async () => {
 const loadConscienceRecommendation = async () => {
   const data = await getJson("/api/conscience/recommend?limit=10");
   renderConscienceRecommendation(data);
+};
+
+const loadNextAction = async () => {
+  const data = await getJson("/api/next");
+  renderNextAction(data);
 };
 
 const loadContext = async () => {
@@ -396,6 +412,7 @@ const bindChat = () => {
       detailBlock.textContent = details;
       last.appendChild(detailBlock);
     }
+    await loadNextAction();
     if (data.suggested_actions && data.suggested_actions.length > 0) {
       state.latestSuggestedActions = data.suggested_actions;
       renderConscienceActions();
@@ -466,6 +483,14 @@ const init = async () => {
   qs("#contextDownload").addEventListener("click", () => {
     window.location.href = "/api/context-snapshot.md";
   });
+  qs("#nextRefresh").addEventListener("click", async () => {
+    qs("#nextOutput").textContent = "Loading next action...";
+    try {
+      await loadNextAction();
+    } catch (error) {
+      qs("#nextOutput").textContent = error.message;
+    }
+  });
   qs("#handoffRefresh").addEventListener("click", async () => {
     qs("#handoffOutput").textContent = "Loading handoff...";
     try {
@@ -486,6 +511,7 @@ const init = async () => {
   setChatContextExpanded(readChatContextPreference(), false);
   setConscienceExpanded(readConsciencePreference(), false);
   await loadContext();
+  await loadNextAction();
   await loadHandoff();
   await loadConscienceRecommendation();
   await loadConscienceMetrics();

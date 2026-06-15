@@ -16,7 +16,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
 from workspace_os.sanitization import sanitize_text
@@ -95,6 +95,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/memory [query]     search persistent memory",
                     "/inspect [opts]     show a condensed read-only workspace overview",
                     "/handoff [opts]     show or export a concise handoff summary",
+                    "/next               show the next operational action",
                     "/profile [k v]      get or set profile values",
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
@@ -279,6 +280,17 @@ class WorkspaceShell(cmd.Cmd):
             ),
             end="",
         )
+
+    def do_next(self, arg: str) -> None:
+        compact = arg.strip().casefold() == "--compact"
+        if arg.strip() and not compact:
+            print("Usage: /next [--compact]")
+            return
+        if compact:
+            print(render_workspace_next_action_text(self._selected_sources(), self.memory_store, workspace=self.active_workspace), end="")
+            return
+        next_action = build_workspace_next_action(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+        print(next_action.render(), end="")
 
     def do_profile(self, arg: str) -> None:
         parts = shlex.split(arg)

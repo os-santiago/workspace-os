@@ -14,7 +14,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.overview import build_workspace_handoff, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_handoff_text, render_workspace_next_action_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect(sources, memory_path, args.launch_limit, args.compact)
     if args.command == "handoff":
         return _handoff(sources, memory_path, args.launch_limit, args.output, args.compact)
+    if args.command == "next":
+        return _next_action(sources, memory_path, args.compact)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
     if args.command in {"conscience", "oce"}:
@@ -176,6 +178,12 @@ def _build_parser() -> argparse.ArgumentParser:
     handoff_parser.add_argument("--launch-limit", type=int, default=3, help="Maximum recent launches to show.")
     handoff_parser.add_argument("--output", type=Path, help="Write the handoff Markdown to a file.")
     handoff_parser.add_argument("--compact", action="store_true", help="Render a shorter handoff summary.")
+
+    next_parser = subparsers.add_parser(
+        "next",
+        help="Render the next operational action for the active workspace.",
+    )
+    next_parser.add_argument("--compact", action="store_true", help="Render a shorter action summary.")
 
     memory_parser = subparsers.add_parser(
         "memory",
@@ -487,6 +495,17 @@ def _handoff(sources: list[Source], memory_path: Path, launch_limit: int, output
         print(f"written={output}")
         return 0
     print(render_workspace_handoff_text(sources, store, launch_limit=launch_limit, compact=compact), end="")
+    return 0
+
+
+def _next_action(sources: list[Source], memory_path: Path, compact: bool) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    if compact:
+        print(render_workspace_next_action_text(sources, store), end="")
+        return 0
+    next_action = build_workspace_next_action(sources, store)
+    print(next_action.render(), end="")
     return 0
 
 

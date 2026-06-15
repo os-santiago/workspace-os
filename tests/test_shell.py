@@ -164,6 +164,22 @@ class ShellTests(unittest.TestCase):
         self.assertIn("next_action=route_to_codex_for_inventory", rendered)
         self.assertIn("top_missing_context=missing_workspace", rendered)
 
+    def test_shell_next_reports_operational_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_next("")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("Workspace next action:", rendered)
+        self.assertIn("Suggested command:", rendered)
+
     def test_shell_batch_commands_report_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
