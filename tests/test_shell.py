@@ -255,6 +255,33 @@ class ShellTests(unittest.TestCase):
         self.assertIn("status=over_expectation", rendered)
         self.assertIn("reason=", rendered)
 
+    def test_shell_bridge_reports_workspace_capabilities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_bridge("")
+            rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_bridge("--format json")
+            json_rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_bridge("capabilities")
+            capabilities_rendered = buffer.getvalue()
+
+        self.assertIn("Workspace bridge:", rendered)
+        self.assertIn("Available surfaces:", rendered)
+        self.assertIn("analysis", rendered)
+        self.assertIn("claude", capabilities_rendered)
+        self.assertIn('"workspace_root"', json_rendered)
+        self.assertIn('"capabilities"', json_rendered)
+
     def test_shell_batch_commands_report_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

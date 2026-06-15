@@ -17,6 +17,8 @@ principle -> model -> implementation
 
 Workspace OS should act as the bridge between operator requests and execution. Requests pass first through OCE, the Operational Conscience Engine model, which interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents.
 
+Workspace OS also needs a non-interactive bridge so Codex, Claude, and other CLI-based agents can query the current workspace state, available surfaces, and recommended continuation path without entering the interactive shell.
+
 The intended AI mix is predictive-first and generative-last:
 
 - predictive and discriminative logic should handle intent detection, routing, confidence, ranking, and repeated decisions cheaply;

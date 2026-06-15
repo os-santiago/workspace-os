@@ -6,7 +6,7 @@ It coordinates doctrine, evidence, execution, deliverables, and AI agents throug
 
 ## Purpose
 
-The system exists to reduce scattered knowledge and make work reusable as context, guardrails, product assets, software, proposals, estimates, and delivery artifacts.
+The system exists to reduce scattered knowledge and make work reusable as context, guardrails, product assets, software, proposals, estimates, delivery artifacts, and non-interactive agent handshakes.
 
 ## Responsibility Model
 
@@ -40,6 +40,7 @@ workspace capture --type <daily|incident|session|decision>
 workspace promote --to <adev|scanales-kb|homedir|google>
 workspace housekeeping
 workspace validate
+workspace bridge status --format json
 ```
 
 ## Repository Map
@@ -112,9 +113,9 @@ wos web
 The example source registry uses relative paths and should be copied to a local, ignored configuration file before machine-specific customization.
 In the default workspace setup, `D:\git` is the canonical workspace root and each configured project under that root is treated as a workspace-in-development candidate. The terminal surfaces use colored, prefixed sections so `Answer`, `Next`, `Workspace root`, `Projects under root`, and `Trace` are easy to scan at a glance.
 
-Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/analysis`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, `/feedback`, and `/launches`.
+Inside the shell, common commands include `/ws`, `/status`, `/search`, `/context`, `/analysis`, `/bridge`, `/profile`, `/habits`, `/batch`, `/alias`, `/codex`, `/claude`, `/memory`, `/feedback`, and `/launches`.
 /context latest renders the most recent compacted global context snapshot directly from memory, while `/context <topic>` still builds a governed context pack for a task. The chat CLI opens by showing that latest compacted context before prompting for input. The web chat now also shows the latest compacted context above the chat history, keeps it refreshed from the most recent reply, lets you expand or collapse that block when you need more detail, and remembers that preference across reloads. Chat replies default to the user-facing `Answer:` only; `/verbose` in the shell and `/verbose` or the verbose toggle in the web chat reveal the full `Answer:` plus `Trace:` detail layer for debugging. Continuation requests now answer with the fastest path to resume work, usually `/inspect` and `/next`, plus Codex and Claude routes when a fresh implementation increment is needed. Ambiguous status questions surface Codex as the primary route and Claude as a parallel fallback.
-`/analysis` renders the workspace root, the projects under that root, and a recommendation for which repo to continue first. `/analysis --compact` trims the output down to the ranked repo list and recommendation. `/inspect` renders a condensed workspace overview with sources, memory, profile, habits, active process, active batch, and recent launches. `/inspect --compact` trims the overview down to summary lines. `/handoff` renders a concise copyable closing summary for the active workspace.
+`/analysis` renders the workspace root, the projects under that root, and a recommendation for which repo to continue first. `/analysis --compact` trims the output down to the ranked repo list and recommendation. `/inspect` renders a condensed workspace overview with sources, memory, profile, habits, active process, active batch, and recent launches. `/inspect --compact` trims the overview down to summary lines. `/bridge status` renders a non-interactive workspace summary and `/bridge capabilities` lists the surfaces available to Codex, Claude, or any other CLI that needs to query WOS without opening the interactive shell. Both bridge modes support `--format json` for machine use. `/handoff` renders a concise copyable closing summary for the active workspace.
 `/feedback add --request <text> --result <text> --feedback <text>` records a request/result feedback cycle and classifies it as positive, questionable, or over expectation. `/feedback history` lists recent signals and `/feedback status` shows summary counts.
 The same feedback workflow is also available from CLI as `workspace feedback add|history|status`.
 `/handoff --output <file>` writes the same closing summary to a Markdown file. `/batch handoff` and `/process handoff` export a scoped closing summary for the active batch or process, and both accept `--output <file>` plus `--compact` for a shorter report. `batch stop` and `process stop` also write a default `handoff.md` beside the local memory store and a `context-global.md` snapshot so each completed window leaves both a closing artifact and a compacted durable context. Exiting the shell also persists the latest `context-global.md` snapshot. The web pilot exposes the same closing summary through its API, plus the durable context snapshot, so the local panel can fetch both without entering the shell. The right rail now includes refresh and download actions for the context and handoff panels.

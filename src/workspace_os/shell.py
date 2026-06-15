@@ -11,6 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
+from workspace_os.bridge import render_workspace_bridge_json, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
@@ -100,6 +101,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/feedback add|history|status  manage request/result feedback signals",
                     "/inspect [opts]     show a condensed read-only workspace overview",
                     "/analysis [opts]    show recently updated repos and a recommended continuation",
+                    "/bridge [opts]      show non-interactive status and capability inventory",
                     "/handoff [opts]     show or export a concise handoff summary",
                     "/next               show the next operational action",
                     "/profile [k v]      get or set profile values",
@@ -335,6 +337,32 @@ class WorkspaceShell(cmd.Cmd):
         )
 
     do_analyze = do_analysis
+
+    def do_bridge(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/bridge", add_help=False)
+        parser.add_argument("--format", choices=["text", "json"], default="text")
+        parser.add_argument("bridge_command", nargs="?", choices=["status", "capabilities"], default="status")
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /bridge [status|capabilities] [--format text|json]")
+            return
+        rendered = (
+            render_workspace_bridge_json(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+            if options.format == "json"
+            else render_workspace_bridge_text(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+        )
+        if options.bridge_command == "capabilities" and options.format == "text":
+            lines = rendered.splitlines()
+            try:
+                start = lines.index("Available surfaces:")
+            except ValueError:
+                self._emit(rendered, end="")
+                return
+            self._emit("\n".join(lines[start:]) + "\n", end="")
+            return
+        self._emit(rendered, end="")
 
     def do_handoff(self, arg: str) -> None:
         try:
@@ -945,6 +973,8 @@ class WorkspaceShell(cmd.Cmd):
             return paint("Workspace root:", bold + magenta, line[len("Workspace root:"):])
         if line.startswith("Workspace analysis:"):
             return paint("Workspace analysis:", bold + cyan, line[len("Workspace analysis:"):])
+        if line.startswith("Workspace bridge:"):
+            return paint("Workspace bridge:", bold + magenta, line[len("Workspace bridge:"):])
         if line == "Projects under root:":
             return paint(line, bold + blue)
         if line == "Analysis:" or line == "Recommendation:":
@@ -967,8 +997,12 @@ class WorkspaceShell(cmd.Cmd):
             return paint(line, bold + green)
         if line.startswith("Continue with:") or line.startswith("Recommended continue:"):
             return paint(line, bold + green)
+        if line.startswith("Recommended entrypoint:"):
+            return paint(line, bold + green)
         if line.startswith("Primary route:") or line.startswith("Optional cross-check:"):
             return paint(line, cyan)
+        if line == "Available surfaces:":
+            return paint(line, bold + blue)
         if line.startswith("Command:"):
             return paint(line, dim)
         if line.startswith("OCE:") or line.startswith("OCE report") or line.startswith("OCE recommendation"):

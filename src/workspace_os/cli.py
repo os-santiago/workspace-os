@@ -7,6 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
+from workspace_os.bridge import render_workspace_bridge_json, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
@@ -68,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
         return _memory(memory_path, args.memory_command, args)
     if args.command == "feedback":
         return _memory(memory_path, "feedback", args)
+    if args.command == "bridge":
+        return _bridge(sources, memory_path, args.bridge_command, args)
     if args.command in {"conscience", "oce"}:
         return _conscience(memory_path, args.conscience_command, args)
     if args.command == "shell":
@@ -262,6 +265,16 @@ def _build_parser() -> argparse.ArgumentParser:
     feedback_root_history = feedback_root_subparsers.add_parser("history", help="List recent feedback signals.")
     feedback_root_history.add_argument("--limit", type=int, default=10, help="Maximum feedback entries to list.")
     feedback_root_subparsers.add_parser("status", help="Show feedback metrics.")
+
+    bridge_parser = subparsers.add_parser(
+        "bridge",
+        help="Expose a non-interactive summary and surface inventory for other CLIs.",
+    )
+    bridge_subparsers = bridge_parser.add_subparsers(dest="bridge_command", required=True)
+    bridge_status = bridge_subparsers.add_parser("status", help="Show the operational bridge summary.")
+    bridge_status.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
+    bridge_capabilities = bridge_subparsers.add_parser("capabilities", help="List available WOS surfaces.")
+    bridge_capabilities.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
 
     conscience_parser = subparsers.add_parser(
         "conscience",
@@ -636,6 +649,41 @@ def _memory(memory_path: Path, command: str, args: argparse.Namespace) -> int:
             return 0
 
     print("error: unsupported memory command", file=sys.stderr)
+    return 2
+
+
+def _bridge(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if command == "status":
+        rendered = (
+            render_workspace_bridge_json(sources, store)
+            if getattr(args, "format", "text") == "json"
+            else render_workspace_bridge_text(sources, store)
+        )
+        print(rendered, end="")
+        return 0
+
+    if command == "capabilities":
+        rendered = (
+            render_workspace_bridge_json(sources, store)
+            if getattr(args, "format", "text") == "json"
+            else render_workspace_bridge_text(sources, store)
+        )
+        if getattr(args, "format", "text") == "json":
+            print(rendered, end="")
+            return 0
+        lines = rendered.splitlines()
+        try:
+            start = lines.index("Available surfaces:")
+        except ValueError:
+            print(rendered, end="")
+            return 0
+        print("\n".join(lines[start:]) + "\n", end="")
+        return 0
+
+    print("error: unsupported bridge command", file=sys.stderr)
     return 2
 
 

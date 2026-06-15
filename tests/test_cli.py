@@ -401,6 +401,70 @@ class CliTests(unittest.TestCase):
         self.assertIn("status=over_expectation", rendered)
         self.assertIn("reason=", rendered)
 
+    def test_bridge_command_reports_workspace_capabilities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "workspace-os",
+                                "type": "product",
+                                "responsibility": "Workspace OS.",
+                                "path": "workspace-os",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    exit_code = main(["--config", str(config), "bridge", "status"])
+                buffer.seek(0)
+                rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    json_exit_code = main(["--config", str(config), "bridge", "status", "--format", "json"])
+                buffer.seek(0)
+                json_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    capabilities_exit_code = main(["--config", str(config), "bridge", "capabilities"])
+                buffer.seek(0)
+                capabilities_rendered = buffer.read()
+
+        payload = json.loads(json_rendered)
+        self.assertEqual(0, exit_code)
+        self.assertEqual(0, json_exit_code)
+        self.assertEqual(0, capabilities_exit_code)
+        self.assertIn("Workspace bridge:", rendered)
+        self.assertIn("Available surfaces:", rendered)
+        self.assertIn("analysis", rendered)
+        self.assertIn("feedback", rendered)
+        self.assertIn("codex", capabilities_rendered)
+        self.assertIn("claude", capabilities_rendered)
+        self.assertIn("workspace_root", payload)
+        self.assertIn("capabilities", payload)
+        self.assertTrue(any(cap["name"] == "analysis" for cap in payload["capabilities"]))
+
     def test_chat_command_renders_answer_only_by_default_and_verbose_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
