@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
+from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -44,7 +45,8 @@ def launch_agent(
     memory_store: WorkspaceMemoryStore,
     launcher: object | None = None,
 ) -> int:
-    command = build_agent_command(agent, workspace_root, prompt)
+    hardened_prompt = build_hardened_delegate_prompt(agent, workspace_name, workspace_root, prompt)
+    command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _launch_process
     pid = start_process(command, workspace_root)
     memory_store.record_agent_launch(agent, task, workspace_name)

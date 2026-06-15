@@ -269,6 +269,8 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(123, result["pid"])
         self.assertEqual("ALLOW_WITH_LIMITS", result["conscience"]["decision"])
         self.assertIn("OCE Decision", captured["command"][-1])
+        self.assertIn("ADEV contract:", captured["command"][-1])
+        self.assertIn("Read ADEV.md", captured["command"][-1])
 
     def test_recent_software_returns_most_recent_projects(self):
         with tempfile.TemporaryDirectory() as directory:

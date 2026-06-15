@@ -7,6 +7,7 @@ import os
 from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
+from workspace_os.delegation import build_agent_route_command, build_agent_route_prompt
 from workspace_os.feedback import assess_feedback
 from workspace_os.git_status import inspect_source
 from workspace_os.memory import MemoryHit, WorkspaceMemoryStore
@@ -353,9 +354,9 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     if process is None and batch is None:
         lines.extend(
             [
-                "- primary route=/codex \"Inspect the current workspace state and summarize projects in flight, active branches, blockers, and the next best action.\"",
-                "- fallback route=/claude \"Cross-check the same workspace inventory and add anything Codex missed; parallelize if faster.\"",
-                f"- codex prompt={_agent_route_prompt('codex', profile.default_workspace or 'all workspaces')}",
+                f"- primary route={build_agent_route_command('codex', profile.default_workspace or 'all workspaces')}",
+                f"- fallback route={build_agent_route_command('claude', profile.default_workspace or 'all workspaces')}",
+                f"- codex prompt={build_agent_route_prompt('codex', profile.default_workspace or 'all workspaces')}",
             ]
         )
     else:
@@ -380,8 +381,8 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
         conscience,
         memory_store,
     )
-    primary_task = _agent_route_prompt(primary_agent, workspace_name)
-    secondary_task = _agent_route_prompt(secondary_agent, workspace_name)
+    primary_task = build_agent_route_prompt(primary_agent, workspace_name)
+    secondary_task = build_agent_route_prompt(secondary_agent, workspace_name)
     return [
         {
             "agent": primary_agent,
@@ -545,20 +546,8 @@ def _workspace_name_from_sources(sources: list[Source]) -> str:
     return "workspace-os"
 
 
-def _agent_route_prompt(agent: str, workspace_name: str) -> str:
-    if agent == "claude":
-        return (
-            f"Cross-check the workspace inventory for {workspace_name}; confirm any active work, "
-            "identify gaps, and suggest the fastest next step."
-        )
-    return (
-        f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
-        "active branches, blockers, and the next best action."
-    )
-
-
 def _route_command(agent: str, workspace_name: str) -> str:
-    return f'/{agent} "{_agent_route_prompt(agent, workspace_name)}"'
+    return build_agent_route_command(agent, workspace_name)
 
 
 def _refine_route_with_history(

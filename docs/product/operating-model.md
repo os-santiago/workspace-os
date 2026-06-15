@@ -5,6 +5,7 @@
 ADEV is the upstream source of truth for operating doctrine.
 
 Workspace OS consumes ADEV rules through the Operational Conscience Engine model and implements workflows around them. It does not replace ADEV.
+Delegated Codex and Claude runs inherit the same ADEV guardrail contract before they touch files or launch follow-up actions.
 
 ## Knowledge Flow
 

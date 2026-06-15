@@ -752,7 +752,6 @@ class WorkspaceShell(cmd.Cmd):
                 f"Active workspace: {self.active_workspace or 'all'}",
                 f"Tone: {self.profile.tone}",
                 f"Detail level: {self.profile.detail_level}",
-                "Follow ADEV rules and preserve unrelated local changes.",
                 "Use the selected workspace only.",
                 "",
                 "Task:",

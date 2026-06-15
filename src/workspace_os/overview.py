@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from workspace_os.batch import current_batch_report, current_process_report
+from workspace_os.delegation import build_agent_route_command
 from workspace_os.git_status import inspect_source, recent_source_activities
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
@@ -681,6 +682,4 @@ def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | 
 
 
 def _route_command(agent: str, workspace_name: str) -> str:
-    if agent == "claude":
-        return f'/claude "Cross-check the workspace inventory for {workspace_name}; confirm any active work, identify gaps, and suggest the fastest next step."'
-    return f'/codex "Inspect the current workspace state for {workspace_name}, list the projects in flight, active branches, blockers, and the next best action."'
+    return build_agent_route_command(agent, workspace_name)

@@ -43,6 +43,9 @@ class AgentAdapterTests(unittest.TestCase):
         self.assertEqual("claude", launches[0]["agent"])
         self.assertEqual("adev", launches[0]["workspace"])
         self.assertEqual(root, captured["cwd"])
+        self.assertIn("ADEV contract:", captured["command"][-1])
+        self.assertIn("Read ADEV.md", captured["command"][-1])
+        self.assertIn("Delegated prompt:", captured["command"][-1])
 
 
 if __name__ == "__main__":

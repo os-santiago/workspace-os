@@ -12,6 +12,7 @@ from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
+from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
@@ -622,7 +623,13 @@ def _delegate_launch_payload(
         return {"ok": False, "error": "Local Git workspace root was not found."}
 
     prompt = _build_delegate_prompt(task, brief, conscience)
-    command = _agent_command(agent, workspace_root, prompt)
+    hardened_prompt = build_hardened_delegate_prompt(
+        agent,
+        "local Git workspace",
+        workspace_root,
+        prompt,
+    )
+    command = _agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _launch_process
     pid = start_process(command, workspace_root)
     return {
@@ -641,7 +648,6 @@ def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision
             [
                 "You are receiving an approved Workspace OS delegation.",
                 "Work from the local Git workspace root.",
-                "Follow ADEV rules and preserve unrelated local changes.",
                 "Use Git repositories for software and infrastructure work.",
                 "Do not store secrets, personal data, or company-specific data.",
                 "Apply the OCE decision below before acting.",

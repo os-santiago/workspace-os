@@ -308,6 +308,8 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Trace:", reply.reply)
         self.assertIn("Primary route: /codex", reply.reply)
         self.assertIn("Optional cross-check: /claude", reply.reply)
+        self.assertIn("ADEV-aware route for codex", reply.reply)
+        self.assertIn("ADEV-aware route for claude", reply.reply)
         self.assertIn("Command: /codex", reply.reply)
         self.assertIn("Command: /claude", reply.reply)
         self.assertNotIn("start a new process window before the next batch", reply.reply)
