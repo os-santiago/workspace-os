@@ -23,6 +23,9 @@ ESCALATE_TO_HUMAN = "ESCALATE_TO_HUMAN"
 
 _CRITICAL_PATTERNS = (
     "steal credential",
+    "steal credentials",
+    "steals credential",
+    "steals credentials",
     "steal password",
     "phishing",
     "ransomware",
@@ -32,6 +35,39 @@ _CRITICAL_PATTERNS = (
     "bypass auth",
     "disable audit",
     "hide activity",
+    "hides activity",
+)
+
+_MALICIOUS_AGENTIC_PATTERNS = (
+    "malicious agentic",
+    "autonomous malware",
+    "agentic malware",
+    "fraud agent",
+    "scam agent",
+    "phishing agent",
+    "credential theft automation",
+    "credential theft",
+    "evade detection",
+    "hide activity",
+    "hides activity",
+    "bypass authentication",
+    "bypass auth",
+    "exfiltrate",
+)
+
+_DEFENSIVE_AGENTIC_PATTERNS = (
+    "defend",
+    "defense",
+    "detect",
+    "monitor",
+    "repel",
+    "block",
+    "mitigate",
+    "harden",
+    "secure",
+    "incident response",
+    "threat hunting",
+    "red team",
 )
 
 _AUTHORITY_PATTERNS = (
@@ -80,6 +116,7 @@ class RequestContext:
     moral_salience: bool
     confidence: float
     missing_context: list[str]
+    threat_mode: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -93,6 +130,7 @@ class RequestContext:
             "moral_salience": self.moral_salience,
             "confidence": self.confidence,
             "missing_context": self.missing_context,
+            "threat_mode": self.threat_mode,
         }
 
 
@@ -150,6 +188,7 @@ class ConscienceDecision:
 
 def analyze_request_context(task: str, brief: str = "", destination: str = "software") -> RequestContext:
     text = f"{task}\n{brief}".casefold()
+    threat_mode = _infer_agentic_threat_mode(text)
     user_intent = _infer_user_intent(text)
     domain = _infer_domain(text, destination=destination)
     affected_parties = _infer_affected_parties(text, destination=destination)
@@ -167,6 +206,8 @@ def analyze_request_context(task: str, brief: str = "", destination: str = "soft
         missing_context.append("secret_handling_plan")
 
     risk_level = _infer_risk_level(text, destination=destination, requires_authority=requires_authority)
+    if threat_mode == "defend" and risk_level == "low":
+        risk_level = "medium"
     moral_salience = risk_level != "low" or bool(missing_context) or domain in {"security", "finance", "health", "legal"}
     confidence = 0.91 if user_intent != "ambiguous" else 0.63
     if destination != "software":
@@ -182,6 +223,7 @@ def analyze_request_context(task: str, brief: str = "", destination: str = "soft
         moral_salience=moral_salience,
         confidence=confidence,
         missing_context=_unique(missing_context),
+        threat_mode=threat_mode,
     )
 
 
@@ -191,6 +233,17 @@ def resolve_normative_analysis(context: RequestContext, destination: str = "soft
     policy_refs = [document.ref for document in policy_documents]
     conflicts: list[str] = []
     priority = "helpfulness_with_safety"
+
+    if context.threat_mode == "prevent":
+        applicable_norms.append("Operational Conscience: refuse malicious agentic routines, scam automation, or evasion support.")
+        policy_refs.append("workspace.policy.malicious-agentic-ai")
+        conflicts.append("helpfulness_vs_malicious_agentic_abuse")
+        priority = "malicious_agentic_prevention"
+    elif context.threat_mode == "defend":
+        applicable_norms.append("Operational Conscience: help defend against malicious agentic systems with bounded, defensive guidance.")
+        policy_refs.append("workspace.policy.malicious-agentic-ai")
+        conflicts.append("helpfulness_vs_defensive_completeness")
+        priority = "malicious_agentic_defense"
 
     if destination != "software":
         applicable_norms.append("Workspace OS: Google Workspace writes require a real connector.")
@@ -246,6 +299,40 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="destination_requires_connector",
+        )
+
+    if context.threat_mode == "prevent":
+        return ConscienceDecision(
+            risk_level="critical",
+            moral_categories=["malicious_agentic_abuse", *context.affected_parties],
+            applicable_norms=normative.applicable_norms,
+            decision=REFUSE,
+            response_strategy="refuse_malicious_agentic_routines",
+            rationale="The request appears to build or enable malicious agentic routines, automation, or evasion.",
+            human_review_required=True,
+            missing_context=_unique(context.missing_context),
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
+            primary_agent=None,
+            secondary_agent=None,
+            routing_reason="malicious_agentic_prevention",
+        )
+
+    if context.threat_mode == "defend":
+        return ConscienceDecision(
+            risk_level=context.risk_level,
+            moral_categories=["defensive_security", *context.affected_parties],
+            applicable_norms=normative.applicable_norms,
+            decision=ALLOW_WITH_LIMITS,
+            response_strategy="defensive_hardening_with_limits",
+            rationale="The request is defensive and should be answered with bounded guidance for detecting, repelling, or hardening against malicious agentic systems.",
+            human_review_required=False,
+            missing_context=_unique(context.missing_context),
+            policy_refs=normative.policy_refs,
+            context=context.to_dict(),
+            primary_agent=None,
+            secondary_agent=None,
+            routing_reason="malicious_agentic_defense",
         )
 
     if context.risk_level == "critical":
@@ -405,6 +492,11 @@ def _policy_documents_for_context(context: RequestContext, destination: str = "s
         if document is not None and document not in selected:
             selected.append(document)
 
+    if context.threat_mode in {"prevent", "defend"}:
+        document = by_ref.get("workspace.policy.malicious-agentic-ai")
+        if document is not None and document not in selected:
+            selected.append(document)
+
     if not selected:
         return [
             PolicyDocument(
@@ -496,6 +588,20 @@ def _infer_reversibility(text: str) -> str:
     if _contains_any(text, ("backup", "restore", "revert", "rollback")):
         return "reversible"
     return "reversible"
+
+
+def _infer_agentic_threat_mode(text: str) -> str:
+    malicious_hit = _contains_any(text, _MALICIOUS_AGENTIC_PATTERNS) or (
+        "agentic" in text and _contains_any(text, ("scam", "fraud", "malware", "phishing", "credential theft", "credential", "steal", "evade"))
+    )
+    defensive_hit = _contains_any(text, _DEFENSIVE_AGENTIC_PATTERNS) and (
+        "agentic" in text or "agent" in text or "attack" in text or "threat" in text
+    )
+    if defensive_hit:
+        return "defend"
+    if malicious_hit:
+        return "prevent"
+    return "none"
 
 
 def _infer_risk_level(text: str, destination: str = "software", requires_authority: bool = False) -> str:
