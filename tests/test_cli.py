@@ -439,6 +439,14 @@ class CliTests(unittest.TestCase):
                 from contextlib import redirect_stdout
 
                 with redirect_stdout(buffer):
+                    detail_exit_code = main(["--config", str(config), "bridge", "status", "--detail"])
+                buffer.seek(0)
+                detail_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
                     json_exit_code = main(["--config", str(config), "bridge", "status", "--format", "json"])
                 buffer.seek(0)
                 json_rendered = buffer.read()
@@ -453,12 +461,14 @@ class CliTests(unittest.TestCase):
 
         payload = json.loads(json_rendered)
         self.assertEqual(0, exit_code)
+        self.assertEqual(0, detail_exit_code)
         self.assertEqual(0, json_exit_code)
         self.assertEqual(0, capabilities_exit_code)
         self.assertIn("Workspace bridge:", rendered)
-        self.assertIn("Available surfaces:", rendered)
+        self.assertIn("Safe surfaces:", rendered)
         self.assertIn("analysis", rendered)
         self.assertIn("feedback", rendered)
+        self.assertIn("Available surfaces:", detail_rendered)
         self.assertIn("codex", capabilities_rendered)
         self.assertIn("claude", capabilities_rendered)
         self.assertIn("workspace_root", payload)

@@ -33,7 +33,23 @@ class WorkspaceBridgeReport:
     recommendation_lines: tuple[str, ...]
     capabilities: tuple[BridgeCapability, ...]
 
-    def render(self) -> str:
+    def render(self, compact: bool = False) -> str:
+        if compact:
+            lines = [f"Workspace bridge: {self.workspace}"]
+            lines.append(f"Workspace root: {self.workspace_root}")
+            lines.append(f"Active workspace: {self.active_workspace}")
+            if self.summary_lines:
+                lines.append("")
+                lines.extend(self.summary_lines)
+            if self.recommendation_lines:
+                lines.append("")
+                lines.extend(self.recommendation_lines[:4])
+            if self.capabilities:
+                lines.append("")
+                surfaces = ", ".join(capability.name for capability in self.capabilities)
+                lines.append(f"Safe surfaces: {surfaces}")
+            return "\n".join(lines) + "\n"
+
         lines = [f"Workspace bridge: {self.workspace}"]
         lines.append(f"Workspace root: {self.workspace_root}")
         lines.append(f"Active workspace: {self.active_workspace}")
@@ -45,6 +61,13 @@ class WorkspaceBridgeReport:
             lines.extend(self.recommendation_lines)
         lines.append("")
         lines.append("Available surfaces:")
+        for capability in self.capabilities:
+            lines.append(f"- {capability.name}: {capability.description}")
+            lines.append(f"  Command: {capability.command}")
+        return "\n".join(lines) + "\n"
+
+    def render_capabilities(self) -> str:
+        lines = ["Available surfaces:"]
         for capability in self.capabilities:
             lines.append(f"- {capability.name}: {capability.description}")
             lines.append(f"  Command: {capability.command}")
@@ -162,8 +185,17 @@ def render_workspace_bridge_text(
     sources: list[Source],
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
+    compact: bool = False,
 ) -> str:
-    return build_workspace_bridge_report(sources, memory_store, workspace=workspace).render()
+    return build_workspace_bridge_report(sources, memory_store, workspace=workspace).render(compact=compact)
+
+
+def render_workspace_bridge_capabilities_text(
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore,
+    workspace: str | None = None,
+) -> str:
+    return build_workspace_bridge_report(sources, memory_store, workspace=workspace).render_capabilities()
 
 
 def render_workspace_bridge_json(

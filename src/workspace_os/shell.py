@@ -11,7 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
-from workspace_os.bridge import render_workspace_bridge_json, render_workspace_bridge_text
+from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
 from workspace_os.conversation import build_workspace_reply
@@ -342,25 +342,32 @@ class WorkspaceShell(cmd.Cmd):
         parts = shlex.split(arg)
         parser = argparse.ArgumentParser(prog="/bridge", add_help=False)
         parser.add_argument("--format", choices=["text", "json"], default="text")
+        parser.add_argument("--detail", action="store_true")
         parser.add_argument("bridge_command", nargs="?", choices=["status", "capabilities"], default="status")
         try:
             options = parser.parse_args(parts)
         except SystemExit:
-            print("Usage: /bridge [status|capabilities] [--format text|json]")
+            print("Usage: /bridge [status|capabilities] [--format text|json] [--detail]")
             return
         rendered = (
             render_workspace_bridge_json(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
             if options.format == "json"
-            else render_workspace_bridge_text(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+            else render_workspace_bridge_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                compact=not options.detail,
+            )
         )
         if options.bridge_command == "capabilities" and options.format == "text":
-            lines = rendered.splitlines()
-            try:
-                start = lines.index("Available surfaces:")
-            except ValueError:
-                self._emit(rendered, end="")
-                return
-            self._emit("\n".join(lines[start:]) + "\n", end="")
+            self._emit(
+                render_workspace_bridge_capabilities_text(
+                    self._selected_sources(),
+                    self.memory_store,
+                    workspace=self.active_workspace,
+                ),
+                end="",
+            )
             return
         self._emit(rendered, end="")
 
@@ -1001,6 +1008,8 @@ class WorkspaceShell(cmd.Cmd):
             return paint(line, bold + green)
         if line.startswith("Primary route:") or line.startswith("Optional cross-check:"):
             return paint(line, cyan)
+        if line.startswith("Safe surfaces:"):
+            return paint(line, bold + blue)
         if line == "Available surfaces:":
             return paint(line, bold + blue)
         if line.startswith("Command:"):

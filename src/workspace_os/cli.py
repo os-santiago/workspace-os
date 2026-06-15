@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.bridge import render_workspace_bridge_json, render_workspace_bridge_text
+from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
@@ -273,6 +273,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bridge_subparsers = bridge_parser.add_subparsers(dest="bridge_command", required=True)
     bridge_status = bridge_subparsers.add_parser("status", help="Show the operational bridge summary.")
     bridge_status.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
+    bridge_status.add_argument("--detail", action="store_true", help="Render the full bridge inventory.")
     bridge_capabilities = bridge_subparsers.add_parser("capabilities", help="List available WOS surfaces.")
     bridge_capabilities.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
 
@@ -660,7 +661,7 @@ def _bridge(sources: list[Source], memory_path: Path, command: str, args: argpar
         rendered = (
             render_workspace_bridge_json(sources, store)
             if getattr(args, "format", "text") == "json"
-            else render_workspace_bridge_text(sources, store)
+            else render_workspace_bridge_text(sources, store, compact=not getattr(args, "detail", False))
         )
         print(rendered, end="")
         return 0
@@ -669,7 +670,7 @@ def _bridge(sources: list[Source], memory_path: Path, command: str, args: argpar
         rendered = (
             render_workspace_bridge_json(sources, store)
             if getattr(args, "format", "text") == "json"
-            else render_workspace_bridge_text(sources, store)
+            else render_workspace_bridge_capabilities_text(sources, store)
         )
         if getattr(args, "format", "text") == "json":
             print(rendered, end="")
