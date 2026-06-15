@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         return _handoff(sources, memory_path, args.launch_limit, args.output, args.compact)
     if args.command == "memory":
         return _memory(memory_path, args.memory_command, args)
-    if args.command == "conscience":
+    if args.command in {"conscience", "oce"}:
         return _conscience(memory_path, args.conscience_command, args)
     if args.command == "shell":
         return _shell(sources, memory_path, args.session_id)
@@ -217,6 +217,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     conscience_parser = subparsers.add_parser(
         "conscience",
+        aliases=["oce"],
         help="Inspect the operational conscience decision history and metrics.",
     )
     conscience_subparsers = conscience_parser.add_subparsers(dest="conscience_command", required=True)

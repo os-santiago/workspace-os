@@ -118,6 +118,26 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("/codex <task>", reply.reply)
         self.assertIn("/claude <task>", reply.reply)
 
+    def test_workspace_reply_guides_inventory_first_without_active_windows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("example", "doctrine", "Example.", source_root)],
+                "que proyectos tenemos en curso",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("OCE says the fastest path is to inventory the workspace", reply.reply)
+        self.assertIn("Primary route=/codex", reply.reply)
+        self.assertIn("Fallback route=/claude", reply.reply)
+
     def test_workspace_reply_includes_active_batch_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -227,6 +247,7 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Trace:", reply.reply)
+        self.assertIn("OCE recommendation: /codex", reply.reply)
         self.assertIn("Primary route=/codex", reply.reply)
         self.assertIn("Fallback route=/claude", reply.reply)
         self.assertIn("Suggested command: /codex", reply.reply)
@@ -286,7 +307,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual("claude", reply.suggested_actions[0]["agent"])
         self.assertEqual("codex", reply.suggested_actions[1]["agent"])
         self.assertIn("History bias:", reply.reply)
-        self.assertIn("Suggested route: /claude", reply.reply)
+        self.assertIn("OCE recommendation: /claude", reply.reply)
         self.assertIn("Fallback route: /codex", reply.reply)
 
 

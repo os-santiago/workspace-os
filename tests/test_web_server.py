@@ -159,7 +159,7 @@ Batch 02 [NEXT] Web pilot
         )
 
         self.assertFalse(result["ok"])
-        self.assertIn("Operational Conscience blocked", result["error"])
+        self.assertIn("OCE blocked", result["error"])
         self.assertEqual("REFUSE", result["conscience"]["decision"])
 
     def test_conscience_preview_returns_decision(self):
@@ -200,7 +200,7 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(1, result["report"]["summary"]["decision_counts"]["SAFE_REDIRECT"])
         self.assertEqual("missing_workspace", result["report"]["summary"]["top_missing_context"])
         self.assertEqual("route_to_codex_for_inventory", result["report"]["summary"]["recommended_next_action"])
-        self.assertIn("Conscience report", markdown["text"])
+        self.assertIn("OCE report", markdown["text"])
         self.assertIn("total=1", markdown["text"])
         self.assertIn("top_missing_context=missing_workspace", markdown["text"])
         self.assertIn("recommended_next_action=route_to_codex_for_inventory", markdown["text"])
@@ -227,7 +227,7 @@ Batch 02 [NEXT] Web pilot
             markdown = _conscience_recommendation_markdown_payload(memory)
 
         self.assertTrue(result["ok"])
-        self.assertIn("Conscience recommendation", result["text"])
+        self.assertIn("OCE recommendation", result["text"])
         self.assertIn("next_action=route_to_codex_for_inventory", result["text"])
         self.assertIn("top_missing_context=missing_workspace", markdown["text"])
 
@@ -259,7 +259,7 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertEqual(123, result["pid"])
         self.assertEqual("ALLOW_WITH_LIMITS", result["conscience"]["decision"])
-        self.assertIn("Operational Conscience Decision", captured["command"][-1])
+        self.assertIn("OCE Decision", captured["command"][-1])
 
     def test_recent_software_returns_most_recent_projects(self):
         with tempfile.TemporaryDirectory() as directory:

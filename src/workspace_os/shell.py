@@ -101,6 +101,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/conscience ...     show decision metrics, history, or a compact recommendation",
+                    "/oce ...           alias for /conscience",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
                     "/launches           show recent agent launches",
@@ -357,6 +358,8 @@ class WorkspaceShell(cmd.Cmd):
                 return
         report = build_conscience_report(self.memory_store, limit=limit)
         print(render_conscience_report_text(report), end="")
+
+    do_oce = do_conscience
 
     def do_batch(self, arg: str) -> None:
         parts = shlex.split(arg)

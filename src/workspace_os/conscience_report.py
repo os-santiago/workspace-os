@@ -18,7 +18,7 @@ def build_conscience_report(memory_store: WorkspaceMemoryStore, limit: int = 20)
 def build_conscience_recommendation_text(memory_store: WorkspaceMemoryStore, limit: int = 20) -> str:
     report = build_conscience_report(memory_store, limit=limit)
     summary = report.get("summary", {})
-    lines = ["Conscience recommendation"]
+    lines = ["OCE recommendation"]
     lines.append(f"next_action={summary.get('recommended_next_action', 'n/a')}")
     lines.append(f"top_missing_context={summary.get('top_missing_context', 'n/a')}")
     lines.append(f"primary_bias={_top_key(summary.get('primary_agent_counts', {}))}")
@@ -30,7 +30,7 @@ def build_conscience_recommendation_text(memory_store: WorkspaceMemoryStore, lim
 def render_conscience_report_text(report: dict[str, object]) -> str:
     summary = report.get("summary", {})
     history = report.get("history", [])
-    lines = ["Conscience report"]
+    lines = ["OCE report"]
     lines.append(f"total={summary.get('total', 0)}")
     lines.append(f"redirect_rate={_format_rate(summary.get('redirect_rate', 0.0))}")
     lines.append(f"allow_rate={_format_rate(summary.get('allow_rate', 0.0))}")

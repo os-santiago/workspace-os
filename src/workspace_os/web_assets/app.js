@@ -35,7 +35,7 @@ const postJson = async (url, payload) => {
 const updateIndicators = (learningActivated = false) => {
   state.conscienceCount += 1;
   if (learningActivated) state.learningCount += 1;
-  qs("#conscienceIndicator").textContent = `Conscience ${state.conscienceCount}`;
+  qs("#conscienceIndicator").textContent = `OCE ${state.conscienceCount}`;
   qs("#learningIndicator").textContent = `Learning ${state.learningCount}`;
 };
 
@@ -142,7 +142,7 @@ const renderConscience = (data = null) => {
   const output = qs("#conscienceOutput");
   const actions = qs("#conscienceActions");
   if (!data) {
-    output.textContent = "Waiting for a conscience decision...";
+    output.textContent = "Waiting for an OCE decision...";
     actions.innerHTML = "";
     return;
   }
@@ -175,7 +175,7 @@ const renderConscience = (data = null) => {
   qs("#conscienceToggle").textContent = state.conscienceExpanded ? "Collapse" : "Expand";
   qs(".conscience-section").classList.toggle("is-collapsed", !state.conscienceExpanded);
   qs(".conscience-section").classList.toggle("is-expanded", state.conscienceExpanded);
-  qs("#conscienceIndicator").textContent = `Conscience ${state.conscienceCount}`;
+  qs("#conscienceIndicator").textContent = `OCE ${state.conscienceCount}`;
   renderConscienceActions();
 };
 
@@ -440,7 +440,7 @@ const init = async () => {
     renderConscience(state.latestConscience);
   });
   qs("#conscienceRecommendRefresh").addEventListener("click", async () => {
-    qs("#conscienceRecommendationOutput").textContent = "Loading conscience recommendation...";
+    qs("#conscienceRecommendationOutput").textContent = "Loading OCE recommendation...";
     try {
       await loadConscienceRecommendation();
     } catch (error) {
@@ -448,7 +448,7 @@ const init = async () => {
     }
   });
   qs("#conscienceMetricsRefresh").addEventListener("click", async () => {
-    qs("#conscienceMetricsOutput").textContent = "Loading conscience metrics...";
+    qs("#conscienceMetricsOutput").textContent = "Loading OCE metrics...";
     try {
       await loadConscienceMetrics();
     } catch (error) {

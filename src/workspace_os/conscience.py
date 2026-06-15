@@ -1,3 +1,9 @@
+"""Operational Conscience Engine primitives for the Workspace OS stack.
+
+ADEV is the upstream principle layer, OCE is the decision model, and WOS is the
+implementation surface that uses the model to route, limit, or delegate work.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -330,7 +336,7 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
 
 def render_decision_for_prompt(decision: ConscienceDecision) -> str:
     lines = [
-        "Operational Conscience Decision:",
+        "OCE Decision:",
         f"- Decision: {decision.decision}",
         f"- Risk level: {decision.risk_level}",
         f"- Response strategy: {decision.response_strategy}",

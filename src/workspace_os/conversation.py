@@ -49,7 +49,7 @@ def build_workspace_reply(
         answer_lines.extend(_redirect_guidance_lines(suggested_actions))
     trace_lines = [
         f"Style: {tone} / {detail_level}",
-        f"Conscience: {conscience.decision} ({conscience.risk_level})",
+        f"OCE: {conscience.decision} ({conscience.risk_level})",
         f"Strategy: {conscience.response_strategy}",
         f"Rationale: {conscience.rationale}",
         f"Policy refs: {', '.join(conscience.policy_refs) if conscience.policy_refs else 'n/a'}",
@@ -298,7 +298,7 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
 
 
 def _redirect_guidance_lines(actions: list[dict[str, str]]) -> list[str]:
-    lines = [f"Suggested route: /{actions[0]['agent']}"]
+    lines = [f"OCE recommendation: /{actions[0]['agent']}"]
     if actions:
         lines.append(f"Suggested command: {actions[0]['command']}")
     if len(actions) > 1:
@@ -317,10 +317,10 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
             "Workspace OS is your local workspace control plane.",
             "- tracks repos and git state",
             "- remembers context, decisions, handoffs, and preferences",
-            "- routes ambiguous work to Codex first, Claude as backup",
+            "- routes ambiguous work through OCE, then Codex first and Claude as backup",
             "- delegates execution and cross-checks to those agents when work needs throughput",
             "- compacts global context after each work window",
-            "Try: /inspect, /context latest, /codex <task>, /claude <task>",
+            "Try: /inspect, /context latest, /oce, /codex <task>, /claude <task>",
         ]
     if _is_repetition_query(message):
         return [
@@ -331,9 +331,9 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
     if memory_store and _is_workspace_status_query(message):
         return _workspace_status_answer_lines(sources, memory_store)
     return [
-        "Give me a repo, goal, or question and I'll turn it into a task plan, route work to Codex, or cross-check with Claude.",
-        "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/codex <task>', or '/claude <task>'.",
-    ]
+            "Give me a repo, goal, or question and I'll turn it into a task plan, route work through OCE, or cross-check with Claude.",
+            "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/codex <task>', or '/claude <task>'.",
+        ]
 
 
 def _workspace_status_answer_lines(sources: list[Source], memory_store: WorkspaceMemoryStore) -> list[str]:
@@ -364,6 +364,7 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
         lines.extend(
             [
                 "No active process or batch window is tracked.",
+                "OCE says the fastest path is to inventory the workspace before asking for a broad summary.",
                 "Primary route=/codex",
                 "Use Codex to inventory the workspace and summarize active work.",
                 f"Suggested command: /codex \"{_agent_route_prompt('codex', workspace_name)}\"",

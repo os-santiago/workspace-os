@@ -562,7 +562,7 @@ def _delegate_launch_payload(
     if not conscience.allows_execution():
         return {
             "ok": False,
-            "error": f"Operational Conscience blocked launch with decision {conscience.decision}.",
+            "error": f"OCE blocked launch with decision {conscience.decision}.",
             "conscience": conscience.to_dict(),
         }
 
@@ -593,7 +593,7 @@ def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision
                 "Follow ADEV rules and preserve unrelated local changes.",
                 "Use Git repositories for software and infrastructure work.",
                 "Do not store secrets, personal data, or company-specific data.",
-                "Apply the Operational Conscience decision below before acting.",
+                "Apply the OCE decision below before acting.",
                 "",
                 "Task:",
                 task,
