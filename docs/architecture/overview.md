@@ -56,6 +56,7 @@ Interprets requests before routing them to execution.
 Workspace OS implements this concept as the Operational Conscience Engine model defined in `docs/architecture/decisions/0005-adev-oce-wos-stack.md`.
 The operational decision pipeline is further specified in `docs/architecture/decisions/0004-request-bridge-pipeline.md`.
 The original Operational Conscience Layer framing remains valid as the functional predecessor recorded in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
+The layered extension model is specified in `docs/architecture/decisions/0006-oce-layered-extension-model.md`.
 The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 
 Initial scope:
@@ -71,6 +72,7 @@ Initial implementation:
 - Allows `ALLOW`, `ALLOW_WITH_LIMITS`, and `SAFE_REDIRECT` decisions to proceed to response generation or allowed redirection.
 - Blocks `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions before agent launch.
 - Applies malicious-agentic hardening implicitly to every request: refuse routines that enable scams, evasion, or abuse, and allow bounded defensive guidance for detection, blocking, and recovery.
+- Accepts layered extension modules that can add policy documents, context hooks, and decision hooks without replacing the core engine.
 - Returns the decision, policy references, and compact context to the web UI so the operator can inspect the bridge state.
 
 ### Learning Engine

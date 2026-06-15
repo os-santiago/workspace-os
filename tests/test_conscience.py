@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from workspace_os.conscience import (
@@ -10,9 +13,23 @@ from workspace_os.conscience import (
     evaluate_request,
     render_decision_for_prompt,
 )
+from workspace_os.oce_extensions import (
+    OceExtension,
+    PolicyDocumentSpec,
+    clear_oce_extensions,
+    load_configured_oce_extensions,
+    register_oce_extension,
+)
+from workspace_os.oce_extensions_report import build_oce_extensions_report, render_oce_extensions_report_text
 
 
 class ConscienceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        clear_oce_extensions()
+
+    def tearDown(self) -> None:
+        clear_oce_extensions()
+
     def test_allows_low_risk_software_work(self):
         decision = evaluate_request("Add a unit test for the search command.")
 
@@ -97,6 +114,83 @@ class ConscienceTests(unittest.TestCase):
         self.assertNotIn("plain-text", rendered)
         self.assertIn("Policy refs:", rendered)
         self.assertIn("Context:", rendered)
+
+    def test_registered_oce_extension_can_add_policy_and_decision_hooks(self):
+        register_oce_extension(
+            OceExtension(
+                name="example-layer",
+                description="Example extension layer.",
+                layer="decision",
+                policy_documents=(
+                    PolicyDocumentSpec(
+                        ref="workspace.policy.extension.example",
+                        title="Extension Example",
+                        norms=("Extension norms can augment OCE.",),
+                    ),
+                ),
+                decision_hooks=(
+                    lambda **kwargs: {
+                        "routing_reason": "extension_reviewed",
+                    }
+                    if kwargs["decision"].decision == ALLOW
+                    else None,
+                ),
+            )
+        )
+
+        decision = evaluate_request("Add a unit test for the search command.")
+        report = build_oce_extensions_report()
+        rendered = render_oce_extensions_report_text(report)
+
+        self.assertIn("workspace.policy.extension.example", decision.policy_refs)
+        self.assertEqual("extension_reviewed", decision.routing_reason)
+        self.assertEqual(1, report["total"])
+        self.assertIn("example-layer", rendered)
+        self.assertIn("Extension model: layered and pluggable", rendered)
+
+    def test_configured_oce_extension_module_loads_from_configured_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            module_path = root / "sample_extension.py"
+            module_path.write_text(
+                """
+from workspace_os.oce_extensions import OceExtension, PolicyDocumentSpec, register_oce_extension
+
+register_oce_extension(
+    OceExtension(
+        name="sample-path-layer",
+        description="Sample path-based extension.",
+        layer="decision",
+        policy_documents=(
+            PolicyDocumentSpec(
+                ref="workspace.policy.extension.sample-path",
+                title="Sample Path Extension",
+                norms=("Sample path extension policy.",),
+            ),
+        ),
+    )
+)
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            config_path = root / "workspace.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "oce_extensions": ["sample_extension.py"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = load_configured_oce_extensions(config_path)
+            report = build_oce_extensions_report()
+
+        self.assertEqual(1, report["total"])
+        self.assertTrue(loaded)
+        self.assertIn("sample-path-layer", rendered := render_oce_extensions_report_text(report))
+        self.assertIn("workspace.policy.extension.sample-path", rendered)
 
 
 if __name__ == "__main__":

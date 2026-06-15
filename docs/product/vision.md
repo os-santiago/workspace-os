@@ -15,7 +15,7 @@ ADEV -> OCE -> WOS
 principle -> model -> implementation
 ```
 
-Workspace OS should act as the bridge between operator requests and execution. Requests pass first through OCE, the Operational Conscience Engine model, which interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents. In practice, ADEV and scanales-kb live under `D:\kb`, while workspace repos such as `homedir` and `workspace-os` stay under `D:\git`.
+Workspace OS should act as the bridge between operator requests and execution. Requests pass first through OCE, the Operational Conscience Engine model, which interprets intent, priorities, risk, timing, decision boundaries, and extension layers. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents. In practice, ADEV and scanales-kb live under `D:\kb`, while workspace repos such as `homedir` and `workspace-os` stay under `D:\git`.
 
 Workspace OS also needs a non-interactive bridge so Codex, Claude, and other CLI-based agents can query the current workspace state, available surfaces, and recommended continuation path without entering the interactive shell.
 
@@ -25,6 +25,8 @@ The intended AI mix is predictive-first and generative-last:
 - generative logic should handle synthesis, explanation, prompt drafting, and high-value final output.
 
 This lets Workspace OS optimize the request path before generation and reserve generative cost for the moments where it creates the most value.
+
+The collaboration model should stay pluggable: collaborators can contribute bounded OCE extension layers for policy, context, and decision refinement without forking the engine.
 
 The long-term ambition is to let one operator execute work at organizational scale by delegating toil, preserving experience, and leading multiple product or delivery streams through checkpoints instead of constant manual execution.
 

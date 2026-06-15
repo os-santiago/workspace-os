@@ -106,6 +106,24 @@ def load_knowledge_base_root(config_path: Path) -> Path:
     return (workspace_root.parent / "kb").resolve()
 
 
+def load_oce_extension_modules(config_path: Path) -> list[str]:
+    resolved_config = config_path.expanduser().resolve()
+    payload = _load_payload(resolved_config)
+
+    raw_modules = payload.get("oce_extensions", [])
+    if raw_modules is None:
+        return []
+    if not isinstance(raw_modules, list):
+        raise ValueError("Workspace config must contain an 'oce_extensions' list when present.")
+
+    modules: list[str] = []
+    for index, raw in enumerate(raw_modules):
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"OCE extension entry #{index + 1} must be a non-empty string.")
+        modules.append(raw.strip())
+    return modules
+
+
 def load_workspace_memory_path(config_path: Path) -> Path:
     resolved_config = config_path.expanduser().resolve()
     workspace_root = load_workspace_root(resolved_config)

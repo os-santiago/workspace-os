@@ -21,6 +21,8 @@ from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.shell import WorkspaceShell
+from workspace_os.oce_extensions import load_configured_oce_extensions
+from workspace_os.oce_extensions_report import build_oce_extensions_report, render_oce_extensions_report_text
 from workspace_os.validation import validate_workspace, validation_failed
 from workspace_os.web_server import serve_web_app
 
@@ -35,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         sources = load_sources(args.config)
         memory_path = load_workspace_memory_path(args.config)
+        load_configured_oce_extensions(args.config)
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -301,6 +304,7 @@ def _build_parser() -> argparse.ArgumentParser:
     conscience_history.add_argument("--limit", type=int, default=20, help="Maximum decisions to list.")
     conscience_recommend = conscience_subparsers.add_parser("recommend", help="Show the most compact conscience recommendation.")
     conscience_recommend.add_argument("--limit", type=int, default=20, help="Maximum decisions to consider.")
+    conscience_extensions = conscience_subparsers.add_parser("extensions", help="Show registered OCE extension layers.")
 
     shell_parser = subparsers.add_parser(
         "shell",
@@ -732,6 +736,10 @@ def _conscience(memory_path: Path, command: str, args: argparse.Namespace) -> in
 
     if command == "recommend":
         print(build_conscience_recommendation_text(store, limit=args.limit), end="")
+        return 0
+
+    if command == "extensions":
+        print(render_oce_extensions_report_text(build_oce_extensions_report()), end="")
         return 0
 
     print("error: unsupported conscience command", file=sys.stderr)

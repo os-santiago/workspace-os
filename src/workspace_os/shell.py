@@ -19,6 +19,7 @@ from workspace_os.feedback import assess_feedback
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
+from workspace_os.oce_extensions_report import build_oce_extensions_report, render_oce_extensions_report_text
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
@@ -110,7 +111,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
                     "/alias ...          save, list, or invoke shortcuts",
-                    "/conscience ...     show decision metrics, history, or a compact recommendation",
+                    "/conscience ...     show decision metrics, history, recommendation, or extensions",
                     "/oce ...           alias for /conscience",
                     "/verbose [on|off]   toggle full answer+trace output (default is answer only)",
                     "/codex <task>       launch codex with the active workspace",
@@ -503,7 +504,7 @@ class WorkspaceShell(cmd.Cmd):
                     try:
                         limit = max(1, int(parts[1]))
                     except ValueError:
-                        print("Usage: /conscience [status|history|recommend] [limit]")
+                        print("Usage: /conscience [status|history|recommend|extensions] [limit]")
                         return
                 report = build_conscience_report(self.memory_store, limit=limit)
                 self._emit(render_conscience_report_text(report), end="")
@@ -513,14 +514,17 @@ class WorkspaceShell(cmd.Cmd):
                     try:
                         limit = max(1, int(parts[1]))
                     except ValueError:
-                        print("Usage: /conscience [status|history|recommend] [limit]")
+                        print("Usage: /conscience [status|history|recommend|extensions] [limit]")
                         return
                 self._emit(build_conscience_recommendation_text(self.memory_store, limit=limit), end="")
+                return
+            if command == "extensions":
+                self._emit(render_oce_extensions_report_text(build_oce_extensions_report()), end="")
                 return
             try:
                 limit = max(1, int(parts[0]))
             except ValueError:
-                print("Usage: /conscience [status|history|recommend] [limit]")
+                print("Usage: /conscience [status|history|recommend|extensions] [limit]")
                 return
         report = build_conscience_report(self.memory_store, limit=limit)
         self._emit(render_conscience_report_text(report), end="")

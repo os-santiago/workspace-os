@@ -2,6 +2,7 @@
   "workspace_root": "../..",
   "knowledge_base_root": "../../../kb",
   "memory_db": ".workspace-os/workspace-memory.sqlite3",
+  "oce_extensions": [],
   "sources": [
     {
       "name": "adev",

@@ -27,6 +27,7 @@ Operator request
 The consciousness engine is the operator-facing judgment layer. It decides what the request means before work is routed.
 
 Workspace OS implements this through the OCE model defined in `docs/architecture/decisions/0005-adev-oce-wos-stack.md`.
+OCE supports a layered extension registry defined in `docs/architecture/decisions/0006-oce-layered-extension-model.md` so collaborators can contribute policy, context, and decision hooks without replacing the core model.
 
 Responsibilities:
 - Interpret operator intent and desired outcome.
@@ -34,6 +35,7 @@ Responsibilities:
 - Decide whether the request needs clarification, research, delegation, or direct execution.
 - Preserve operator values, tone, decision style, and quality bar.
 - Prevent action when the request conflicts with safety, privacy, or repository rules.
+- Keep hardening always on while still allowing bounded extension layers to improve the model.
 
 ## Learning Engine
 
@@ -68,6 +70,19 @@ Workspace OS should use generative logic for:
 The product goal is not to generate everything. The product goal is to use the lowest-cost technique that can make the next decision correct, then use generation only when it adds clear value.
 
 Workspace OS also exposes a non-interactive bridge for other CLI agents. The bridge lets Codex, Claude, or any comparable tool ask WOS what is available, what should continue next, and which surfaces are safe to use without entering the interactive shell.
+
+## Extension Model
+
+Workspace OS is intentionally pluggable at the OCE layer.
+
+Extension responsibilities:
+- add bounded policy documents;
+- contribute context hooks that enrich request interpretation;
+- contribute decision hooks that can refine routing, reasoning, or reporting;
+- expose their inventory for operator review;
+- remain subordinate to ADEV and the core OCE hardening rules.
+
+The extension registry exists to support collaborative improvement without forking the engine into per-team variants.
 
 ## Librarian Rule
 

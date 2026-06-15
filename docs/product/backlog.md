@@ -240,12 +240,14 @@ Initial implementation:
 - The web chat exposes redirect routes as launchable actions for ambiguous requests.
 - `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
 - `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.
+- `conscience extensions` exposes registered OCE extension layers, policy docs, and hook counts so collaborators can review what is pluggable without reading source code first, and the workspace config can list extension modules to load at startup.
 - `next` exposes the immediate operational step from the current workspace state so the operator can move without opening the full overview.
 - `bridge next` exposes the shortest decision surface, `bridge status` defaults to a short decision-oriented summary, `bridge status --detail` expands the full bridge inventory, and `bridge capabilities` exposes the command surface so Codex, Claude, or any other CLI agent can query WOS without opening the shell.
 - `tests/test_smoke_queries.py` provides a regression battery of representative user queries and command surfaces, and each batch should run it alongside the normal validation suite.
 - `workspace validate` includes the smoke regression battery by default, with `--skip-smoke-queries` available for narrower gates, and optional sources do not fail the gate when they are marked `required: false`.
 - The web UI exposes a collapsible Conscience panel with decision, policy refs, and moral context.
 - The canonical architecture stack is documented as ADEV -> OCE -> WOS, where ADEV is the principle layer, OCE is the Operational Conscience Engine model layer, and WOS is the implementation layer.
+- The OCE layer is layered and pluggable: it can accept bounded context hooks, decision hooks, and policy documents through registered extension modules and a workspace config list.
 - The operating model distinguishes predictive routing from generative synthesis so the product can use low-cost interpretation before high-value generation.
 - The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 - Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.

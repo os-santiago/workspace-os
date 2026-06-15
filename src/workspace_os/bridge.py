@@ -13,6 +13,7 @@ from workspace_os.overview import (
     build_workspace_roots,
     WorkspaceRoots,
 )
+from workspace_os.oce_extensions import registered_oce_extensions
 from workspace_os.profile import load_profile
 
 
@@ -144,6 +145,8 @@ def build_workspace_bridge_report(
         f"State: sources={len(sources)} memory_entries={memory_store.stats()['conversation_turns']} turns "
         f"launches={memory_store.stats()['agent_launches']} feedback={feedback_metrics['total']}",
         "Hardening: always-on malicious agentic protection",
+        "Extension model: layered and pluggable",
+        f"OCE extensions: {len(registered_oce_extensions())} registered",
         f"Execution mode: {execution_mode}",
         f"Process: {_render_process_summary(process)}",
         f"Batch: {_render_batch_summary(batch)}",
@@ -191,6 +194,11 @@ def build_workspace_bridge_report(
             "conscience / oce",
             "Inspect OCE decision metrics and the compact recommendation.",
             "workspace oce recommend",
+        ),
+        BridgeCapability(
+            "oce extensions",
+            "Inspect registered OCE extension layers and hooks.",
+            "workspace oce extensions",
         ),
         BridgeCapability(
             "chat",

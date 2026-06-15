@@ -7,11 +7,13 @@ implementation surface that uses the model to route, limit, or delegate work.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 import re
 
 from workspace_os.sanitization import sanitize_text
+from workspace_os.oce_extensions import extension_policy_documents, registered_oce_extensions
 
 
 ALLOW = "ALLOW"
@@ -213,7 +215,7 @@ def analyze_request_context(task: str, brief: str = "", destination: str = "soft
     if destination != "software":
         confidence = min(confidence, 0.75)
 
-    return RequestContext(
+    context = RequestContext(
         user_intent=user_intent,
         domain=domain,
         affected_parties=affected_parties,
@@ -225,6 +227,7 @@ def analyze_request_context(task: str, brief: str = "", destination: str = "soft
         missing_context=_unique(missing_context),
         threat_mode=threat_mode,
     )
+    return _apply_context_hooks(task, brief, destination, context)
 
 
 def resolve_normative_analysis(context: RequestContext, destination: str = "software") -> NormativeAnalysis:
@@ -280,12 +283,58 @@ def resolve_normative_analysis(context: RequestContext, destination: str = "soft
     )
 
 
+def _apply_context_hooks(task: str, brief: str, destination: str, context: RequestContext) -> RequestContext:
+    updated = context
+    for extension in registered_oce_extensions():
+        for hook in extension.context_hooks:
+            patch = hook(task=task, brief=brief, destination=destination, context=updated)
+            if not patch:
+                continue
+            allowed = {field: value for field, value in patch.items() if hasattr(updated, field)}
+            if allowed:
+                updated = replace(updated, **allowed)
+    return updated
+
+
+def _apply_decision_hooks(
+    task: str,
+    brief: str,
+    destination: str,
+    context: RequestContext,
+    normative: NormativeAnalysis,
+    decision: ConscienceDecision,
+) -> ConscienceDecision:
+    updated = decision
+    for extension in registered_oce_extensions():
+        for hook in extension.decision_hooks:
+            patch = hook(
+                task=task,
+                brief=brief,
+                destination=destination,
+                context=context,
+                normative=normative,
+                decision=updated,
+            )
+            if not patch:
+                continue
+            allowed = {field: value for field, value in patch.items() if hasattr(updated, field)}
+            if allowed:
+                updated = replace(updated, **allowed)
+    return updated
+
+
 def evaluate_request(task: str, brief: str = "", destination: str = "software") -> ConscienceDecision:
     context = analyze_request_context(task, brief=brief, destination=destination)
     normative = resolve_normative_analysis(context, destination=destination)
 
     if destination != "software":
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=["connector_boundary", "deliverable_routing"],
             applicable_norms=normative.applicable_norms,
@@ -299,10 +348,17 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="destination_requires_connector",
+            ),
         )
 
     if context.threat_mode == "prevent":
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level="critical",
             moral_categories=["malicious_agentic_abuse", *context.affected_parties],
             applicable_norms=normative.applicable_norms,
@@ -316,10 +372,17 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="malicious_agentic_prevention",
+            ),
         )
 
     if context.threat_mode == "defend":
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=["defensive_security", *context.affected_parties],
             applicable_norms=normative.applicable_norms,
@@ -333,10 +396,17 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="malicious_agentic_defense",
+            ),
         )
 
     if context.risk_level == "critical":
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=["possible_misuse", "security_harm"],
             applicable_norms=normative.applicable_norms,
@@ -350,10 +420,17 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="harm_prevention",
+            ),
         )
 
     if context.requires_authority:
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=_unique(["requires_authority", *context.affected_parties]),
             applicable_norms=normative.applicable_norms,
@@ -367,11 +444,18 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="authority_required",
+            ),
         )
 
     if context.user_intent == "ambiguous":
         primary_agent, secondary_agent, routing_reason = _select_redirect_agents(context, normative)
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=_unique([*context.affected_parties, "ambiguous_intent"]),
             applicable_norms=normative.applicable_norms,
@@ -385,10 +469,17 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=primary_agent,
             secondary_agent=secondary_agent,
             routing_reason=routing_reason,
+            ),
         )
 
     if context.risk_level == "medium":
-        return ConscienceDecision(
+        return _apply_decision_hooks(
+            task,
+            brief,
+            destination,
+            context,
+            normative,
+            ConscienceDecision(
             risk_level=context.risk_level,
             moral_categories=_unique([*context.affected_parties, "sensitive_operation"]),
             applicable_norms=normative.applicable_norms,
@@ -402,9 +493,16 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             primary_agent=None,
             secondary_agent=None,
             routing_reason="sensitive_operation",
+            ),
         )
 
-    return ConscienceDecision(
+    return _apply_decision_hooks(
+        task,
+        brief,
+        destination,
+        context,
+        normative,
+        ConscienceDecision(
         risk_level=context.risk_level,
         moral_categories=["standard_software_work"],
         applicable_norms=normative.applicable_norms,
@@ -418,6 +516,7 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
         primary_agent=None,
         secondary_agent=None,
         routing_reason="standard_work",
+        ),
     )
 
 
@@ -466,7 +565,7 @@ def _policy_root() -> Path:
 
 
 @lru_cache(maxsize=1)
-def _policy_documents() -> tuple[PolicyDocument, ...]:
+def _builtin_policy_documents() -> tuple[PolicyDocument, ...]:
     root = _policy_root()
     if not root.exists():
         return ()
@@ -479,9 +578,23 @@ def _policy_documents() -> tuple[PolicyDocument, ...]:
     return tuple(documents)
 
 
+def _policy_documents() -> tuple[PolicyDocument, ...]:
+    documents = list(_builtin_policy_documents())
+    for spec in extension_policy_documents():
+        document = PolicyDocument(ref=spec.ref, title=spec.title, norms=list(spec.norms))
+        if document not in documents:
+            documents.append(document)
+    return tuple(documents)
+
+
 def _policy_documents_for_context(context: RequestContext, destination: str = "software") -> list[PolicyDocument]:
     selected = []
     by_ref = {document.ref: document for document in _policy_documents()}
+
+    for extension_document in extension_policy_documents():
+        document = by_ref.get(extension_document.ref)
+        if document is not None and document not in selected:
+            selected.append(document)
 
     always_on_ref = "workspace.policy.malicious-agentic-ai"
     document = by_ref.get(always_on_ref)

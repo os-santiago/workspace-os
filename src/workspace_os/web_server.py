@@ -15,6 +15,7 @@ from workspace_os.conscience_report import build_conscience_recommendation_text,
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
+from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
@@ -32,6 +33,7 @@ STATIC_ROOT = Path(__file__).parent / "web_assets"
 
 def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     sources = load_sources(config_path)
+    load_configured_oce_extensions(config_path)
     workspace_root = load_workspace_root(config_path)
     memory_path = load_workspace_memory_path(config_path)
     handler = _build_handler(sources, workspace_root, memory_path)

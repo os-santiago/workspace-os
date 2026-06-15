@@ -319,14 +319,21 @@ class ShellTests(unittest.TestCase):
                 shell.do_bridge("capabilities")
             capabilities_rendered = buffer.getvalue()
 
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_conscience("extensions")
+            extensions_rendered = buffer.getvalue()
+
         self.assertIn("Workspace bridge:", rendered)
         self.assertIn("Hardening: always-on malicious agentic protection", rendered)
         self.assertIn("Safe surfaces:", rendered)
         self.assertIn("Execution mode:", rendered)
+        self.assertIn("OCE extensions:", rendered)
         self.assertIn("Available surfaces:", detail_rendered)
         self.assertIn("Workspace next:", next_rendered)
         self.assertIn("analysis", rendered)
         self.assertIn("claude", capabilities_rendered)
+        self.assertIn("OCE extensions", extensions_rendered)
+        self.assertIn("Extension model: layered and pluggable", extensions_rendered)
         self.assertIn('"workspace_root"', json_rendered)
         self.assertIn('"capabilities"', json_rendered)
 

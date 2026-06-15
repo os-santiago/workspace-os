@@ -600,26 +600,40 @@ class CliTests(unittest.TestCase):
                 buffer.seek(0)
                 capabilities_rendered = buffer.read()
 
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    extensions_exit_code = main(["--config", str(config), "conscience", "extensions"])
+                buffer.seek(0)
+                extensions_rendered = buffer.read()
+
         payload = json.loads(json_rendered)
         self.assertEqual(0, exit_code)
         self.assertEqual(0, detail_exit_code)
         self.assertEqual(0, next_exit_code)
         self.assertEqual(0, json_exit_code)
         self.assertEqual(0, capabilities_exit_code)
+        self.assertEqual(0, extensions_exit_code)
         self.assertIn("Workspace bridge:", rendered)
         self.assertIn("Hardening: always-on malicious agentic protection", rendered)
         self.assertIn("Safe surfaces:", rendered)
         self.assertIn("Execution mode:", rendered)
+        self.assertIn("OCE extensions:", rendered)
         self.assertIn("analysis", rendered)
         self.assertIn("feedback", rendered)
+        self.assertIn("oce extensions", rendered)
         self.assertIn("Available surfaces:", detail_rendered)
         self.assertIn("Workspace next:", next_rendered)
         self.assertIn("Suggested command:", next_rendered)
         self.assertIn("codex", capabilities_rendered)
         self.assertIn("claude", capabilities_rendered)
+        self.assertIn("OCE extensions", extensions_rendered)
+        self.assertIn("Extension model: layered and pluggable", extensions_rendered)
         self.assertIn("workspace_root", payload)
         self.assertIn("capabilities", payload)
         self.assertTrue(any(cap["name"] == "analysis" for cap in payload["capabilities"]))
+        self.assertTrue(any(cap["name"] == "oce extensions" for cap in payload["capabilities"]))
 
     def test_chat_command_renders_answer_only_by_default_and_verbose_mode(self):
         with tempfile.TemporaryDirectory() as directory:
