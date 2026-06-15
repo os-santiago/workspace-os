@@ -996,8 +996,12 @@ class WorkspaceShell(cmd.Cmd):
             return paint("Workspace bridge:", bold + magenta, line[len("Workspace bridge:"):])
         if line.startswith("Workspace next:"):
             return paint("Workspace next:", bold + green, line[len("Workspace next:"):])
-        if line == "Projects under root:":
+        if line == "Workspace projects under root:":
             return paint(line, bold + blue)
+        if line == "Knowledge base projects:":
+            return paint(line, bold + yellow)
+        if line.startswith("Knowledge base root:"):
+            return paint("Knowledge base root:", bold + yellow, line[len("Knowledge base root:"):])
         if line == "Analysis:" or line == "Recommendation:":
             return paint(line, bold + cyan)
         if line.startswith("- [DEV]"):

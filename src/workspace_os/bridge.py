@@ -293,7 +293,8 @@ def render_workspace_bridge_next_json(
 
 
 def _workspace_root_from_sources(sources: list[Source]) -> str:
-    paths = [str(source.path) for source in sources if getattr(source, "path", None)]
+    workspace_sources = [source for source in sources if getattr(source, "group", "workspace") != "knowledge_base"]
+    paths = [str(source.path) for source in workspace_sources if getattr(source, "path", None)]
     if not paths:
         return "all workspaces"
     try:

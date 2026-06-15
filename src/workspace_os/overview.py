@@ -283,24 +283,34 @@ def build_workspace_analysis(
     compact: bool = False,
 ) -> WorkspaceAnalysis:
     profile = load_profile(memory_store)
-    workspace_root = _workspace_root_from_sources(sources)
+    workspace_sources = _sources_for_group(sources, "workspace")
+    knowledge_sources = _sources_for_group(sources, "knowledge_base")
+    workspace_root = _workspace_root_from_sources(workspace_sources)
+    knowledge_base_root = _workspace_root_from_sources(knowledge_sources)
     workspace_name = workspace or workspace_root or profile.default_workspace or "all workspaces"
-    activities = recent_source_activities(sources, limit=limit)
+    workspace_activities = recent_source_activities(workspace_sources, limit=limit)
+    knowledge_activities = recent_source_activities(knowledge_sources, limit=limit)
 
     if compact:
         source_lines = (
             f"Workspace root: {workspace_root}",
-            "Projects under root:",
-            *_render_activity_lines(activities, compact=True),
+            f"Knowledge base root: {knowledge_base_root}",
+            "Workspace projects under root:",
+            *_render_activity_lines(workspace_activities, compact=True),
+            "Knowledge base projects:",
+            *_render_activity_lines(knowledge_activities, compact=True),
         )
     else:
         source_lines = (
             f"Workspace root: {workspace_root}",
-            "Projects under root:",
-            *_render_activity_lines(activities, compact=False),
+            f"Knowledge base root: {knowledge_base_root}",
+            "Workspace projects under root:",
+            *_render_activity_lines(workspace_activities, compact=False),
+            "Knowledge base projects:",
+            *_render_activity_lines(knowledge_activities, compact=False),
         )
 
-    recommendation_lines = _analysis_recommendation_lines(activities, workspace_name)
+    recommendation_lines = _analysis_recommendation_lines(workspace_activities, workspace_name)
     return WorkspaceAnalysis(
         workspace=workspace_name,
         source_lines=source_lines,
@@ -667,6 +677,10 @@ def _workspace_root_from_sources(sources) -> str:
     except OSError:
         return "all workspaces"
     return common or "all workspaces"
+
+
+def _sources_for_group(sources, group: str):
+    return [source for source in sources if getattr(source, "group", "workspace") == group]
 
 
 def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | None = None) -> str:

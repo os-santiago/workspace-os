@@ -6,7 +6,7 @@ Work is distributed across repositories, local folders, Google Workspace, and mu
 
 ## Vision
 
-Workspace OS provides one governed workspace model for AI-assisted work. It connects local repositories, knowledge bases, cloud deliverables, and agent tools while preserving clear ownership and rules.
+Workspace OS provides one governed workspace model for AI-assisted work. It connects local repositories under `D:\git`, knowledge bases under `D:\kb`, cloud deliverables, and agent tools while preserving clear ownership and rules.
 
 The product follows the canonical stack:
 
@@ -15,7 +15,7 @@ ADEV -> OCE -> WOS
 principle -> model -> implementation
 ```
 
-Workspace OS should act as the bridge between operator requests and execution. Requests pass first through OCE, the Operational Conscience Engine model, which interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents.
+Workspace OS should act as the bridge between operator requests and execution. Requests pass first through OCE, the Operational Conscience Engine model, which interprets intent, priorities, risk, timing, and decision boundaries. They then pass through a learning engine grounded in ADEV and scanales-kb before Workspace OS routes work to repositories, Google Workspace, or agents. In practice, ADEV and scanales-kb live under `D:\kb`, while workspace repos such as `homedir` and `workspace-os` stay under `D:\git`.
 
 Workspace OS also needs a non-interactive bridge so Codex, Claude, and other CLI-based agents can query the current workspace state, available surfaces, and recommended continuation path without entering the interactive shell.
 

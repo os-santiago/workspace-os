@@ -228,7 +228,9 @@ class ShellTests(unittest.TestCase):
 
         self.assertIn("Workspace analysis:", rendered)
         self.assertIn("Workspace root:", rendered)
-        self.assertIn("Projects under root:", rendered)
+        self.assertIn("Knowledge base root:", rendered)
+        self.assertIn("Workspace projects under root:", rendered)
+        self.assertIn("Knowledge base projects:", rendered)
         self.assertIn("Continue with: newer", rendered)
         self.assertIn("Recommended continue: newer", rendered)
         self.assertIn("Primary route: /codex", rendered)

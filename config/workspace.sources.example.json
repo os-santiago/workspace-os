@@ -1,19 +1,22 @@
 {
   "workspace_root": "../..",
+  "knowledge_base_root": "../../../kb",
   "memory_db": ".workspace-os/workspace-memory.sqlite3",
   "sources": [
     {
       "name": "adev",
       "type": "doctrine",
       "responsibility": "Operating doctrine, validation standards, and delivery guardrails.",
-      "path": "../../adev",
+      "group": "knowledge_base",
+      "path": "adev",
       "search": true
     },
     {
       "name": "scanales-kb",
       "type": "evidence",
       "responsibility": "Sanitized evidence, implementation notes, decisions, and verified lessons.",
-      "path": "../../scanales-knowledge-base",
+      "group": "knowledge_base",
+      "path": "scanales-kb",
       "search": true,
       "required": false
     },
@@ -21,14 +24,16 @@
       "name": "homedir",
       "type": "execution",
       "responsibility": "Local workstation automation, scripts, and execution assets.",
-      "path": "../../homedir",
+      "group": "workspace",
+      "path": "homedir",
       "search": true
     },
     {
       "name": "workspace-os",
       "type": "product",
       "responsibility": "Product roadmap, architecture, and workspace controller implementation.",
-      "path": "..",
+      "group": "workspace",
+      "path": "workspace-os",
       "search": true
     }
   ]

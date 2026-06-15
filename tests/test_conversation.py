@@ -189,7 +189,9 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Workspace status:", reply.reply)
         self.assertIn("Workspace root:", reply.reply)
-        self.assertIn("Projects under root:", reply.reply)
+        self.assertIn("Knowledge base root:", reply.reply)
+        self.assertIn("Workspace projects under root:", reply.reply)
+        self.assertIn("Knowledge base projects:", reply.reply)
         self.assertIn("[NOT-GIT]", reply.reply)
         self.assertIn("No active work window is tracked.", reply.reply)
         self.assertIn("Analysis:", reply.reply)

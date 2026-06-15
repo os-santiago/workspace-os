@@ -52,7 +52,9 @@ class SmokeQueryTests(unittest.TestCase):
                     [
                         "Workspace status:",
                         "Workspace root:",
-                        "Projects under root:",
+                        "Knowledge base root:",
+                        "Workspace projects under root:",
+                        "Knowledge base projects:",
                         "Next step:",
                         "Primary route: /codex",
                         "Optional cross-check: /claude",
@@ -192,7 +194,9 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Suggested command:", next_rendered)
         self.assertIn("Workspace analysis:", analysis_rendered)
         self.assertIn("Workspace root:", analysis_rendered)
-        self.assertIn("Projects under root:", analysis_rendered)
+        self.assertIn("Knowledge base root:", analysis_rendered)
+        self.assertIn("Workspace projects under root:", analysis_rendered)
+        self.assertIn("Knowledge base projects:", analysis_rendered)
         self.assertIn("Continue with:", analysis_rendered)
         self.assertIn("Recommended continue:", analysis_rendered)
         self.assertIn("Workspace bridge:", bridge_rendered)
@@ -235,7 +239,9 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Available surfaces:", rendered)
         self.assertIn("Workspace next:", rendered)
         self.assertIn("Workspace root:", rendered)
-        self.assertIn("Projects under root:", rendered)
+        self.assertIn("Knowledge base root:", rendered)
+        self.assertIn("Workspace projects under root:", rendered)
+        self.assertIn("Knowledge base projects:", rendered)
         self.assertIn("Continue with:", rendered)
         self.assertIn("OCE report", rendered)
         self.assertIn("Primary route: /codex", rendered)

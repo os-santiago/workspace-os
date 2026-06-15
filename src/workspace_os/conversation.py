@@ -464,10 +464,38 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
     launches = memory_store.recent_launches(limit=3)
     lines: list[str] = []
     source_states: list[str] = []
-    workspace_root = _workspace_root_from_sources(sources)
+    workspace_sources = [source for source in sources if getattr(source, "group", "workspace") != "knowledge_base"]
+    kb_sources = [source for source in sources if getattr(source, "group", "workspace") == "knowledge_base"]
+    workspace_root = _workspace_root_from_sources(workspace_sources)
+    kb_root = _workspace_root_from_sources(kb_sources)
+
     lines.append(f"Workspace root: {workspace_root}")
-    lines.append("Projects under root:")
-    for source in sources:
+    lines.append("Workspace projects under root:")
+    for source in workspace_sources:
+        status = inspect_source(source)
+        branch = status.branch or "n/a"
+        if status.state == "missing":
+            detail = f"[MISSING] {source.name}: path={source.path}"
+            source_states.append("missing")
+        elif status.state == "not-git":
+            detail = f"[NOT-GIT] {source.name}: path={source.path}"
+            source_states.append("not-git")
+        elif status.state == "error":
+            detail = f"[ERROR] {source.name}: error={status.error}"
+            source_states.append("error")
+        else:
+            detail = (
+                f"[DEV] {source.name}: branch={branch} changes={status.dirty_count} "
+                f"untracked={status.untracked_count}"
+            )
+            if status.ahead or status.behind:
+                detail += f" ahead={status.ahead} behind={status.behind}"
+            source_states.append("ready")
+        lines.append(f"- {detail}")
+
+    lines.append(f"Knowledge base root: {kb_root}")
+    lines.append("Knowledge base projects:")
+    for source in kb_sources:
         status = inspect_source(source)
         branch = status.branch or "n/a"
         if status.state == "missing":
@@ -525,9 +553,10 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
 
 
 def _workspace_root_from_sources(sources: list[Source]) -> str:
-    if not sources:
+    workspace_sources = [source for source in sources if getattr(source, "group", "workspace") != "knowledge_base"]
+    if not workspace_sources:
         return "all workspaces"
-    paths = [str(source.path) for source in sources if source.path]
+    paths = [str(source.path) for source in workspace_sources if source.path]
     if not paths:
         return "all workspaces"
     try:

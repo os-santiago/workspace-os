@@ -11,11 +11,13 @@ The system exists to reduce scattered knowledge and make work reusable as contex
 ## Responsibility Model
 
 - ADEV governs doctrine, rules, guardrails, and validation standards.
-- scanales-kb learns from sanitized evidence, incidents, sessions, and decisions.
+- scanales-kb learns from sanitized evidence, incidents, sessions, and decisions under the knowledge base root.
 - homedir executes local automation, workstation setup, scripts, and agent tooling.
 - Google Workspace produces final deliverables such as documents, slides, sheets, and external-facing assets.
 - Codex, Claude, Gemini, and other agents receive hardened ADEV delegation prompts and operate under ADEV rules.
 - The librarian layer prevents duplication, fragmentation, and knowledge loss.
+
+The intended layout is `D:\git` for workspaces and `D:\kb` for knowledge bases. `adev` and `scanales-kb` live under `D:\kb`; `homedir` remains a workspace under `D:\git`.
 
 ## Design Principles
 

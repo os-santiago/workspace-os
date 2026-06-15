@@ -96,7 +96,9 @@ def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeC
             [
                 "Workspace status:",
                 "Workspace root:",
-                "Projects under root:",
+                "Knowledge base root:",
+                "Workspace projects under root:",
+                "Knowledge base projects:",
                 "Next step: record the first process checkpoint",
                 "Primary route: /codex",
                 "Optional cross-check: /claude",

@@ -6,6 +6,7 @@ ADEV is the upstream source of truth for operating doctrine.
 
 Workspace OS consumes ADEV rules through the Operational Conscience Engine model and implements workflows around them. It does not replace ADEV.
 Delegated Codex and Claude runs inherit the same ADEV guardrail contract before they touch files or launch follow-up actions.
+The intended physical layout is `D:\git` for workspaces and `D:\kb` for knowledge bases.
 
 ## Knowledge Flow
 
@@ -13,6 +14,7 @@ Delegated Codex and Claude runs inherit the same ADEV guardrail contract before 
 Operator request
   -> OCE interprets intent, values, risk, and decision boundaries
   -> learning engine applies ADEV doctrine and scanales-kb evidence
+  -> workspace repos stay under D:\git while ADEV and scanales-kb live under D:\kb
   -> Workspace OS selects destination and execution path
   -> software and infrastructure work goes to Git
   -> document, deck, sheet, proposal, and estimate deliverables go to Google Workspace
@@ -83,7 +85,7 @@ Before adding durable content:
 | Content Type | Destination |
 | --- | --- |
 | Doctrine, rules, guardrails | ADEV |
-| Evidence, incidents, sessions, decisions | scanales-kb |
+| Evidence, incidents, sessions, decisions | scanales-kb under D:\kb |
 | Scripts, local automation, agent tooling | homedir |
 | Product roadmap and architecture for this system | Workspace OS |
 | Final docs, decks, sheets, proposals | Google Workspace |

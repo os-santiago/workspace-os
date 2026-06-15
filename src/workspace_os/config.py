@@ -14,6 +14,7 @@ class Source:
     path: Path
     search: bool = True
     required: bool = True
+    group: str = "workspace"
 
 
 def load_sources(config_path: Path) -> list[Source]:
@@ -25,6 +26,8 @@ def load_sources(config_path: Path) -> list[Source]:
         raise ValueError("Source registry must contain a 'sources' list.")
 
     sources: list[Source] = []
+    workspace_root = load_workspace_root(resolved_config)
+    knowledge_base_root = load_knowledge_base_root(resolved_config)
     for index, raw in enumerate(raw_sources):
         if not isinstance(raw, dict):
             raise ValueError(f"Source entry #{index + 1} must be an object.")
@@ -33,6 +36,12 @@ def load_sources(config_path: Path) -> list[Source]:
         source_type = _required_string(raw, "type", index)
         responsibility = _required_string(raw, "responsibility", index)
         raw_path = _required_string(raw, "path", index)
+        group = raw.get("group", "workspace")
+        if not isinstance(group, str) or not group.strip():
+            raise ValueError(f"Source '{name}' field 'group' must be a non-empty string.")
+        group = group.strip()
+        if group not in {"workspace", "knowledge_base"}:
+            raise ValueError(f"Source '{name}' field 'group' must be one of: workspace, knowledge_base.")
         search = raw.get("search", True)
         if not isinstance(search, bool):
             raise ValueError(f"Source '{name}' field 'search' must be boolean.")
@@ -42,7 +51,8 @@ def load_sources(config_path: Path) -> list[Source]:
 
         path = Path(raw_path).expanduser()
         if not path.is_absolute():
-            path = resolved_config.parent / path
+            base = knowledge_base_root if group == "knowledge_base" else workspace_root
+            path = base / path
 
         sources.append(
             Source(
@@ -52,6 +62,7 @@ def load_sources(config_path: Path) -> list[Source]:
                 path=path.resolve(),
                 search=search,
                 required=required,
+                group=group,
             )
         )
 
@@ -74,6 +85,25 @@ def load_workspace_root(config_path: Path) -> Path:
         return Path(env_root).expanduser().resolve()
 
     return resolved_config.parent.resolve()
+
+
+def load_knowledge_base_root(config_path: Path) -> Path:
+    resolved_config = config_path.expanduser().resolve()
+    payload = _load_payload(resolved_config)
+
+    raw_root = payload.get("knowledge_base_root")
+    if isinstance(raw_root, str) and raw_root.strip():
+        root = Path(raw_root).expanduser()
+        if not root.is_absolute():
+            root = resolved_config.parent / root
+        return root.resolve()
+
+    env_root = os.environ.get("WORKSPACE_OS_KB_ROOT", "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+
+    workspace_root = load_workspace_root(resolved_config)
+    return (workspace_root.parent / "kb").resolve()
 
 
 def load_workspace_memory_path(config_path: Path) -> Path:
