@@ -258,9 +258,7 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
 
 
 def _suggested_actions(message: str, conscience: ConscienceDecision, memory_store: WorkspaceMemoryStore | None) -> list[dict[str, str]]:
-    if conscience.decision != "SAFE_REDIRECT":
-        return []
-    if _is_workspace_status_query(message):
+    if conscience.decision != "SAFE_REDIRECT" and not _is_workspace_status_query(message):
         return []
     profile = load_profile(memory_store) if memory_store else None
     workspace_name = "all workspaces"

@@ -8,6 +8,7 @@ const state = {
   chatContextExpanded: false,
   conscienceExpanded: false,
   latestConscience: null,
+  latestSuggestedActions: [],
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
@@ -137,8 +138,10 @@ const renderContextSnapshot = (data) => {
 
 const renderConscience = (data = null) => {
   const output = qs("#conscienceOutput");
+  const actions = qs("#conscienceActions");
   if (!data) {
     output.textContent = "Waiting for a conscience decision...";
+    actions.innerHTML = "";
     return;
   }
   state.latestConscience = data;
@@ -171,6 +174,29 @@ const renderConscience = (data = null) => {
   qs(".conscience-section").classList.toggle("is-collapsed", !state.conscienceExpanded);
   qs(".conscience-section").classList.toggle("is-expanded", state.conscienceExpanded);
   qs("#conscienceIndicator").textContent = `Conscience ${state.conscienceCount}`;
+  renderConscienceActions();
+};
+
+const renderConscienceActions = (actions = state.latestSuggestedActions) => {
+  const container = qs("#conscienceActions");
+  container.innerHTML = "";
+  if (!actions || actions.length === 0) {
+    return;
+  }
+  const header = document.createElement("p");
+  header.textContent = "Suggested routes:";
+  container.appendChild(header);
+  for (const action of actions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `Launch ${action.agent}`;
+    button.addEventListener("click", () => {
+      launchSuggestedAction(action, button).catch((error) => {
+        appendMessage("system", `${action.agent} launch failed.`, error.message);
+      });
+    });
+    container.appendChild(button);
+  }
 };
 
 const loadSidebar = async () => {
@@ -292,6 +318,8 @@ const bindChat = () => {
     }
     if (data.conscience) {
       renderConscience(data.conscience);
+      state.latestSuggestedActions = data.suggested_actions || [];
+      renderConscienceActions();
       const details = [
         `Decision: ${data.conscience.decision}`,
         `Risk: ${data.conscience.risk_level}`,
@@ -302,6 +330,8 @@ const bindChat = () => {
       last.appendChild(detailBlock);
     }
     if (data.suggested_actions && data.suggested_actions.length > 0) {
+      state.latestSuggestedActions = data.suggested_actions;
+      renderConscienceActions();
       const actions = document.createElement("div");
       actions.className = "suggested-actions";
       const header = document.createElement("p");
@@ -375,6 +405,7 @@ const init = async () => {
   await loadContext();
   await loadHandoff();
   renderConscience(null);
+  renderConscienceActions([]);
 };
 
 init().catch((error) => {

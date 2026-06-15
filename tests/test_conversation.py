@@ -232,6 +232,9 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Suggested command: /codex", reply.reply)
         self.assertIn("Suggested command: /claude", reply.reply)
         self.assertNotIn("start a new process window before the next batch", reply.reply)
+        self.assertEqual(2, len(reply.suggested_actions))
+        self.assertEqual("codex", reply.suggested_actions[0]["agent"])
+        self.assertEqual("claude", reply.suggested_actions[1]["agent"])
 
     def test_workspace_reply_exposes_redirect_actions(self):
         with tempfile.TemporaryDirectory() as directory:
