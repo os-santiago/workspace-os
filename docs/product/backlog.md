@@ -235,6 +235,7 @@ Initial implementation:
 - Ambiguous requests can return `SAFE_REDIRECT` so the system can route them to Codex first and Claude as a parallel cross-check.
 - The web chat exposes redirect routes as launchable actions for ambiguous requests.
 - `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
+- `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.
 - The web UI exposes a collapsible Conscience panel with decision, policy refs, and moral context.
 - The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 - Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.

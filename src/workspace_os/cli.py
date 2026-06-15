@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.conscience_report import build_conscience_report, render_conscience_report_text
+from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.context_pack import build_context_pack
@@ -224,6 +224,8 @@ def _build_parser() -> argparse.ArgumentParser:
     conscience_status.add_argument("--limit", type=int, default=20, help="Maximum decisions to summarize.")
     conscience_history = conscience_subparsers.add_parser("history", help="Show recent conscience decisions.")
     conscience_history.add_argument("--limit", type=int, default=20, help="Maximum decisions to list.")
+    conscience_recommend = conscience_subparsers.add_parser("recommend", help="Show the most compact conscience recommendation.")
+    conscience_recommend.add_argument("--limit", type=int, default=20, help="Maximum decisions to consider.")
 
     shell_parser = subparsers.add_parser(
         "shell",
@@ -536,6 +538,10 @@ def _conscience(memory_path: Path, command: str, args: argparse.Namespace) -> in
     if command == "history":
         report = build_conscience_report(store, limit=args.limit)
         print(render_conscience_report_text(report), end="")
+        return 0
+
+    if command == "recommend":
+        print(build_conscience_recommendation_text(store, limit=args.limit), end="")
         return 0
 
     print("error: unsupported conscience command", file=sys.stderr)

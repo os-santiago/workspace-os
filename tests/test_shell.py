@@ -113,6 +113,32 @@ class ShellTests(unittest.TestCase):
         self.assertIn("total=1", rendered)
         self.assertIn("codex=1", rendered)
 
+    def test_shell_conscience_recommend_reports_compact_recommendation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+            shell.memory_store.record_decision(
+                "hash-1",
+                "medium",
+                "SAFE_REDIRECT",
+                ["missing_workspace"],
+                primary_agent="codex",
+                secondary_agent="claude",
+                routing_reason="workspace_inventory_first",
+            )
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_conscience("recommend 5")
+
+            rendered = buffer.getvalue()
+
+        self.assertIn("Conscience recommendation", rendered)
+        self.assertIn("next_action=route_to_codex_for_inventory", rendered)
+        self.assertIn("top_missing_context=missing_workspace", rendered)
+
     def test_shell_batch_commands_report_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

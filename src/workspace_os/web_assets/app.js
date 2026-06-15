@@ -10,6 +10,7 @@ const state = {
   latestConscience: null,
   latestSuggestedActions: [],
   latestConscienceMetrics: null,
+  latestConscienceRecommendation: null,
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
@@ -232,6 +233,16 @@ const renderConscienceMetrics = (data = null) => {
   output.textContent = lines.join("\n").trim();
 };
 
+const renderConscienceRecommendation = (data = null) => {
+  const output = qs("#conscienceRecommendationOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load conscience recommendation.";
+    return;
+  }
+  state.latestConscienceRecommendation = data.text || "";
+  output.textContent = data.text || "No recommendation available.";
+};
+
 const renderKeyValueLines = (value) => {
   if (!value || typeof value !== "object") return ["- n/a=0"];
   const entries = Object.entries(value);
@@ -262,6 +273,11 @@ const loadHandoff = async () => {
 const loadConscienceMetrics = async () => {
   const data = await getJson("/api/conscience?limit=10");
   renderConscienceMetrics(data);
+};
+
+const loadConscienceRecommendation = async () => {
+  const data = await getJson("/api/conscience/recommend?limit=10");
+  renderConscienceRecommendation(data);
 };
 
 const loadContext = async () => {
@@ -423,6 +439,14 @@ const init = async () => {
   qs("#conscienceRefresh").addEventListener("click", () => {
     renderConscience(state.latestConscience);
   });
+  qs("#conscienceRecommendRefresh").addEventListener("click", async () => {
+    qs("#conscienceRecommendationOutput").textContent = "Loading conscience recommendation...";
+    try {
+      await loadConscienceRecommendation();
+    } catch (error) {
+      qs("#conscienceRecommendationOutput").textContent = error.message;
+    }
+  });
   qs("#conscienceMetricsRefresh").addEventListener("click", async () => {
     qs("#conscienceMetricsOutput").textContent = "Loading conscience metrics...";
     try {
@@ -463,6 +487,7 @@ const init = async () => {
   setConscienceExpanded(readConsciencePreference(), false);
   await loadContext();
   await loadHandoff();
+  await loadConscienceRecommendation();
   await loadConscienceMetrics();
   renderConscience(null);
   renderConscienceActions([]);
