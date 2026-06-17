@@ -338,6 +338,17 @@ def _build_cycle_work_prompt(
     except Exception:
         pass
 
+    # Get latest journal entry to show previous iteration context
+    journal_context_lines: list[str] = []
+    try:
+        from workspace_os.journal import latest_journal_entry
+        latest_entry = latest_journal_entry(memory_store)
+        if latest_entry and latest_entry.story_lines:
+            journal_context_lines.append("Previous iteration summary:")
+            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:5])
+    except Exception:
+        pass
+
     base_lines = [
         f"Long-run WOS improvement iteration {iteration_number}.",
         f"Objective: {objective}",
@@ -360,6 +371,9 @@ def _build_cycle_work_prompt(
     if recent_work_lines:
         base_lines.append("")
         base_lines.extend(recent_work_lines)
+    if journal_context_lines:
+        base_lines.append("")
+        base_lines.extend(journal_context_lines)
     base_lines.extend(
         [
             "",

@@ -8,8 +8,9 @@ from types import SimpleNamespace
 import threading
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle, _build_cycle_work_prompt
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.journal import write_cycle_journal
 
 
 class CycleTests(unittest.TestCase):
@@ -267,6 +268,39 @@ class CycleTests(unittest.TestCase):
         self.assertTrue(result.started_cycle)
         # Should complete at least some work before stopping
         self.assertGreaterEqual(result.delegation_count or 0, 2)
+
+    def test_cycle_work_prompt_includes_journal_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            sources = [Source("workspace-os", "product", "Workspace OS.", source_root)]
+
+            # Create a cycle and journal entry
+            cycle_id = start_cycle(store, "test-cycle", "Test objective")
+            stop_cycle(store)
+            cycle = store.cycle_history(limit=1)[0]
+
+            write_cycle_journal(
+                store,
+                sources,
+                cycle,
+                [],
+                story_title="test",
+                logical_duration_seconds=120.0,
+                wall_clock_duration_seconds=120.0,
+                idle_ratio=0.25,
+            )
+
+            # Build prompt and verify journal context is included
+            prompt = _build_cycle_work_prompt(sources, store, "workspace-os", "Improve WOS", None, 1)
+            primary_prompt = prompt["primary:opencode"]
+
+            self.assertIn("Previous iteration summary:", primary_prompt)
+            self.assertIn("stayed alive", primary_prompt)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
