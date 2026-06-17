@@ -37,6 +37,7 @@ class JournalFunctionalMetrics:
     over_expectation_feedback: int
     decision_total: int
     plan_coverage_hints: tuple[str, ...] = ()  # Product plan items potentially addressed
+    plan_gaps: tuple[str, ...] = ()  # Product plan items with no coverage
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,9 @@ class JournalEntry:
         if self.functional_metrics.plan_coverage_hints:
             lines.append("Plan coverage hints:")
             lines.extend(f"- {hint}" for hint in self.functional_metrics.plan_coverage_hints)
+        if self.functional_metrics.plan_gaps:
+            lines.append("Plan gaps:")
+            lines.extend(f"- {gap}" for gap in self.functional_metrics.plan_gaps)
         if self.story_lines:
             lines.append("Story:")
             lines.extend(f"- {line}" for line in self.story_lines)
@@ -135,7 +139,8 @@ def write_cycle_journal(
     checkpoints = tuple(sorted(checkpoints, key=lambda item: int(item["iteration_number"])))
     source_metrics = tuple(_collect_source_metrics(sources, str(cycle["started_at"]), str(cycle["ended_at"] or _utc_now())))
     plan_coverage = detect_plan_coverage_from_commits(sources, str(cycle["started_at"]), str(cycle["ended_at"] or _utc_now()))
-    functional_metrics = _collect_functional_metrics(memory_store, plan_coverage_hints=plan_coverage)
+    plan_gaps = detect_plan_gaps(sources, str(cycle["started_at"]), str(cycle["ended_at"] or _utc_now()))
+    functional_metrics = _collect_functional_metrics(memory_store, plan_coverage_hints=plan_coverage, plan_gaps=plan_gaps)
     checkpoints_passed = sum(
         1 for checkpoint in checkpoints if all(int(checkpoint.get(f"{name}_ok", 0)) for name in ("health", "stability", "security", "quality"))
     )
@@ -298,6 +303,7 @@ def _load_entry(entry_dir: Path) -> JournalEntry:
 def _collect_functional_metrics(
     memory_store: WorkspaceMemoryStore,
     plan_coverage_hints: tuple[str, ...] = (),
+    plan_gaps: tuple[str, ...] = (),
 ) -> JournalFunctionalMetrics:
     task_metrics = memory_store.task_outcome_metrics()
     success_count = 0
@@ -319,6 +325,7 @@ def _collect_functional_metrics(
         over_expectation_feedback=int(feedback_metrics["over_expectation_count"]),
         decision_total=int(decision_summary["total"]),
         plan_coverage_hints=plan_coverage_hints,
+        plan_gaps=plan_gaps,
     )
 
 
@@ -552,10 +559,10 @@ def _utc_now() -> str:
 
 
 def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, until: str) -> tuple[str, ...]:
-    """Detect which product plan items might have been addressed based on commit messages.
+    """Detect which product plan items might have been addressed based on commits.
 
-    Scans commit messages for keywords related to product plan competencies and gaps.
-    Returns hints about potentially addressed plan items for gap analysis.
+    Analyzes both commit messages and file changes to detect coverage of product plan
+    competencies and gaps. Returns hints about potentially addressed plan items.
     """
     plan_keywords = {
         "workspace discovery": ["workspace", "repo", "resolution", "discovery"],
@@ -567,13 +574,27 @@ def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, unt
         "traceability": ["trace", "handoff", "recovery", "journal"],
     }
 
+    # Structural indicators: file patterns that signal specific plan areas
+    file_patterns = {
+        "workspace discovery": ["config.py", "git_status.py", "resolution"],
+        "agent orchestration": ["agent_adapter.py", "delegation.py", "routing"],
+        "context compaction": ["context_pack.py", "memory.py", "snapshot"],
+        "parallel execution": ["batch.py", "concurrent", "pool"],
+        "learning": ["habits.py", "feedback.py", "preference"],
+        "cycle orchestration": ["cycle.py", "checkpoint"],
+        "traceability": ["journal.py", "handoff", "trace"],
+    }
+
     coverage_hints = set()
     for source in sources:
-        if source.type != "repository":
+        # Skip if path doesn't exist or isn't a git repo
+        if not source.path.exists():
             continue
         try:
+            # Use git log with --all to catch recent commits regardless of branch timing
+            # Then filter by timestamp in the output
             result = subprocess.run(
-                ["git", "log", f"--since={since}", f"--until={until}", "--pretty=format:%s"],
+                ["git", "log", "--all", f"--since={since}", f"--until={until}", "--pretty=format:%s"],
                 cwd=source.path,
                 capture_output=True,
                 text=True,
@@ -584,7 +605,40 @@ def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, unt
                 for plan_item, keywords in plan_keywords.items():
                     if any(kw in commits for kw in keywords):
                         coverage_hints.add(plan_item)
+
+            # Check changed files for structural indicators
+            file_result = subprocess.run(
+                ["git", "log", "--all", f"--since={since}", f"--until={until}", "--name-only", "--pretty=format:"],
+                cwd=source.path,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+            if file_result.returncode == 0:
+                changed_files = file_result.stdout.lower()
+                for plan_item, patterns in file_patterns.items():
+                    if any(pattern in changed_files for pattern in patterns):
+                        coverage_hints.add(plan_item)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
     return tuple(sorted(coverage_hints))
+
+
+def detect_plan_gaps(sources: Iterable[Source], since: str, until: str) -> tuple[str, ...]:
+    """Identify product plan items that received no coverage in the given window.
+
+    Returns a list of plan competencies and gaps that were not addressed by any commits.
+    """
+    all_plan_items = {
+        "workspace discovery",
+        "agent orchestration",
+        "context compaction",
+        "parallel execution",
+        "learning",
+        "cycle orchestration",
+        "traceability",
+    }
+    covered = set(detect_plan_coverage_from_commits(sources, since, until))
+    gaps = all_plan_items - covered
+    return tuple(sorted(gaps))
