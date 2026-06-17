@@ -211,6 +211,61 @@ class JournalTests(unittest.TestCase):
         subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True)
         subprocess.run(["git", "commit", "-m", message], cwd=path, check=True, capture_output=True)
 
+    def test_recent_commit_summaries_returns_newest_first(self):
+        from workspace_os.journal import get_recent_commit_summaries
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+
+            # Create commits with distinct messages
+            (source_root / "first.txt").write_text("first", encoding="utf-8")
+            self._git_commit(source_root, "First commit")
+            time.sleep(1)  # Ensure distinct timestamps
+
+            (source_root / "second.txt").write_text("second", encoding="utf-8")
+            self._git_commit(source_root, "Second commit")
+            time.sleep(1)
+
+            (source_root / "third.txt").write_text("third", encoding="utf-8")
+            self._git_commit(source_root, "Third commit")
+
+            summaries = get_recent_commit_summaries(
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                limit=3,
+            )
+
+            # Should return newest first
+            self.assertEqual(len(summaries), 3)
+            self.assertEqual(summaries[0], "Third commit")
+            self.assertEqual(summaries[1], "Second commit")
+            self.assertEqual(summaries[2], "First commit")
+
+    def test_recent_commit_summaries_respects_limit(self):
+        from workspace_os.journal import get_recent_commit_summaries
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+
+            # Create multiple commits
+            for i in range(5):
+                (source_root / f"file{i}.txt").write_text(f"content{i}", encoding="utf-8")
+                self._git_commit(source_root, f"Commit {i}")
+
+            summaries = get_recent_commit_summaries(
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                limit=2,
+            )
+
+            # Should only return the limit
+            self.assertEqual(len(summaries), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

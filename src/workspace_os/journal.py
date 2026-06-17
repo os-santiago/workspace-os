@@ -642,3 +642,40 @@ def detect_plan_gaps(sources: Iterable[Source], since: str, until: str) -> tuple
     covered = set(detect_plan_coverage_from_commits(sources, since, until))
     gaps = all_plan_items - covered
     return tuple(sorted(gaps))
+
+
+def get_recent_commit_summaries(sources: Iterable[Source], limit: int = 5) -> tuple[str, ...]:
+    """Get recent commit summaries from sources to help agents avoid duplicating work.
+
+    Returns a list of recent commit summary lines (first line of commit message) across
+    all sources, newest first, limited to the specified count.
+    """
+    commits: list[tuple[float, str]] = []
+    for source in sources:
+        if not source.path.exists():
+            continue
+        try:
+            # Get recent commits with timestamp for sorting
+            result = subprocess.run(
+                ["git", "log", "--all", "-20", "--pretty=format:%ct||%s"],
+                cwd=source.path,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    if not line or "||" not in line:
+                        continue
+                    timestamp_str, message = line.split("||", 1)
+                    try:
+                        timestamp = float(timestamp_str)
+                        commits.append((timestamp, message.strip()))
+                    except ValueError:
+                        continue
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    # Sort by timestamp descending and take the limit
+    commits.sort(reverse=True, key=lambda item: item[0])
+    return tuple(message for _, message in commits[:limit])

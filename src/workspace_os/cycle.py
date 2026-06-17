@@ -316,6 +316,17 @@ def _build_cycle_work_prompt(
     except Exception:
         pass
 
+    # Get recent commit summaries to help agents avoid duplicating recent work
+    recent_work_lines: list[str] = []
+    try:
+        from workspace_os.journal import get_recent_commit_summaries
+        recent_commits = get_recent_commit_summaries(sources, limit=3)
+        if recent_commits:
+            recent_work_lines.append("Recent commits (avoid duplicating):")
+            recent_work_lines.extend(f"- {commit}" for commit in recent_commits)
+    except Exception:
+        pass
+
     base_lines = [
         f"Long-run WOS improvement iteration {iteration_number}.",
         f"Objective: {objective}",
@@ -330,6 +341,13 @@ def _build_cycle_work_prompt(
             "Prefer code, tests, and docs over prose-only output.",
             "Keep unrelated local changes intact.",
             "Return a concise summary of changed files, validations, and any remaining gaps.",
+        ]
+    )
+    if recent_work_lines:
+        base_lines.append("")
+        base_lines.extend(recent_work_lines)
+    base_lines.extend(
+        [
             "",
             "Current analysis:",
             analysis_text,
