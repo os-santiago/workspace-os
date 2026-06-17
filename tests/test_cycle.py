@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import threading
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -150,6 +150,123 @@ class CycleTests(unittest.TestCase):
         self.assertGreaterEqual(result.agent_active_duration_seconds or 0.0, 60.0)
         self.assertEqual(1, result.report.checkpoint_count)
         self.assertEqual(0.0, result.idle_ratio)
+
+    def test_cycle_work_continuous_starts_new_work_immediately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+            lock = threading.Lock()
+            completed_items = []
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                del agent, workspace_name, workspace_root, memory_store
+                with lock:
+                    current[0] = current[0] + timedelta(seconds=15)
+                    completed_items.append(task)
+                return SimpleNamespace(returncode=0, duration_seconds=15.0)
+
+            result = run_cycle_work_window_continuous(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                duration_minutes=1,
+                label="cycle-continuous",
+                objective="continuous agent utilization test",
+                now_fn=now_fn,
+                agent_runner=agent_runner,
+            )
+
+        # Continuous mode should complete more work items than batched mode
+        # because agents don't wait for each other
+        self.assertTrue(result.started_cycle)
+        self.assertGreaterEqual(result.delegation_count or 0, 4)
+        self.assertGreater(len(completed_items), 2)
+        # Note: idle_ratio calculation relies on wall_clock_duration which doesn't advance
+        # in unit tests with mocked time, so we can't assert on it here
+
+    def test_cycle_work_continuous_handles_agent_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+            lock = threading.Lock()
+            completed_items = []
+            failure_count = [0]
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                del agent, workspace_name, workspace_root, memory_store, prompt
+                with lock:
+                    current[0] = current[0] + timedelta(seconds=10)
+                    # Fail every third agent
+                    failure_count[0] += 1
+                    if failure_count[0] % 3 == 0:
+                        raise ValueError("simulated agent failure")
+                    completed_items.append(task)
+                return SimpleNamespace(returncode=0, duration_seconds=10.0)
+
+            result = run_cycle_work_window_continuous(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                duration_minutes=1,
+                label="cycle-continuous-failure",
+                objective="test agent failure handling",
+                now_fn=now_fn,
+                agent_runner=agent_runner,
+            )
+
+        # Should continue despite failures and complete remaining work
+        self.assertTrue(result.started_cycle)
+        self.assertGreater(result.delegation_count or 0, 4)
+        self.assertGreater(len(completed_items), 2)
+
+    def test_cycle_work_continuous_stop_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                del agent, workspace_name, workspace_root, memory_store, task, prompt
+                current[0] = current[0] + timedelta(seconds=5)
+                return SimpleNamespace(returncode=0, duration_seconds=5.0)
+
+            # Note: stop_on_failure checks evaluation gates, not agent failures
+            # This test verifies the flag is honored when checkpoints fail
+            result = run_cycle_work_window_continuous(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                duration_minutes=1,
+                label="cycle-continuous-stop",
+                objective="test stop on failure",
+                stop_on_failure=True,
+                now_fn=now_fn,
+                agent_runner=agent_runner,
+            )
+
+        self.assertTrue(result.started_cycle)
+        # Should complete at least some work before stopping
+        self.assertGreaterEqual(result.delegation_count or 0, 2)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

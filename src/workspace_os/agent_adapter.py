@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -71,7 +72,7 @@ def launch_agent(
     hardened_prompt = build_hardened_delegate_prompt(agent, workspace_name, workspace_root, prompt)
     command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _launch_process
-    pid = start_process(command, workspace_root)
+    pid = start_process(_prepare_command(command), workspace_root)
     memory_store.record_agent_launch(agent, task, workspace_name)
     return pid
 
@@ -89,13 +90,14 @@ def run_agent(
     command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _run_process
     started_at = time.perf_counter()
-    completed = start_process(command, workspace_root)
+    completed = start_process(_prepare_command(command), workspace_root)
     duration_seconds = max(0.0, time.perf_counter() - started_at)
     memory_store.record_agent_launch(agent, task, workspace_name)
     return AgentExecutionResult(agent=agent, command=tuple(command), returncode=int(completed), duration_seconds=duration_seconds)
 
 
 def _launch_process(command: list[str], cwd: Path) -> int:
+    command = _prepare_command(command)
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     process = subprocess.Popen(
         command,
@@ -109,6 +111,7 @@ def _launch_process(command: list[str], cwd: Path) -> int:
 
 
 def _run_process(command: list[str], cwd: Path) -> int:
+    command = _prepare_command(command)
     completed = subprocess.run(
         command,
         cwd=cwd,
@@ -118,3 +121,14 @@ def _run_process(command: list[str], cwd: Path) -> int:
         check=False,
     )
     return completed.returncode
+
+
+def _prepare_command(command: list[str]) -> list[str]:
+    if not command:
+        return command
+    executable = shutil.which(command[0]) or command[0]
+    executable_path = Path(executable)
+    suffix = executable_path.suffix.lower()
+    if suffix in {".cmd", ".bat"}:
+        return ["cmd.exe", "/c", executable, *command[1:]]
+    return [executable, *command[1:]]

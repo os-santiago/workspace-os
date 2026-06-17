@@ -71,6 +71,24 @@ The product goal is not to generate everything. The product goal is to use the l
 
 Workspace OS also exposes a non-interactive bridge for other CLI agents. The bridge lets Codex, Claude, or any comparable tool ask WOS what is available, what should continue next, and which surfaces are safe to use without entering the interactive shell.
 
+## Long-Run Execution Model
+
+For extended implementation windows, Workspace OS supports cycle orchestration with two execution modes:
+
+### Batched Mode (default)
+Runs work in synchronized iterations: both agents complete their work before the next iteration starts. Simpler to reason about but can leave one agent idle while waiting for the slower agent to finish.
+
+### Continuous Mode (`--continuous`)
+Queues new work immediately when any agent finishes, keeping both agents maximally utilized throughout the window. Recommended for:
+
+- Extended work sessions (≥10 minutes)
+- High-throughput scenarios where agent utilization matters
+- Long-run cycles where minimizing idle ratio is a priority
+
+Continuous mode trades iteration synchronization for agent utilization. Checkpoints occur every 4 completed work items rather than after each synchronized iteration pair. This reduces checkpoint overhead while maintaining visibility into cycle progress.
+
+Use `cycle work --continuous --duration <minutes>` to activate continuous agent utilization.
+
 ## Extension Model
 
 Workspace OS is intentionally pluggable at the OCE layer.

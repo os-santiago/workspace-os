@@ -11,7 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
@@ -737,6 +737,7 @@ class WorkspaceShell(cmd.Cmd):
         work_parser.add_argument("--objective")
         work_parser.add_argument("--note", default="")
         work_parser.add_argument("--stop-on-failure", action="store_true")
+        work_parser.add_argument("--continuous", action="store_true")
 
         subparsers.add_parser("stop", add_help=False)
         subparsers.add_parser("next", add_help=False)
@@ -760,7 +761,7 @@ class WorkspaceShell(cmd.Cmd):
             print("       /cycle run --iterations N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
             print("       /cycle run --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
             print("       /cycle watch --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
-            print("       /cycle work --duration-minutes N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle work --duration-minutes N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure] [--continuous]")
             print("       /cycle stop")
             print("       /cycle status")
             print("       /cycle report [--id N]")
@@ -873,7 +874,8 @@ class WorkspaceShell(cmd.Cmd):
 
         if options.cycle_command == "work":
             try:
-                result = run_cycle_work_window(
+                work_fn = run_cycle_work_window_continuous if options.continuous else run_cycle_work_window
+                result = work_fn(
                     self.memory_store,
                     self._selected_sources(),
                     duration_minutes=max(0.0, options.duration_minutes),

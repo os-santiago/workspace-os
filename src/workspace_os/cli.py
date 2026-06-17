@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.journal import write_cycle_journal
 from workspace_os.journal import journal_root, latest_journal_entry, list_journal_entries
@@ -398,6 +398,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_work.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
     cycle_work.add_argument("--note", default="", help="Optional checkpoint note prefix.")
     cycle_work.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
+    cycle_work.add_argument("--continuous", action="store_true", help="Use continuous agent utilization mode to minimize idle time.")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
@@ -1149,7 +1150,8 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
 
     if command == "work":
         try:
-            result = run_cycle_work_window(
+            work_fn = run_cycle_work_window_continuous if args.continuous else run_cycle_work_window
+            result = work_fn(
                 store,
                 sources,
                 duration_minutes=max(0.0, args.duration_minutes),

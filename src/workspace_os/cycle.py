@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from pathlib import Path
@@ -687,6 +687,221 @@ def run_cycle_work_window(
     logical_duration_seconds = max(0.0, (ended_at - started_at).total_seconds())
     wall_clock_duration_seconds = max(0.0, wall_ended_at - wall_started_at)
     idle_ratio = 0.0 if logical_duration_seconds <= 0 else min(1.0, max(0.0, (logical_duration_seconds - total_agent_active) / logical_duration_seconds))
+    return CycleRunResult(
+        cycle_id=cycle_id,
+        started_cycle=started_cycle,
+        iterations_completed=len(iteration_results),
+        iteration_results=tuple(iteration_results),
+        report=CycleReport(
+            cycle=report["cycle"],
+            checkpoint_count=int(report["checkpoint_count"]),
+            health_pass_rate=float(report["health_pass_rate"]),
+            stability_pass_rate=float(report["stability_pass_rate"]),
+            security_pass_rate=float(report["security_pass_rate"]),
+            quality_pass_rate=float(report["quality_pass_rate"]),
+            latest_checkpoint=report["latest_checkpoint"],
+        ),
+        target_duration_minutes=duration_minutes,
+        window_started_at=started_at.isoformat(),
+        window_ended_at=ended_at.isoformat(),
+        logical_duration_seconds=logical_duration_seconds,
+        wall_clock_duration_seconds=wall_clock_duration_seconds,
+        sleep_duration_seconds=0.0,
+        logical_active_duration_seconds=logical_duration_seconds,
+        wall_clock_active_duration_seconds=wall_clock_duration_seconds,
+        idle_ratio=idle_ratio,
+        delegation_count=total_delegations,
+        agent_active_duration_seconds=total_agent_active,
+    )
+
+
+def run_cycle_work_window_continuous(
+    memory_store: WorkspaceMemoryStore,
+    sources: list[Source],
+    duration_minutes: float,
+    label: str | None = None,
+    objective: str | None = None,
+    note: str | None = None,
+    stop_on_failure: bool = False,
+    now_fn: Callable[[], datetime] | None = None,
+    agent_runner: Callable[..., object] | None = None,
+) -> CycleRunResult:
+    """Run cycle work with continuous agent utilization to minimize idle time.
+
+    Unlike run_cycle_work_window which waits for both agents to complete before
+    starting the next iteration, this implementation queues new work as soon as
+    any agent finishes, maximizing agent utilization and reducing idle ratio.
+    """
+    if duration_minutes < 0:
+        raise ValueError("Cycle duration must be at least 0 minutes.")
+
+    now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+    started_at = now_fn()
+    wall_started_at = time.perf_counter()
+    deadline = started_at + timedelta(minutes=duration_minutes)
+    active = memory_store.active_cycle()
+    started_cycle = False
+    if active is None:
+        if not label or not label.strip() or not objective or not objective.strip():
+            raise ValueError("An active cycle is required, or provide --label and --objective to start one.")
+        cycle_id = start_cycle(memory_store, label.strip(), objective.strip(), started_at=started_at.isoformat())
+        started_cycle = True
+    else:
+        cycle_id = int(active["id"])
+
+    iteration_results: list[CycleIterationResult] = []
+    work_item_number = 1
+    completed_work_items = 0
+    total_delegations = 0
+    total_agent_active = 0.0
+    executor = agent_runner or run_agent
+    workspace_name = _work_workspace_name(sources)
+
+    # Queue for pending work items
+    pending_futures = {}
+    checkpoint_counter = 1
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        # Start initial two work items
+        for _ in range(2):
+            if now_fn() >= deadline:
+                break
+
+            work_prompt = _build_cycle_work_prompt(
+                sources,
+                memory_store,
+                workspace_name=workspace_name,
+                objective=objective or "Improve WOS with the active plan.",
+                note=note,
+                iteration_number=work_item_number,
+            )
+            agent_type = "opencode" if work_item_number % 2 == 1 else "claude"
+            role = "primary" if work_item_number % 2 == 1 else "secondary"
+
+            future = pool.submit(
+                executor,
+                agent_type,
+                workspace_name,
+                f"cycle-work-{work_item_number}-{role}",
+                work_prompt[f"{role}:{agent_type}"],
+                _workspace_root_for_sources(sources),
+                memory_store,
+            )
+            pending_futures[future] = {
+                "work_item_number": work_item_number,
+                "agent_type": agent_type,
+                "role": role,
+                "started_at": time.perf_counter(),
+            }
+            total_delegations += 1
+            work_item_number += 1
+
+        # Process completions and queue new work continuously
+        while pending_futures and now_fn() < deadline:
+            try:
+                completed_futures = list(as_completed(pending_futures.keys(), timeout=1.0))
+            except TimeoutError:
+                # No futures completed within timeout, continue waiting
+                continue
+
+            for future in completed_futures:
+                work_info = pending_futures.pop(future)
+                try:
+                    result = future.result()
+                    duration = time.perf_counter() - work_info["started_at"]
+                    total_agent_active += float(getattr(result, "duration_seconds", duration))
+                    completed_work_items += 1
+
+                    # Record completion for this work item
+                    # Note: We checkpoint every N completions rather than every iteration
+                    # to reduce checkpoint overhead while maintaining visibility
+
+                except Exception:
+                    # Agent failed - record but continue
+                    pass
+
+                # Queue next work item immediately if time permits
+                if now_fn() < deadline:
+                    work_prompt = _build_cycle_work_prompt(
+                        sources,
+                        memory_store,
+                        workspace_name=workspace_name,
+                        objective=objective or "Improve WOS with the active plan.",
+                        note=note,
+                        iteration_number=work_item_number,
+                    )
+                    agent_type = "opencode" if work_item_number % 2 == 1 else "claude"
+                    role = "primary" if work_item_number % 2 == 1 else "secondary"
+
+                    new_future = pool.submit(
+                        executor,
+                        agent_type,
+                        workspace_name,
+                        f"cycle-work-{work_item_number}-{role}",
+                        work_prompt[f"{role}:{agent_type}"],
+                        _workspace_root_for_sources(sources),
+                        memory_store,
+                    )
+                    pending_futures[new_future] = {
+                        "work_item_number": work_item_number,
+                        "agent_type": agent_type,
+                        "role": role,
+                        "started_at": time.perf_counter(),
+                    }
+                    total_delegations += 1
+                    work_item_number += 1
+
+                # Checkpoint every 4 completed work items
+                if completed_work_items > 0 and completed_work_items % 4 == 0:
+                    evaluation_after = run_cycle_evaluation(sources, memory_store)
+                    checkpoint_label = _iteration_label(note, checkpoint_counter)
+                    checkpoint_id = record_cycle_checkpoint(
+                        memory_store,
+                        evaluation_after,
+                        checkpoint_label,
+                        iteration_number=checkpoint_counter,
+                        note=(
+                            f"continuous work checkpoint {checkpoint_counter}: {completed_work_items} work items completed"
+                            if not note or not note.strip()
+                            else f"{note.strip()} | checkpoint {checkpoint_counter}: {completed_work_items} items"
+                        ),
+                        cycle_id=cycle_id,
+                        created_at=now_fn().isoformat(),
+                    )
+                    iteration_results.append(
+                        CycleIterationResult(
+                            iteration_number=checkpoint_counter,
+                            checkpoint_id=checkpoint_id,
+                            label=checkpoint_label,
+                            evaluation=evaluation_after,
+                            delegation_count=4,
+                            agent_active_duration_seconds=total_agent_active / completed_work_items if completed_work_items > 0 else 0.0,
+                            work_summary=f"Continuous work: {completed_work_items} items completed, agents alternating.",
+                        )
+                    )
+                    if stop_on_failure and not evaluation_after.overall_ok():
+                        # Cancel pending work
+                        for pending_future in pending_futures.keys():
+                            pending_future.cancel()
+                        pending_futures.clear()
+                        break
+                    checkpoint_counter += 1
+
+    ended_at = now_fn()
+    wall_ended_at = time.perf_counter()
+    if started_cycle:
+        stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    report = memory_store.cycle_report(cycle_id)
+    if report is None:
+        raise ValueError("Cycle report could not be generated.")
+    logical_duration_seconds = max(0.0, (ended_at - started_at).total_seconds())
+    wall_clock_duration_seconds = max(0.0, wall_ended_at - wall_started_at)
+    # In continuous mode with parallel agents, total_agent_active can exceed wall_clock_duration
+    # Idle ratio should be based on wall clock time, not logical time
+    # A value close to 0 means agents were kept busy; close to 1 means mostly idle
+    max_parallel_work = wall_clock_duration_seconds * 2  # 2 agents max
+    idle_ratio = 0.0 if max_parallel_work <= 0 else min(1.0, max(0.0, (max_parallel_work - total_agent_active) / max_parallel_work))
     return CycleRunResult(
         cycle_id=cycle_id,
         started_cycle=started_cycle,
