@@ -894,10 +894,13 @@ class WorkspaceShell(cmd.Cmd):
             self._emit(f"window_ended_at={result.window_ended_at}")
             self._emit(f"delegation_count={result.delegation_count or 0}")
             self._emit(f"agent_active_duration_seconds={result.agent_active_duration_seconds or 0.0:.2f}")
-            if result.queue_utilization_ratio is not None:
-                self._emit(f"queue_utilization_ratio={result.queue_utilization_ratio:.2f}")
-                self._emit(f"max_queue_depth={result.max_queue_depth or 0}")
-                self._emit(f"avg_work_item_duration_seconds={result.avg_work_item_duration_seconds or 0.0:.2f}")
+            queue_utilization_ratio = getattr(result, "queue_utilization_ratio", None)
+            if queue_utilization_ratio is not None:
+                self._emit(f"queue_utilization_ratio={queue_utilization_ratio:.2f}")
+                self._emit(f"max_queue_depth={getattr(result, 'max_queue_depth', 0) or 0}")
+                self._emit(
+                    f"avg_work_item_duration_seconds={getattr(result, 'avg_work_item_duration_seconds', 0.0) or 0.0:.2f}"
+                )
             for iteration in result.iteration_results:
                 self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
                 self._emit(render_cycle_evaluation(iteration.evaluation), end="")

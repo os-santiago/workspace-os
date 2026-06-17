@@ -325,7 +325,7 @@ def _is_feedback_message(message: str) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
-def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
+def _workspace_status_lines(memory_store: WorkspaceMemoryStore, target_source: Source | None = None) -> list[str]:
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     launches = memory_store.recent_launches(limit=3)
@@ -334,6 +334,16 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     workspace_root = _workspace_root_from_sources([])
 
     lines = ["Projects in flight:"]
+    if target_source is not None:
+        status = inspect_source(target_source)
+        branch = status.branch or "n/a"
+        lines.extend(
+            [
+                f"- requested repo={target_source.name}",
+                f"- target path={target_source.path}",
+                f"- target state={status.state} branch={branch} changes={status.dirty_count} untracked={status.untracked_count}",
+            ]
+        )
     if workspace_root != "all workspaces":
         lines.append(f"- root={workspace_root}")
     lines.append(f"- workspace={workspace_name}")
@@ -490,7 +500,7 @@ def _answer_lines(
             assessment.reason,
         ]
     if memory_store and _is_workspace_status_query(message):
-        return _workspace_status_answer_lines(sources, memory_store)
+        return _workspace_status_answer_lines(sources, memory_store, target_source=target_source)
     return [
             "Give me a repo, goal, or question and I'll turn it into a task plan, route work through OCE, or cross-check with Claude.",
             "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/opencode <task>', '/codex <task>', or '/claude <task>'.",
@@ -522,7 +532,11 @@ def _repository_request_lines(message: str, source: Source, profile=None) -> lis
     return lines
 
 
-def _workspace_status_answer_lines(sources: list[Source], memory_store: WorkspaceMemoryStore) -> list[str]:
+def _workspace_status_answer_lines(
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore,
+    target_source: Source | None = None,
+) -> list[str]:
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     launches = memory_store.recent_launches(limit=3)
@@ -533,6 +547,17 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
     workspace_root = _workspace_root_from_sources(workspace_sources)
     kb_root = _workspace_root_from_sources(kb_sources)
 
+    if target_source is not None:
+        status = inspect_source(target_source)
+        branch = status.branch or "n/a"
+        lines.extend(
+            [
+                f"Requested repo: {target_source.name}",
+                f"Target repo: {target_source.name}",
+                f"Path: {target_source.path}",
+                f"State: {status.state} branch={branch} changes={status.dirty_count} untracked={status.untracked_count}",
+            ]
+        )
     lines.append(f"Workspace root: {workspace_root}")
     lines.append("Workspace projects under root:")
     for source in workspace_sources:
@@ -594,7 +619,7 @@ def _workspace_status_answer_lines(sources: list[Source], memory_store: Workspac
         analysis = build_workspace_analysis(
             sources,
             memory_store,
-            workspace=_workspace_name_from_sources(sources),
+            workspace=target_source.name if target_source is not None else _workspace_name_from_sources(sources),
             limit=5,
             compact=True,
         )

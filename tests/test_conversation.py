@@ -9,6 +9,18 @@ from workspace_os.memory import WorkspaceMemoryStore
 
 
 class ConversationTests(unittest.TestCase):
+    def _init_git_repo(self, path: Path) -> None:
+        import subprocess
+        import os
+
+        subprocess.run(["git", "init"], cwd=path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "config", "user.email", "workspace@example.com"], cwd=path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "config", "user.name", "Workspace"], cwd=path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (path / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        env = os.environ.copy()
+        subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+
     def test_workspace_reply_records_turns_and_surfaces_memory_hits(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -134,6 +146,7 @@ class ConversationTests(unittest.TestCase):
             root = Path(directory)
             source_root = root / "workspace-os"
             source_root.mkdir()
+            self._init_git_repo(source_root)
             db_path = root / "memory.sqlite3"
             store = WorkspaceMemoryStore(db_path)
             store.ensure_schema()
@@ -198,6 +211,27 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Continue with:", reply.reply)
         self.assertIn("Primary route: /opencode", reply.reply)
         self.assertIn("Optional cross-check: /claude", reply.reply)
+
+    def test_workspace_reply_targets_named_repository_in_status_queries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                "dame el estado de avance de workspace-os",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Requested repo: workspace-os", reply.reply)
+        self.assertIn("Target repo: workspace-os", reply.reply)
+        self.assertIn(f"Path: {source_root}", reply.reply)
+        self.assertIn("Analysis:", reply.reply)
 
     def test_workspace_reply_includes_active_batch_summary(self):
         with tempfile.TemporaryDirectory() as directory:

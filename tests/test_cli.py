@@ -718,6 +718,9 @@ class CliTests(unittest.TestCase):
                 idle_ratio=0.0,
                 delegation_count=2,
                 agent_active_duration_seconds=60.0,
+                queue_utilization_ratio=0.5,
+                max_queue_depth=4,
+                avg_work_item_duration_seconds=30.0,
             )
 
             with patch("workspace_os.cli.run_cycle_work_window", return_value=fake_result), patch(
