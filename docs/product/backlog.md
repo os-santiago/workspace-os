@@ -243,7 +243,7 @@ Initial implementation:
 - `conscience extensions` exposes registered OCE extension layers, policy docs, and hook counts so collaborators can review what is pluggable without reading source code first, and the workspace config can list extension modules to load at startup.
 - `next` exposes the immediate operational step from the current workspace state so the operator can move without opening the full overview.
 - `bridge next` exposes the shortest decision surface, `bridge status` defaults to a short decision-oriented summary, `bridge status --detail` expands the full bridge inventory, and `bridge capabilities` exposes the command surface so Codex, Claude, or any other CLI agent can query WOS without opening the shell.
-- `cycle` orchestrates long-running implementation plans with explicit health, stability, security, and quality checkpoints between iterations so WOS can supervise long cycles of delegated work.
+- `cycle` orchestrates long-running implementation plans with explicit health, stability, security, and quality checkpoints between iterations so WOS can supervise long cycles of delegated work, and `cycle run` can execute multiple checkpoints in one pass when the active cycle is already open or when a new cycle is started with a label and objective.
 - `tests/test_smoke_queries.py` provides a regression battery of representative user queries and command surfaces, and each batch should run it alongside the normal validation suite.
 - `workspace validate` includes the smoke regression battery by default, with `--skip-smoke-queries` available for narrower gates, and optional sources do not fail the gate when they are marked `required: false`.
 - The web UI exposes a collapsible Conscience panel with decision, policy refs, and moral context.

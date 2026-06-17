@@ -110,6 +110,23 @@ class CycleReport:
         return "partial"
 
 
+@dataclass(frozen=True)
+class CycleIterationResult:
+    iteration_number: int
+    checkpoint_id: int
+    label: str
+    evaluation: CycleEvaluation
+
+
+@dataclass(frozen=True)
+class CycleRunResult:
+    cycle_id: int
+    started_cycle: bool
+    iterations_completed: int
+    iteration_results: tuple[CycleIterationResult, ...]
+    report: CycleReport
+
+
 def start_cycle(memory_store: WorkspaceMemoryStore, label: str, objective: str, started_at: str | None = None) -> int:
     return memory_store.start_cycle(label, objective, started_at=started_at)
 
@@ -158,12 +175,82 @@ def record_cycle_checkpoint(
     label: str,
     iteration_number: int,
     note: str | None = None,
+    cycle_id: int | None = None,
 ) -> int:
     return memory_store.record_cycle_checkpoint(
         label=label,
         iteration_number=iteration_number,
         report=evaluation.to_dict(),
         note=note,
+        cycle_id=cycle_id,
+    )
+
+
+def run_cycle_plan(
+    memory_store: WorkspaceMemoryStore,
+    sources: list[Source],
+    iterations: int,
+    label: str | None = None,
+    objective: str | None = None,
+    note: str | None = None,
+    stop_on_failure: bool = False,
+) -> CycleRunResult:
+    if iterations < 1:
+        raise ValueError("Cycle iterations must be at least 1.")
+
+    active = memory_store.active_cycle()
+    started_cycle = False
+    if active is None:
+        if not label or not label.strip() or not objective or not objective.strip():
+            raise ValueError("An active cycle is required, or provide --label and --objective to start one.")
+        cycle_id = start_cycle(memory_store, label.strip(), objective.strip())
+        started_cycle = True
+    else:
+        cycle_id = int(active["id"])
+
+    iteration_results: list[CycleIterationResult] = []
+    for iteration_number in range(1, iterations + 1):
+        evaluation = run_cycle_evaluation(sources, memory_store)
+        checkpoint_label = _iteration_label(note, iteration_number)
+        checkpoint_id = record_cycle_checkpoint(
+            memory_store,
+            evaluation,
+            checkpoint_label,
+            iteration_number=iteration_number,
+            note=note.strip() if note and note.strip() else None,
+            cycle_id=cycle_id,
+        )
+        iteration_results.append(
+            CycleIterationResult(
+                iteration_number=iteration_number,
+                checkpoint_id=checkpoint_id,
+                label=checkpoint_label,
+                evaluation=evaluation,
+            )
+        )
+        if stop_on_failure and not evaluation.overall_ok():
+            break
+
+    if started_cycle:
+        stop_cycle(memory_store)
+
+    report = memory_store.cycle_report(cycle_id)
+    if report is None:
+        raise ValueError("Cycle report could not be generated.")
+    return CycleRunResult(
+        cycle_id=cycle_id,
+        started_cycle=started_cycle,
+        iterations_completed=len(iteration_results),
+        iteration_results=tuple(iteration_results),
+        report=CycleReport(
+            cycle=report["cycle"],
+            checkpoint_count=int(report["checkpoint_count"]),
+            health_pass_rate=float(report["health_pass_rate"]),
+            stability_pass_rate=float(report["stability_pass_rate"]),
+            security_pass_rate=float(report["security_pass_rate"]),
+            quality_pass_rate=float(report["quality_pass_rate"]),
+            latest_checkpoint=report["latest_checkpoint"],
+        ),
     )
 
 
@@ -254,6 +341,11 @@ def _run_quality_checks(sources: list[Source], memory_store: WorkspaceMemoryStor
                 continue
             results.append(CycleCheckResult(name, True, "Expected operational guidance present."))
         return tuple(results)
+
+
+def _iteration_label(note: str | None, iteration_number: int) -> str:
+    prefix = note.strip() if note and note.strip() else "iteration"
+    return f"{prefix}-{iteration_number}"
 
 
 def _init_git_repo(path: Path) -> None:

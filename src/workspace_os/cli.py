@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
@@ -373,6 +373,12 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_start = cycle_subparsers.add_parser("start", help="Start a new long-running cycle.")
     cycle_start.add_argument("--label", required=True, help="Cycle label.")
     cycle_start.add_argument("--objective", required=True, help="Cycle objective.")
+    cycle_run = cycle_subparsers.add_parser("run", help="Run one or more checkpoints in a cycle.")
+    cycle_run.add_argument("--iterations", type=int, default=3, help="Number of checkpoints to run.")
+    cycle_run.add_argument("--label", help="Optional cycle label when no cycle is active.")
+    cycle_run.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
+    cycle_run.add_argument("--note", default="", help="Optional checkpoint note prefix.")
+    cycle_run.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_report = cycle_subparsers.add_parser("report", help="Render the active or selected cycle report.")
@@ -1010,6 +1016,28 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
         print(f"started cycle {cycle_id}")
         return 0
 
+    if command == "run":
+        try:
+            result = run_cycle_plan(
+                store,
+                sources,
+                iterations=max(1, args.iterations),
+                label=args.label,
+                objective=args.objective,
+                note=args.note,
+                stop_on_failure=args.stop_on_failure,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"cycle_id={result.cycle_id}")
+        print(f"iterations_completed={result.iterations_completed}")
+        for iteration in result.iteration_results:
+            print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+            print(render_cycle_evaluation(iteration.evaluation), end="")
+        print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+        return 0
+
     if command == "stop":
         cycle = stop_cycle(store)
         if cycle is None:
@@ -1082,6 +1110,22 @@ def _render_cycle_report(report: dict[str, object]) -> str:
         lines.append(f"latest_checkpoint={latest.get('iteration_number', 'n/a')}")
         lines.append(f"latest_label={latest.get('label', 'n/a')}")
     return "\n".join(lines) + "\n"
+
+
+def _cycle_report_to_dict(report: object) -> dict[str, object]:
+    cycle = getattr(report, "cycle", None)
+    if cycle is None:
+        raise TypeError("Unsupported cycle report type.")
+    return {
+        "cycle": cycle,
+        "cycle_id": cycle.get("id"),
+        "checkpoint_count": getattr(report, "checkpoint_count"),
+        "health_pass_rate": getattr(report, "health_pass_rate"),
+        "stability_pass_rate": getattr(report, "stability_pass_rate"),
+        "security_pass_rate": getattr(report, "security_pass_rate"),
+        "quality_pass_rate": getattr(report, "quality_pass_rate"),
+        "latest_checkpoint": getattr(report, "latest_checkpoint"),
+    }
 
 
 def _next_cycle_iteration(store: WorkspaceMemoryStore, cycle_id: int) -> int:

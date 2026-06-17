@@ -161,16 +161,21 @@ def _run_cli_checks(config: Path) -> list[SmokeCheckResult]:
             ["--config", str(config), "roots"],
             ["Workspace roots:", "Workspace root:", "Knowledge base root:"],
         ),
-            (
-                "cli:oce-status",
-                ["--config", str(config), "oce", "status"],
-                ["OCE report", "recommended_next_action"],
-            ),
-            (
-                "cli:cycle-status",
-                ["--config", str(config), "cycle", "status"],
-                ["Cycle report", "health=", "stability=", "security=", "quality="],
-            ),
+        (
+            "cli:oce-status",
+            ["--config", str(config), "oce", "status"],
+            ["OCE report", "recommended_next_action"],
+        ),
+        (
+            "cli:cycle-run",
+            ["--config", str(config), "cycle", "run", "--iterations", "2"],
+            ["iterations_completed=2", "Cycle checks:"],
+        ),
+        (
+            "cli:cycle-status",
+            ["--config", str(config), "cycle", "status"],
+            ["Cycle report", "health=", "stability=", "security=", "quality="],
+        ),
             (
                 "cli:cycle-checkpoint",
                 ["--config", str(config), "cycle", "checkpoint", "--label", "iteration-1"],
@@ -207,6 +212,7 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
             shell.do_next("")
             shell.do_roots("")
             shell.do_oce("status 5")
+            shell.do_cycle("run --iterations 2")
             shell.do_cycle("status")
             shell.do_cycle("checkpoint --label iteration-1")
             shell.do_cycle("report")
@@ -216,6 +222,7 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
         ("shell:next", "Workspace next action:"),
         ("shell:roots", "Workspace roots:"),
         ("shell:oce", "OCE report"),
+        ("shell:cycle-run", "iterations_completed=2"),
         ("shell:cycle", "Cycle report"),
         ("shell:reply", "Primary route: /opencode"),
         ("shell:route", "Optional cross-check: /claude"),

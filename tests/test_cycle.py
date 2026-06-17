@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -40,6 +40,26 @@ class CycleTests(unittest.TestCase):
             start_cycle(store, "cycle-1", "long run implementation")
             stopped = stop_cycle(store)
             self.assertIsNotNone(stopped)
+            self.assertIsNone(store.active_cycle())
+
+    def test_cycle_run_executes_multiple_iterations_and_closes_new_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            result = run_cycle_plan(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                iterations=2,
+                label="cycle-1",
+                objective="long run implementation",
+            )
+            self.assertTrue(result.started_cycle)
+            self.assertEqual(2, result.iterations_completed)
+            self.assertEqual(2, result.report.checkpoint_count)
             self.assertIsNone(store.active_cycle())
 
     def _init_git_repo(self, path: Path) -> None:

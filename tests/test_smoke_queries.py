@@ -190,6 +190,14 @@ class SmokeQueryTests(unittest.TestCase):
                 from contextlib import redirect_stdout
 
                 with redirect_stdout(buffer):
+                    cycle_run_exit_code = main(["--config", str(config), "cycle", "run", "--iterations", "2"])
+                buffer.seek(0)
+                cycle_run_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
                     cycle_status_exit_code = main(["--config", str(config), "cycle", "status"])
                 buffer.seek(0)
                 cycle_status_rendered = buffer.read()
@@ -217,6 +225,7 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertEqual(0, bridge_next_exit_code)
         self.assertEqual(0, bridge_caps_exit_code)
         self.assertEqual(0, exit_code_oce)
+        self.assertEqual(0, cycle_run_exit_code)
         self.assertEqual(0, cycle_status_exit_code)
         self.assertEqual(0, cycle_checkpoint_exit_code)
         self.assertEqual(0, cycle_report_exit_code)
@@ -238,6 +247,8 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("claude", bridge_caps_rendered)
         self.assertIn("OCE report", oce_rendered)
         self.assertIn("recommended_next_action", oce_rendered)
+        self.assertIn("iterations_completed=2", cycle_run_rendered)
+        self.assertIn("Cycle checks:", cycle_run_rendered)
         self.assertIn("Cycle report", cycle_status_rendered)
         self.assertIn("saved checkpoint", cycle_checkpoint_rendered)
         self.assertIn("Cycle checks:", cycle_checkpoint_rendered)
@@ -266,6 +277,7 @@ class SmokeQueryTests(unittest.TestCase):
                     shell.do_bridge("next")
                     shell.do_bridge("capabilities")
                     shell.do_oce("status 5")
+                    shell.do_cycle("run --iterations 2")
                     shell.do_cycle("status")
                     shell.do_cycle("checkpoint --label iteration-1")
                     shell.do_cycle("report")
@@ -285,6 +297,7 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Knowledge base projects:", rendered)
         self.assertIn("Continue with:", rendered)
         self.assertIn("OCE report", rendered)
+        self.assertIn("iterations_completed=2", rendered)
         self.assertIn("Cycle report", rendered)
         self.assertIn("Primary route: /opencode", rendered)
         self.assertIn("Optional cross-check: /claude", rendered)

@@ -573,6 +573,14 @@ class CliTests(unittest.TestCase):
                 from contextlib import redirect_stdout
 
                 with redirect_stdout(buffer):
+                    run_exit = main(["--config", str(config), "cycle", "run", "--iterations", "2"])
+                buffer.seek(0)
+                run_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
                     checkpoint_exit = main(["--config", str(config), "cycle", "checkpoint", "--label", "iteration-1"])
                 buffer.seek(0)
                 checkpoint_rendered = buffer.read()
@@ -602,11 +610,14 @@ class CliTests(unittest.TestCase):
                 stop_rendered = buffer.read()
 
         self.assertEqual(0, start_exit)
+        self.assertEqual(0, run_exit)
         self.assertEqual(0, checkpoint_exit)
         self.assertEqual(0, status_exit)
         self.assertEqual(0, report_exit)
         self.assertEqual(0, stop_exit)
         self.assertIn("started cycle", start_rendered)
+        self.assertIn("iterations_completed=2", run_rendered)
+        self.assertIn("Cycle checks:", run_rendered)
         self.assertIn("saved checkpoint", checkpoint_rendered)
         self.assertIn("Cycle checks:", checkpoint_rendered)
         self.assertIn("Cycle report:", status_rendered)

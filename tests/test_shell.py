@@ -305,6 +305,9 @@ class ShellTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_cycle("start --label cycle-1 --objective \"long run\"")
             with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_cycle("run --iterations 2")
+            run_rendered = buffer.getvalue()
+            with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_cycle("checkpoint --label iteration-1")
             checkpoint_rendered = buffer.getvalue()
 
@@ -320,6 +323,9 @@ class ShellTests(unittest.TestCase):
                 shell.do_cycle("stop")
             stop_rendered = buffer.getvalue()
 
+        self.assertIn("iterations_completed=2", run_rendered)
+        self.assertIn("saved checkpoint", run_rendered)
+        self.assertIn("Cycle checks:", run_rendered)
         self.assertIn("saved checkpoint", checkpoint_rendered)
         self.assertIn("Cycle checks:", checkpoint_rendered)
         self.assertIn("Cycle report:", status_rendered)
