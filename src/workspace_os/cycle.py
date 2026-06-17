@@ -305,12 +305,25 @@ def _build_cycle_work_prompt(
         analysis_text = render_workspace_analysis_text(sources, memory_store, workspace=workspace_name, limit=5, compact=True).rstrip()
         next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name).rstrip()
 
+    # Get recent plan gaps from latest journal to guide prioritization
+    plan_gap_hint = ""
+    try:
+        from workspace_os.journal import latest_journal_entry
+        latest = latest_journal_entry(memory_store)
+        if latest and latest.functional_metrics.plan_gaps:
+            gaps_str = ", ".join(latest.functional_metrics.plan_gaps)
+            plan_gap_hint = f"Recent plan gaps needing attention: {gaps_str}"
+    except Exception:
+        pass
+
     base_lines = [
         f"Long-run WOS improvement iteration {iteration_number}.",
         f"Objective: {objective}",
     ]
     if note and note.strip():
         base_lines.append(f"Note: {note.strip()}")
+    if plan_gap_hint:
+        base_lines.append(plan_gap_hint)
     base_lines.extend(
         [
             "Focus on concrete repository changes that reduce agent overhead, keep agents busy, and improve the long-run operating model.",
