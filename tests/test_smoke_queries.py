@@ -5,6 +5,7 @@ import unittest
 from workspace_os.batch import start_batch, start_process
 from workspace_os.cli import main
 from workspace_os.config import Source
+from workspace_os.cycle import start_cycle
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.shell import WorkspaceShell
@@ -22,6 +23,7 @@ class SmokeQueryTests(unittest.TestCase):
             store.ensure_schema()
             start_process(store, "process-1", "smoke query flow", started_at="2026-06-14T10:00:00+00:00")
             start_batch(store, "batch-1", "smoke query batch", started_at="2026-06-14T10:05:00+00:00")
+            start_cycle(store, "cycle-1", "smoke query cycle", started_at="2026-06-14T10:10:00+00:00")
             store.record_decision(
                 "hash-1",
                 "medium",
@@ -126,6 +128,7 @@ class SmokeQueryTests(unittest.TestCase):
             store = WorkspaceMemoryStore(memory)
             store.ensure_schema()
             start_process(store, "process-1", "smoke cli flow", started_at="2026-06-14T10:00:00+00:00")
+            start_cycle(store, "cycle-1", "smoke cli cycle", started_at="2026-06-14T10:10:00+00:00")
 
             with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
                 from contextlib import redirect_stdout
@@ -183,6 +186,30 @@ class SmokeQueryTests(unittest.TestCase):
                 buffer.seek(0)
                 oce_rendered = buffer.read()
 
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    cycle_status_exit_code = main(["--config", str(config), "cycle", "status"])
+                buffer.seek(0)
+                cycle_status_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    cycle_checkpoint_exit_code = main(["--config", str(config), "cycle", "checkpoint", "--label", "iteration-1"])
+                buffer.seek(0)
+                cycle_checkpoint_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    cycle_report_exit_code = main(["--config", str(config), "cycle", "report"])
+                buffer.seek(0)
+                cycle_report_rendered = buffer.read()
+
         self.assertEqual(0, exit_code)
         self.assertEqual(0, analysis_exit_code)
         self.assertEqual(0, bridge_exit_code)
@@ -190,6 +217,9 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertEqual(0, bridge_next_exit_code)
         self.assertEqual(0, bridge_caps_exit_code)
         self.assertEqual(0, exit_code_oce)
+        self.assertEqual(0, cycle_status_exit_code)
+        self.assertEqual(0, cycle_checkpoint_exit_code)
+        self.assertEqual(0, cycle_report_exit_code)
         self.assertIn("Workspace next action:", next_rendered)
         self.assertIn("Suggested command:", next_rendered)
         self.assertIn("Workspace analysis:", analysis_rendered)
@@ -208,6 +238,10 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("claude", bridge_caps_rendered)
         self.assertIn("OCE report", oce_rendered)
         self.assertIn("recommended_next_action", oce_rendered)
+        self.assertIn("Cycle report", cycle_status_rendered)
+        self.assertIn("saved checkpoint", cycle_checkpoint_rendered)
+        self.assertIn("Cycle checks:", cycle_checkpoint_rendered)
+        self.assertIn("Cycle report", cycle_report_rendered)
 
     def test_shell_smoke_queries_expect_current_state(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -215,7 +249,11 @@ class SmokeQueryTests(unittest.TestCase):
             source_root = root / "workspace-os"
             source_root.mkdir()
             self._init_git_repo(source_root)
-            shell = WorkspaceShell([Source("workspace-os", "product", "Workspace OS.", source_root)], root / "memory.sqlite3")
+            memory = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_cycle(store, "cycle-1", "smoke shell cycle", started_at="2026-06-14T10:10:00+00:00")
+            shell = WorkspaceShell([Source("workspace-os", "product", "Workspace OS.", source_root)], memory)
 
             with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
                 from contextlib import redirect_stdout
@@ -228,6 +266,9 @@ class SmokeQueryTests(unittest.TestCase):
                     shell.do_bridge("next")
                     shell.do_bridge("capabilities")
                     shell.do_oce("status 5")
+                    shell.do_cycle("status")
+                    shell.do_cycle("checkpoint --label iteration-1")
+                    shell.do_cycle("report")
                     shell.default("que proyectos tenemos en curso?")
                 buffer.seek(0)
                 rendered = buffer.read()
@@ -244,6 +285,7 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Knowledge base projects:", rendered)
         self.assertIn("Continue with:", rendered)
         self.assertIn("OCE report", rendered)
+        self.assertIn("Cycle report", rendered)
         self.assertIn("Primary route: /opencode", rendered)
         self.assertIn("Optional cross-check: /claude", rendered)
 

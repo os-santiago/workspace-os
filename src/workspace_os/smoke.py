@@ -10,6 +10,7 @@ import tempfile
 from workspace_os.batch import start_batch, start_process
 from workspace_os.cli import main
 from workspace_os.config import Source
+from workspace_os.cycle import start_cycle
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.shell import WorkspaceShell
@@ -54,6 +55,7 @@ def run_smoke_regression_checks() -> list[SmokeCheckResult]:
         store.ensure_schema()
         start_process(store, "process-1", "smoke query flow", started_at="2026-06-14T10:00:00+00:00")
         start_batch(store, "batch-1", "smoke query batch", started_at="2026-06-14T10:05:00+00:00")
+        start_cycle(store, "cycle-1", "smoke query cycle", started_at="2026-06-14T10:10:00+00:00")
         store.record_decision(
             "hash-1",
             "medium",
@@ -159,27 +161,42 @@ def _run_cli_checks(config: Path) -> list[SmokeCheckResult]:
             ["--config", str(config), "roots"],
             ["Workspace roots:", "Workspace root:", "Knowledge base root:"],
         ),
-        (
-            "cli:oce-status",
-            ["--config", str(config), "oce", "status"],
-            ["OCE report", "recommended_next_action"],
-        ),
-    ]:
-        rendered, exit_code = _capture_main(argv)
-        if exit_code != 0:
-            results.append(SmokeCheckResult(name, False, f"Command failed with exit code {exit_code}."))
-            continue
-        missing = [expectation for expectation in expectations if expectation not in rendered]
-        if missing:
-            results.append(
-                SmokeCheckResult(
-                    name,
-                    False,
-                    f"Missing expected fragments: {', '.join(missing)}",
+            (
+                "cli:oce-status",
+                ["--config", str(config), "oce", "status"],
+                ["OCE report", "recommended_next_action"],
+            ),
+            (
+                "cli:cycle-status",
+                ["--config", str(config), "cycle", "status"],
+                ["Cycle report", "health=", "stability=", "security=", "quality="],
+            ),
+            (
+                "cli:cycle-checkpoint",
+                ["--config", str(config), "cycle", "checkpoint", "--label", "iteration-1"],
+                ["saved checkpoint", "Cycle checks:", "health=", "stability=", "security=", "quality="],
+            ),
+            (
+                "cli:cycle-report",
+                ["--config", str(config), "cycle", "report"],
+                ["Cycle report", "checkpoint_count="],
+            ),
+        ]:
+            rendered, exit_code = _capture_main(argv)
+            if exit_code != 0:
+                results.append(SmokeCheckResult(name, False, f"Command failed with exit code {exit_code}."))
+                continue
+            missing = [expectation for expectation in expectations if expectation not in rendered]
+            if missing:
+                results.append(
+                    SmokeCheckResult(
+                        name,
+                        False,
+                        f"Missing expected fragments: {', '.join(missing)}",
+                    )
                 )
-            )
-            continue
-        results.append(SmokeCheckResult(name, True, "Command surface returned expected output."))
+                continue
+            results.append(SmokeCheckResult(name, True, "Command surface returned expected output."))
     return results
 
 
@@ -190,12 +207,16 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
             shell.do_next("")
             shell.do_roots("")
             shell.do_oce("status 5")
+            shell.do_cycle("status")
+            shell.do_cycle("checkpoint --label iteration-1")
+            shell.do_cycle("report")
             shell.default("que proyectos tenemos en curso?")
         rendered = buffer.getvalue()
     expectations = [
         ("shell:next", "Workspace next action:"),
         ("shell:roots", "Workspace roots:"),
         ("shell:oce", "OCE report"),
+        ("shell:cycle", "Cycle report"),
         ("shell:reply", "Primary route: /opencode"),
         ("shell:route", "Optional cross-check: /claude"),
     ]

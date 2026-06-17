@@ -7,6 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
+from workspace_os.cycle import active_cycle_report, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
@@ -84,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         return _batch(sources, memory_path, args.batch_command, args)
     if args.command == "process":
         return _process(sources, memory_path, args.process_command, args)
+    if args.command == "cycle":
+        return _cycle(sources, memory_path, args.cycle_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -361,6 +364,24 @@ def _build_parser() -> argparse.ArgumentParser:
     process_handoff.add_argument("--launch-limit", type=int, default=3, help="Maximum recent launches to show.")
     process_handoff.add_argument("--output", type=Path, help="Write the process handoff Markdown to a file.")
     process_handoff.add_argument("--compact", action="store_true", help="Render a shorter handoff summary.")
+
+    cycle_parser = subparsers.add_parser(
+        "cycle",
+        help="Orchestrate multi-iteration work with health, stability, security, and quality checkpoints.",
+    )
+    cycle_subparsers = cycle_parser.add_subparsers(dest="cycle_command", required=True)
+    cycle_start = cycle_subparsers.add_parser("start", help="Start a new long-running cycle.")
+    cycle_start.add_argument("--label", required=True, help="Cycle label.")
+    cycle_start.add_argument("--objective", required=True, help="Cycle objective.")
+    cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
+    cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
+    cycle_report = cycle_subparsers.add_parser("report", help="Render the active or selected cycle report.")
+    cycle_report.add_argument("--id", type=int, help="Cycle identifier.")
+    cycle_history = cycle_subparsers.add_parser("history", help="List recent cycles.")
+    cycle_history.add_argument("--limit", type=int, default=5, help="Maximum cycles to list.")
+    cycle_checkpoint = cycle_subparsers.add_parser("checkpoint", help="Run the cycle gates and record a checkpoint.")
+    cycle_checkpoint.add_argument("--label", required=True, help="Checkpoint label.")
+    cycle_checkpoint.add_argument("--note", default="", help="Optional checkpoint note.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -978,6 +999,93 @@ def _process(sources: list[Source], memory_path: Path, command: str, args: argpa
 def _web(config_path: Path, host: str, port: int) -> int:
     serve_web_app(config_path=config_path, host=host, port=port)
     return 0
+
+
+def _cycle(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+
+    if command == "start":
+        cycle_id = start_cycle(store, args.label, args.objective)
+        print(f"started cycle {cycle_id}")
+        return 0
+
+    if command == "stop":
+        cycle = stop_cycle(store)
+        if cycle is None:
+            print("No active cycle found.")
+            return 0
+        report = store.cycle_report(int(cycle["id"]))
+        if report is not None:
+            print(_render_cycle_report(report))
+        return 0
+
+    if command == "status":
+        report = active_cycle_report(store)
+        if report is None:
+            print("No active cycle found.")
+            return 0
+        print(report.render(), end="")
+        return 0
+
+    if command == "report":
+        report = store.cycle_report(args.id)
+        if report is None:
+            print("No cycle found.")
+            return 0
+        print(_render_cycle_report(report))
+        return 0
+
+    if command == "history":
+        cycles = cycle_history_report(store, limit=args.limit)
+        if not cycles:
+            print("No cycles found.")
+            return 0
+        for cycle in cycles:
+            print(
+                f"- {cycle['id']} {cycle['label']}: {cycle['objective']} "
+                f"({cycle['started_at']} -> {cycle['ended_at'] or 'active'})"
+            )
+        return 0
+
+    if command == "checkpoint":
+        active = store.active_cycle()
+        if active is None:
+            print("No active cycle found.")
+            return 0
+        evaluation = run_cycle_evaluation(sources, store)
+        checkpoint_id = record_cycle_checkpoint(
+            store,
+            evaluation,
+            args.label,
+            iteration_number=_next_cycle_iteration(store, int(active["id"])),
+            note=args.note or None,
+        )
+        print(f"saved checkpoint {checkpoint_id}")
+        print(render_cycle_evaluation(evaluation), end="")
+        return 0
+
+    print("error: unsupported cycle command", file=sys.stderr)
+    return 2
+
+
+def _render_cycle_report(report: dict[str, object]) -> str:
+    lines = [f"Cycle report: {report['cycle']['label']}"]
+    lines.append(f"cycle_id={report['cycle_id']}")
+    lines.append(f"checkpoint_count={report['checkpoint_count']}")
+    lines.append(f"health_pass_rate={report['health_pass_rate']:.2f}")
+    lines.append(f"stability_pass_rate={report['stability_pass_rate']:.2f}")
+    lines.append(f"security_pass_rate={report['security_pass_rate']:.2f}")
+    lines.append(f"quality_pass_rate={report['quality_pass_rate']:.2f}")
+    latest = report.get("latest_checkpoint")
+    if isinstance(latest, dict):
+        lines.append(f"latest_checkpoint={latest.get('iteration_number', 'n/a')}")
+        lines.append(f"latest_label={latest.get('label', 'n/a')}")
+    return "\n".join(lines) + "\n"
+
+
+def _next_cycle_iteration(store: WorkspaceMemoryStore, cycle_id: int) -> int:
+    return len(store.cycle_checkpoints(cycle_id, limit=1000)) + 1
 
 
 if __name__ == "__main__":

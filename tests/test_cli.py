@@ -535,6 +535,84 @@ class CliTests(unittest.TestCase):
         self.assertIn("error_type=positive", rendered)
         self.assertIn("reason=", rendered)
 
+    def test_cycle_command_runs_checkpoint_and_reports_gates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    start_exit = main(["--config", str(config), "cycle", "start", "--label", "cycle-1", "--objective", "long run"])
+                buffer.seek(0)
+                start_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    checkpoint_exit = main(["--config", str(config), "cycle", "checkpoint", "--label", "iteration-1"])
+                buffer.seek(0)
+                checkpoint_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    status_exit = main(["--config", str(config), "cycle", "status"])
+                buffer.seek(0)
+                status_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    report_exit = main(["--config", str(config), "cycle", "report"])
+                buffer.seek(0)
+                report_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
+                    stop_exit = main(["--config", str(config), "cycle", "stop"])
+                buffer.seek(0)
+                stop_rendered = buffer.read()
+
+        self.assertEqual(0, start_exit)
+        self.assertEqual(0, checkpoint_exit)
+        self.assertEqual(0, status_exit)
+        self.assertEqual(0, report_exit)
+        self.assertEqual(0, stop_exit)
+        self.assertIn("started cycle", start_rendered)
+        self.assertIn("saved checkpoint", checkpoint_rendered)
+        self.assertIn("Cycle checks:", checkpoint_rendered)
+        self.assertIn("Cycle report:", status_rendered)
+        self.assertIn("Cycle report:", report_rendered)
+        self.assertIn("Cycle report:", stop_rendered)
+
     def test_bridge_command_reports_workspace_capabilities(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

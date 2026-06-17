@@ -5,6 +5,7 @@ import json
 
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
+from workspace_os.cycle import active_cycle_report
 from workspace_os.learning import build_workspace_learning_model
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.overview import (
@@ -137,6 +138,7 @@ def build_workspace_bridge_report(
     roots = build_workspace_roots(sources, memory_store, workspace=workspace, limit=5)
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
+    cycle = active_cycle_report(memory_store)
     feedback_metrics = memory_store.feedback_metrics()
     learning_model = build_workspace_learning_model(memory_store, profile)
     active_workspace = workspace or profile.default_workspace or overview.workspace
@@ -152,6 +154,7 @@ def build_workspace_bridge_report(
         f"OCE extensions: {len(registered_oce_extensions())} registered",
         f"Learning model: {learning_model.render_summary()}",
         f"Execution mode: {execution_mode}",
+        f"Cycle: {_render_cycle_summary(cycle)}",
         f"Process: {_render_process_summary(process)}",
         f"Batch: {_render_batch_summary(batch)}",
         f"Context: {_render_context_summary(memory_store)}",
@@ -188,6 +191,11 @@ def build_workspace_bridge_report(
             "handoff",
             "Render a concise closing summary for the active workspace.",
             "workspace handoff --compact",
+        ),
+        BridgeCapability(
+            "cycle",
+            "Orchestrate long-running iterations with health, stability, security, and quality checkpoints.",
+            "workspace cycle status",
         ),
         BridgeCapability(
             "feedback",
@@ -252,6 +260,7 @@ def build_workspace_bridge_next_report(
     roots = build_workspace_roots(sources, memory_store, workspace=workspace, limit=5)
     overview = build_workspace_overview(sources, memory_store, workspace=workspace, compact=True)
     learning_model = build_workspace_learning_model(memory_store, profile)
+    cycle = active_cycle_report(memory_store)
     recommended_workspace = _extract_first_line(roots.recommendation_lines, prefix="Continue with:")
     if recommended_workspace:
         recommended_workspace = recommended_workspace.removeprefix("Continue with: ").strip()
@@ -275,6 +284,7 @@ def build_workspace_bridge_next_report(
         *next_action.summary_lines[:2],
         "Hardening: always-on malicious agentic protection",
         f"Learning model: {learning_model.render_summary()}",
+        f"Cycle: {_render_cycle_summary(cycle)}",
         *roots.recommendation_lines[:3],
         *analysis.recommendation_lines[:2],
     )
@@ -377,6 +387,16 @@ def _render_batch_summary(batch) -> str:
     return (
         f"{batch.label} objective={batch.objective} duration={batch.duration_seconds}s "
         f"delegations={batch.delegations} defects={batch.defect_iterations}"
+    )
+
+
+def _render_cycle_summary(cycle) -> str:
+    if cycle is None:
+        return "none"
+    return (
+        f"{cycle.cycle['label']} health={cycle.health_pass_rate:.2f} "
+        f"stability={cycle.stability_pass_rate:.2f} security={cycle.security_pass_rate:.2f} "
+        f"quality={cycle.quality_pass_rate:.2f}"
     )
 
 

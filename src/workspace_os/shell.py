@@ -11,6 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
+from workspace_os.cycle import active_cycle_report, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
@@ -110,6 +111,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
+                    "/cycle ...          start, stop, report, status, checkpoint, or list long-run cycles",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/conscience ...     show decision metrics, history, recommendation, or extensions",
                     "/oce ...           alias for /conscience",
@@ -700,6 +702,101 @@ class WorkspaceShell(cmd.Cmd):
         if not launches:
             print("No agent launches found.")
 
+    def do_cycle(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/cycle", add_help=False)
+        subparsers = parser.add_subparsers(dest="cycle_command", required=True)
+
+        start_parser = subparsers.add_parser("start", add_help=False)
+        start_parser.add_argument("--label", required=True)
+        start_parser.add_argument("--objective", required=True)
+
+        subparsers.add_parser("stop", add_help=False)
+
+        report_parser = subparsers.add_parser("report", add_help=False)
+        report_parser.add_argument("--id", type=int)
+
+        history_parser = subparsers.add_parser("history", add_help=False)
+        history_parser.add_argument("--limit", type=int, default=5)
+
+        checkpoint_parser = subparsers.add_parser("checkpoint", add_help=False)
+        checkpoint_parser.add_argument("--label", required=True)
+        checkpoint_parser.add_argument("--note", default="")
+
+        subparsers.add_parser("status", add_help=False)
+
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /cycle start --label <name> --objective <text>")
+            print("       /cycle stop")
+            print("       /cycle status")
+            print("       /cycle report [--id N]")
+            print("       /cycle checkpoint --label <name> [--note <text>]")
+            print("       /cycle history [--limit N]")
+            return
+
+        if options.cycle_command == "start":
+            cycle_id = start_cycle(self.memory_store, options.label, options.objective)
+            self._emit(f"started cycle {cycle_id}")
+            return
+
+        if options.cycle_command == "stop":
+            cycle = stop_cycle(self.memory_store)
+            if cycle is None:
+                self._emit("No active cycle found.")
+                return
+            report = self.memory_store.cycle_report(int(cycle["id"]))
+            if report is not None:
+                self._emit(self._render_cycle_report(report), end="")
+            return
+
+        if options.cycle_command == "status":
+            report = active_cycle_report(self.memory_store)
+            if report is None:
+                self._emit("No active cycle found.")
+                return
+            self._emit(report.render(), end="")
+            return
+
+        if options.cycle_command == "report":
+            report = self.memory_store.cycle_report(options.id)
+            if report is None:
+                self._emit("No cycle found.")
+                return
+            self._emit(self._render_cycle_report(report), end="")
+            return
+
+        if options.cycle_command == "history":
+            cycles = cycle_history_report(self.memory_store, limit=options.limit)
+            if not cycles:
+                self._emit("No cycles found.")
+                return
+            for cycle in cycles:
+                self._emit(
+                    f"- {cycle['id']} {cycle['label']}: {cycle['objective']} ({cycle['started_at']} -> {cycle['ended_at'] or 'active'})"
+                )
+            return
+
+        if options.cycle_command == "checkpoint":
+            active = self.memory_store.active_cycle()
+            if active is None:
+                self._emit("No active cycle found.")
+                return
+            evaluation = run_cycle_evaluation(self._selected_sources(), self.memory_store)
+            checkpoint_id = record_cycle_checkpoint(
+                self.memory_store,
+                evaluation,
+                options.label,
+                iteration_number=len(self.memory_store.cycle_checkpoints(int(active["id"]), limit=1000)) + 1,
+                note=options.note or None,
+            )
+            self._emit(f"saved checkpoint {checkpoint_id}")
+            self._emit(render_cycle_evaluation(evaluation), end="")
+            return
+
+        self._emit("error: unsupported cycle command")
+
     def do_chat(self, arg: str) -> None:
         message = arg.strip()
         if not message:
@@ -903,6 +1000,23 @@ class WorkspaceShell(cmd.Cmd):
             )
         if not processes:
             print("No processes found.")
+
+    def _render_cycle_report(self, report: dict[str, object]) -> str:
+        lines = [f"Cycle report: {report['cycle']['label']}"]
+        lines.append(f"cycle_id={report['cycle_id']}")
+        lines.append(f"checkpoint_count={report['checkpoint_count']}")
+        lines.append(f"health_pass_rate={report['health_pass_rate']:.2f}")
+        lines.append(f"stability_pass_rate={report['stability_pass_rate']:.2f}")
+        lines.append(f"security_pass_rate={report['security_pass_rate']:.2f}")
+        lines.append(f"quality_pass_rate={report['quality_pass_rate']:.2f}")
+        latest = report.get("latest_checkpoint")
+        if isinstance(latest, dict):
+            lines.append(f"latest_checkpoint={latest.get('iteration_number', 'n/a')}")
+            lines.append(f"latest_label={latest.get('label', 'n/a')}")
+        return "\n".join(lines) + "\n"
+
+    def _next_cycle_iteration(self, cycle_id: int) -> int:
+        return len(self.memory_store.cycle_checkpoints(cycle_id, limit=1000)) + 1
 
     def _batch_handoff(self, arg: str) -> None:
         try:

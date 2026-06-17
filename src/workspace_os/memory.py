@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 @dataclass(frozen=True)
@@ -148,6 +148,29 @@ class WorkspaceMemoryStore:
                     batch_id INTEGER,
                     process_id INTEGER
                 );
+
+                CREATE TABLE IF NOT EXISTS cycle_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT NOT NULL,
+                    objective TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS cycle_checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cycle_id INTEGER NOT NULL,
+                    iteration_number INTEGER NOT NULL,
+                    label TEXT NOT NULL,
+                    note TEXT,
+                    health_ok INTEGER NOT NULL,
+                    stability_ok INTEGER NOT NULL,
+                    security_ok INTEGER NOT NULL,
+                    quality_ok INTEGER NOT NULL,
+                    report_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (cycle_id) REFERENCES cycle_runs(id)
+                );
                 """
             )
             for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches", "feedback_events"):
@@ -155,6 +178,7 @@ class WorkspaceMemoryStore:
             self._ensure_decision_columns(conn)
             self._ensure_agent_launches_schema(conn)
             self._ensure_feedback_columns(conn)
+            self._ensure_cycle_columns(conn)
             conn.execute("DELETE FROM schema_version")
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
             conn.commit()
@@ -657,6 +681,223 @@ class WorkspaceMemoryStore:
                 for row in rows
             ]
 
+    def start_cycle(self, label: str, objective: str, started_at: str | None = None) -> int:
+        active = self.active_cycle()
+        if active is not None:
+            raise ValueError("A cycle is already active.")
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO cycle_runs (label, objective, started_at, ended_at)
+                VALUES (?, ?, ?, NULL)
+                """,
+                (label.strip(), objective.strip(), started_at or _utc_now()),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def active_cycle(self) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM cycle_runs
+                WHERE ended_at IS NULL
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "objective": str(row["objective"]),
+                "started_at": str(row["started_at"]),
+                "ended_at": row["ended_at"],
+            }
+
+    def active_cycle_id(self, conn: sqlite3.Connection | None = None) -> int | None:
+        if conn is not None:
+            row = self._active_cycle_row(conn)
+            return int(row["id"]) if row else None
+        with self._connection() as fresh_conn:
+            row = self._active_cycle_row(fresh_conn)
+            return int(row["id"]) if row else None
+
+    def _active_cycle_row(self, conn: sqlite3.Connection) -> dict[str, str | None] | None:
+        row = conn.execute(
+            """
+            SELECT id, label, objective, started_at, ended_at
+            FROM cycle_runs
+            WHERE ended_at IS NULL
+            ORDER BY started_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": str(row["id"]),
+            "label": str(row["label"]),
+            "objective": str(row["objective"]),
+            "started_at": str(row["started_at"]),
+            "ended_at": row["ended_at"],
+        }
+
+    def finish_active_cycle(self, ended_at: str | None = None) -> dict[str, str | None] | None:
+        cycle = self.active_cycle()
+        if cycle is None:
+            return None
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE cycle_runs
+                SET ended_at = ?
+                WHERE id = ?
+                """,
+                (ended_at or _utc_now(), cycle["id"]),
+            )
+            conn.commit()
+        return self.get_cycle(int(cycle["id"]))
+
+    def get_cycle(self, cycle_id: int) -> dict[str, str | None] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM cycle_runs
+                WHERE id = ?
+                """,
+                (cycle_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": str(row["id"]),
+                "label": str(row["label"]),
+                "objective": str(row["objective"]),
+                "started_at": str(row["started_at"]),
+                "ended_at": row["ended_at"],
+            }
+
+    def cycle_history(self, limit: int = 10) -> list[dict[str, str | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, label, objective, started_at, ended_at
+                FROM cycle_runs
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": str(row["id"]),
+                    "label": str(row["label"]),
+                    "objective": str(row["objective"]),
+                    "started_at": str(row["started_at"]),
+                    "ended_at": row["ended_at"],
+                }
+                for row in rows
+            ]
+
+    def record_cycle_checkpoint(
+        self,
+        label: str,
+        iteration_number: int,
+        report: dict[str, object],
+        note: str | None = None,
+        cycle_id: int | None = None,
+        created_at: str | None = None,
+    ) -> int:
+        active_cycle_id = cycle_id
+        if active_cycle_id is None:
+            with self._connection() as conn:
+                active_cycle_id = self.active_cycle_id(conn)
+        if active_cycle_id is None:
+            raise ValueError("No active cycle found.")
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO cycle_checkpoints (
+                    cycle_id, iteration_number, label, note,
+                    health_ok, stability_ok, security_ok, quality_ok,
+                    report_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    active_cycle_id,
+                    iteration_number,
+                    label.strip(),
+                    note.strip() if note else None,
+                    1 if bool(report.get("health_ok")) else 0,
+                    1 if bool(report.get("stability_ok")) else 0,
+                    1 if bool(report.get("security_ok")) else 0,
+                    1 if bool(report.get("quality_ok")) else 0,
+                    json.dumps(report, ensure_ascii=False),
+                    created_at or _utc_now(),
+                ),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def cycle_checkpoints(self, cycle_id: int, limit: int = 20) -> list[dict[str, str | int | None]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, cycle_id, iteration_number, label, note, health_ok, stability_ok, security_ok, quality_ok, report_json, created_at
+                FROM cycle_checkpoints
+                WHERE cycle_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (cycle_id, limit),
+            )
+            return [
+                {
+                    "id": int(row["id"]),
+                    "cycle_id": int(row["cycle_id"]),
+                    "iteration_number": int(row["iteration_number"]),
+                    "label": str(row["label"]),
+                    "note": row["note"],
+                    "health_ok": int(row["health_ok"] or 0),
+                    "stability_ok": int(row["stability_ok"] or 0),
+                    "security_ok": int(row["security_ok"] or 0),
+                    "quality_ok": int(row["quality_ok"] or 0),
+                    "report_json": str(row["report_json"]),
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def latest_cycle_checkpoint(self, cycle_id: int) -> dict[str, str | int | None] | None:
+        checkpoints = self.cycle_checkpoints(cycle_id, limit=1)
+        return checkpoints[0] if checkpoints else None
+
+    def cycle_report(self, cycle_id: int | None = None) -> dict[str, object] | None:
+        cycle = self.get_cycle(cycle_id) if cycle_id is not None else self.active_cycle()
+        if cycle is None:
+            return None
+        checkpoints = self.cycle_checkpoints(int(cycle["id"]), limit=100)
+        health_passed = sum(1 for checkpoint in checkpoints if checkpoint["health_ok"])
+        stability_passed = sum(1 for checkpoint in checkpoints if checkpoint["stability_ok"])
+        security_passed = sum(1 for checkpoint in checkpoints if checkpoint["security_ok"])
+        quality_passed = sum(1 for checkpoint in checkpoints if checkpoint["quality_ok"])
+        total = len(checkpoints)
+        return {
+            "cycle": cycle,
+            "cycle_id": int(cycle["id"]),
+            "checkpoint_count": total,
+            "health_pass_rate": (health_passed / total) if total else 0.0,
+            "stability_pass_rate": (stability_passed / total) if total else 0.0,
+            "security_pass_rate": (security_passed / total) if total else 0.0,
+            "quality_pass_rate": (quality_passed / total) if total else 0.0,
+            "latest_checkpoint": checkpoints[0] if checkpoints else None,
+        }
+
     def record_process_checkpoint(
         self,
         label: str,
@@ -915,6 +1156,12 @@ class WorkspaceMemoryStore:
         columns = {str(item["name"]) for item in row}
         if "error_type" not in columns:
             conn.execute("ALTER TABLE feedback_events ADD COLUMN error_type TEXT NOT NULL DEFAULT 'neutral'")
+
+    def _ensure_cycle_columns(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute("PRAGMA table_info(cycle_checkpoints)").fetchall()
+        columns = {str(item["name"]) for item in row}
+        if row and "report_json" not in columns:
+            conn.execute("ALTER TABLE cycle_checkpoints ADD COLUMN report_json TEXT NOT NULL DEFAULT '{}'")
 
     def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
         with self._connection() as conn:
@@ -1221,6 +1468,8 @@ class WorkspaceMemoryStore:
                 "feedback_events",
                 "agent_launches",
                 "context_snapshots",
+                "cycle_runs",
+                "cycle_checkpoints",
             ):
                 row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
                 counts[table] = int(row["count"]) if row else 0

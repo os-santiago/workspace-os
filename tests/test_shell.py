@@ -294,6 +294,38 @@ class ShellTests(unittest.TestCase):
         self.assertIn("error_type=positive", rendered)
         self.assertIn("reason=", rendered)
 
+    def test_shell_cycle_commands_report_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_cycle("start --label cycle-1 --objective \"long run\"")
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_cycle("checkpoint --label iteration-1")
+            checkpoint_rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_cycle("status")
+            status_rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_cycle("report")
+            report_rendered = buffer.getvalue()
+
+            with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_cycle("stop")
+            stop_rendered = buffer.getvalue()
+
+        self.assertIn("saved checkpoint", checkpoint_rendered)
+        self.assertIn("Cycle checks:", checkpoint_rendered)
+        self.assertIn("Cycle report:", status_rendered)
+        self.assertIn("Cycle report:", report_rendered)
+        self.assertIn("Cycle report:", stop_rendered)
+
     def test_shell_bridge_reports_workspace_capabilities(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
