@@ -316,6 +316,17 @@ def _build_cycle_work_prompt(
     except Exception:
         pass
 
+    # Get concrete backlog work to guide agents toward product plan advancement
+    backlog_work_hint = ""
+    try:
+        workspace_root = _workspace_root_for_sources(sources)
+        backlog_path = workspace_root / "docs" / "product" / "backlog.md"
+        if backlog_path.exists():
+            from workspace_os.plan_gap import get_plan_work_hint
+            backlog_work_hint = get_plan_work_hint(backlog_path)
+    except Exception:
+        pass
+
     # Get recent commit summaries to help agents avoid duplicating recent work
     recent_work_lines: list[str] = []
     try:
@@ -333,6 +344,9 @@ def _build_cycle_work_prompt(
     ]
     if note and note.strip():
         base_lines.append(f"Note: {note.strip()}")
+    if backlog_work_hint:
+        base_lines.append("")
+        base_lines.append(backlog_work_hint)
     if plan_gap_hint:
         base_lines.append(plan_gap_hint)
     base_lines.extend(
@@ -361,12 +375,17 @@ def _build_cycle_work_prompt(
             "- Validate the narrowest meaningful surface.",
         ]
     )
+    executor_guidance = (
+        "Pick one concrete improvement from the next backlog work, the plan gap hints, or the next action recommendation."
+        if backlog_work_hint or plan_gap_hint
+        else "Implement the highest-value WOS improvement that is visible from the current plan and repo state."
+    )
     primary_prompt = "\n".join(
         [
             *base_lines,
             "",
             "Role: executor.",
-            "Implement the highest-value WOS improvement that is visible from the current plan and repo state.",
+            executor_guidance,
         ]
     )
     secondary_prompt = "\n".join(
