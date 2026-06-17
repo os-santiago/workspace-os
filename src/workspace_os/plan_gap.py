@@ -98,4 +98,10 @@ def get_plan_work_hint(backlog_path: Path) -> str:
     lines = ["Next backlog work:"]
     for item in next_items:
         lines.append(f"- {item.item_id}: {item.title}")
+        if item.acceptance_criteria:
+            criteria_preview = "; ".join(item.acceptance_criteria[:2])
+            lines.append(f"  Acceptance: {criteria_preview}")
+        if item.implementation_notes:
+            notes_preview = "; ".join(item.implementation_notes[:2])
+            lines.append(f"  Implementation: {notes_preview}")
     return "\n".join(lines)

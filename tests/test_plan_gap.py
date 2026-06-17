@@ -151,3 +151,34 @@ def test_get_plan_work_hint_no_next_items():
         assert hint == ""
     finally:
         path.unlink()
+
+
+def test_get_plan_work_hint_includes_criteria_and_notes():
+    content = """
+## Next
+### WSOS-200: Implement Feature X
+
+Acceptance criteria:
+- Criterion A
+- Criterion B
+
+Initial implementation:
+- Implementation note 1
+- Implementation note 2
+
+### WSOS-201: Simple Item Without Details
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        f.write(content)
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        hint = get_plan_work_hint(path)
+        assert "Next backlog work:" in hint
+        assert "WSOS-200: Implement Feature X" in hint
+        assert "Acceptance: Criterion A; Criterion B" in hint
+        assert "Implementation: Implementation note 1; Implementation note 2" in hint
+        assert "WSOS-201: Simple Item Without Details" in hint
+    finally:
+        path.unlink()
