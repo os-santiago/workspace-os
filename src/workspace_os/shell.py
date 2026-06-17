@@ -11,7 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
@@ -112,7 +112,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
-                    "/cycle ...          start, stop, run, watch, report, status, checkpoint, or list long-run cycles",
+                    "/cycle ...          start, stop, run, work, watch, report, status, checkpoint, or list long-run cycles",
                     "/cycle next         recommend the next cycle action",
                     "/journal ...        inspect productivity journals from long runs",
                     "/alias ...          save, list, or invoke shortcuts",
@@ -731,6 +731,13 @@ class WorkspaceShell(cmd.Cmd):
         watch_parser.add_argument("--note", default="")
         watch_parser.add_argument("--stop-on-failure", action="store_true")
 
+        work_parser = subparsers.add_parser("work", add_help=False)
+        work_parser.add_argument("--duration-minutes", type=float, required=True)
+        work_parser.add_argument("--label")
+        work_parser.add_argument("--objective")
+        work_parser.add_argument("--note", default="")
+        work_parser.add_argument("--stop-on-failure", action="store_true")
+
         subparsers.add_parser("stop", add_help=False)
         subparsers.add_parser("next", add_help=False)
 
@@ -753,6 +760,7 @@ class WorkspaceShell(cmd.Cmd):
             print("       /cycle run --iterations N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
             print("       /cycle run --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
             print("       /cycle watch --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle work --duration-minutes N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
             print("       /cycle stop")
             print("       /cycle status")
             print("       /cycle report [--id N]")
@@ -857,6 +865,53 @@ class WorkspaceShell(cmd.Cmd):
                 logical_active_duration_seconds=result.logical_active_duration_seconds,
                 wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
                 idle_ratio=result.idle_ratio,
+                delegation_count=result.delegation_count,
+                agent_active_duration_seconds=result.agent_active_duration_seconds,
+            )
+            self._emit(f"journal_written={journal.entry_path}")
+            return
+
+        if options.cycle_command == "work":
+            try:
+                result = run_cycle_work_window(
+                    self.memory_store,
+                    self._selected_sources(),
+                    duration_minutes=max(0.0, options.duration_minutes),
+                    label=options.label,
+                    objective=options.objective,
+                    note=options.note,
+                    stop_on_failure=options.stop_on_failure,
+                )
+            except ValueError as exc:
+                self._emit(f"error: {exc}")
+                return
+            self._emit(f"cycle_id={result.cycle_id}")
+            self._emit(f"iterations_completed={result.iterations_completed}")
+            self._emit(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+            self._emit(f"window_started_at={result.window_started_at}")
+            self._emit(f"window_ended_at={result.window_ended_at}")
+            self._emit(f"delegation_count={result.delegation_count or 0}")
+            self._emit(f"agent_active_duration_seconds={result.agent_active_duration_seconds or 0.0:.2f}")
+            for iteration in result.iteration_results:
+                self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                self._emit(render_cycle_evaluation(iteration.evaluation), end="")
+                if iteration.work_summary:
+                    self._emit(iteration.work_summary)
+            self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            journal = write_cycle_journal(
+                self.memory_store,
+                self._selected_sources(),
+                result.report.cycle,
+                self.memory_store.cycle_checkpoints(result.cycle_id, limit=1000),
+                story_title=result.report.cycle["label"],
+                logical_duration_seconds=result.logical_duration_seconds,
+                wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+                sleep_duration_seconds=result.sleep_duration_seconds,
+                logical_active_duration_seconds=result.logical_active_duration_seconds,
+                wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+                idle_ratio=result.idle_ratio,
+                delegation_count=result.delegation_count,
+                agent_active_duration_seconds=result.agent_active_duration_seconds,
             )
             self._emit(f"journal_written={journal.entry_path}")
             return

@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.journal import write_cycle_journal
 from workspace_os.journal import journal_root, latest_journal_entry, list_journal_entries
@@ -392,6 +392,12 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_watch.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
     cycle_watch.add_argument("--note", default="", help="Optional checkpoint note prefix.")
     cycle_watch.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
+    cycle_work = cycle_subparsers.add_parser("work", help="Run a long cycle that actively delegates work to agents.")
+    cycle_work.add_argument("--duration-minutes", type=float, required=True, help="Target duration in minutes.")
+    cycle_work.add_argument("--label", help="Optional cycle label when no cycle is active.")
+    cycle_work.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
+    cycle_work.add_argument("--note", default="", help="Optional checkpoint note prefix.")
+    cycle_work.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
@@ -1093,6 +1099,8 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
                 logical_active_duration_seconds=result.logical_active_duration_seconds,
                 wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
                 idle_ratio=result.idle_ratio,
+                delegation_count=result.delegation_count,
+                agent_active_duration_seconds=result.agent_active_duration_seconds,
             )
             print(f"journal_written={journal.entry_path}")
         return 0
@@ -1133,6 +1141,53 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             logical_active_duration_seconds=result.logical_active_duration_seconds,
             wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
             idle_ratio=result.idle_ratio,
+            delegation_count=result.delegation_count,
+            agent_active_duration_seconds=result.agent_active_duration_seconds,
+        )
+        print(f"journal_written={journal.entry_path}")
+        return 0
+
+    if command == "work":
+        try:
+            result = run_cycle_work_window(
+                store,
+                sources,
+                duration_minutes=max(0.0, args.duration_minutes),
+                label=args.label,
+                objective=args.objective,
+                note=args.note,
+                stop_on_failure=args.stop_on_failure,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"cycle_id={result.cycle_id}")
+        print(f"iterations_completed={result.iterations_completed}")
+        print(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+        print(f"window_started_at={result.window_started_at}")
+        print(f"window_ended_at={result.window_ended_at}")
+        print(f"delegation_count={result.delegation_count or 0}")
+        print(f"agent_active_duration_seconds={result.agent_active_duration_seconds or 0.0:.2f}")
+        for iteration in result.iteration_results:
+            print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+            print(render_cycle_evaluation(iteration.evaluation), end="")
+            if iteration.work_summary:
+                print(iteration.work_summary)
+        print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+        journal = write_cycle_journal(
+            store,
+            sources,
+            result.report.cycle,
+            store.cycle_checkpoints(result.cycle_id, limit=1000),
+            story_title=result.report.cycle["label"],
+            logical_duration_seconds=result.logical_duration_seconds,
+            wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+            sleep_duration_seconds=result.sleep_duration_seconds,
+            logical_active_duration_seconds=result.logical_active_duration_seconds,
+            wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+            idle_ratio=result.idle_ratio,
+            delegation_count=result.delegation_count,
+            agent_active_duration_seconds=result.agent_active_duration_seconds,
         )
         print(f"journal_written={journal.entry_path}")
         return 0

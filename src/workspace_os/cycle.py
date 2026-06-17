@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import time
 import tempfile
 from collections.abc import Callable
 
 from workspace_os.config import Source
+from workspace_os.agent_adapter import run_agent
 from workspace_os.delegation import build_agent_route_command
 from workspace_os.conscience import REFUSE, ALLOW_WITH_LIMITS, evaluate_request
 from workspace_os.batch import start_batch, start_process
@@ -120,6 +123,11 @@ class CycleIterationResult:
     checkpoint_id: int
     label: str
     evaluation: CycleEvaluation
+    primary_agent: str | None = None
+    secondary_agent: str | None = None
+    delegation_count: int = 0
+    agent_active_duration_seconds: float = 0.0
+    work_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +146,8 @@ class CycleRunResult:
     logical_active_duration_seconds: float | None = None
     wall_clock_active_duration_seconds: float | None = None
     idle_ratio: float | None = None
+    delegation_count: int | None = None
+    agent_active_duration_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -254,6 +264,91 @@ def _cycle_agents_for_iteration(checkpoint_count: int) -> tuple[str, str]:
     if checkpoint_count % 2 == 1:
         return "claude", "opencode"
     return "opencode", "claude"
+
+
+def _workspace_root_for_sources(sources: list[Source]) -> Path:
+    workspace_paths = [source.path for source in sources if getattr(source, "group", "workspace") == "workspace"]
+    if not workspace_paths:
+        return Path.cwd()
+    try:
+        return Path(os.path.commonpath([str(path) for path in workspace_paths]))
+    except ValueError:
+        return workspace_paths[0].parent
+
+
+def _work_workspace_name(sources: list[Source]) -> str:
+    workspace_sources = [source for source in sources if getattr(source, "group", "workspace") == "workspace"]
+    if not workspace_sources:
+        return "all workspaces"
+    if len(workspace_sources) == 1:
+        return workspace_sources[0].name
+    return "workspace root"
+
+
+def _build_cycle_work_prompt(
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore,
+    workspace_name: str,
+    objective: str,
+    note: str | None,
+    iteration_number: int,
+) -> dict[str, str]:
+    try:
+        from workspace_os.overview import render_workspace_analysis_text, render_workspace_next_action_text
+    except Exception:
+        analysis_text = "Workspace analysis unavailable."
+        next_action_text = "Workspace next action unavailable."
+    else:
+        analysis_text = render_workspace_analysis_text(sources, memory_store, workspace=workspace_name, limit=5, compact=True).rstrip()
+        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name).rstrip()
+
+    base_lines = [
+        f"Long-run WOS improvement iteration {iteration_number}.",
+        f"Objective: {objective}",
+    ]
+    if note and note.strip():
+        base_lines.append(f"Note: {note.strip()}")
+    base_lines.extend(
+        [
+            "Focus on concrete repository changes that reduce agent overhead, keep agents busy, and improve the long-run operating model.",
+            "Prefer code, tests, and docs over prose-only output.",
+            "Keep unrelated local changes intact.",
+            "Return a concise summary of changed files, validations, and any remaining gaps.",
+            "",
+            "Current analysis:",
+            analysis_text,
+            "",
+            "Current next action:",
+            next_action_text,
+            "",
+            "ADEV contract:",
+            "- Treat ADEV as mandatory doctrine.",
+            "- Preserve unrelated local changes.",
+            "- Validate the narrowest meaningful surface.",
+        ]
+    )
+    primary_prompt = "\n".join(
+        [
+            *base_lines,
+            "",
+            "Role: executor.",
+            "Implement the highest-value WOS improvement that is visible from the current plan and repo state.",
+        ]
+    )
+    secondary_prompt = "\n".join(
+        [
+            *base_lines,
+            "",
+            "Role: cross-check.",
+            "Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
+        ]
+    )
+    return {
+        "primary:opencode": primary_prompt,
+        "primary:claude": primary_prompt,
+        "secondary:opencode": secondary_prompt,
+        "secondary:claude": secondary_prompt,
+    }
 
 
 def cycle_history_report(memory_store: WorkspaceMemoryStore, limit: int = 5) -> list[dict[str, str | None]]:
@@ -469,6 +564,154 @@ def run_cycle_window(
         logical_active_duration_seconds=logical_active_duration_seconds,
         wall_clock_active_duration_seconds=wall_clock_active_duration_seconds,
         idle_ratio=idle_ratio,
+    )
+
+
+def run_cycle_work_window(
+    memory_store: WorkspaceMemoryStore,
+    sources: list[Source],
+    duration_minutes: float,
+    label: str | None = None,
+    objective: str | None = None,
+    note: str | None = None,
+    stop_on_failure: bool = False,
+    now_fn: Callable[[], datetime] | None = None,
+    agent_runner: Callable[..., object] | None = None,
+) -> CycleRunResult:
+    if duration_minutes < 0:
+        raise ValueError("Cycle duration must be at least 0 minutes.")
+
+    now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+    started_at = now_fn()
+    wall_started_at = time.perf_counter()
+    deadline = started_at + timedelta(minutes=duration_minutes)
+    active = memory_store.active_cycle()
+    started_cycle = False
+    if active is None:
+        if not label or not label.strip() or not objective or not objective.strip():
+            raise ValueError("An active cycle is required, or provide --label and --objective to start one.")
+        cycle_id = start_cycle(memory_store, label.strip(), objective.strip(), started_at=started_at.isoformat())
+        started_cycle = True
+    else:
+        cycle_id = int(active["id"])
+
+    iteration_results: list[CycleIterationResult] = []
+    iteration_number = 1
+    total_delegations = 0
+    total_agent_active = 0.0
+    while True:
+        if now_fn() >= deadline:
+            break
+
+        evaluation_before = run_cycle_evaluation(sources, memory_store)
+        workspace_name = _work_workspace_name(sources)
+        work_prompt = _build_cycle_work_prompt(
+            sources,
+            memory_store,
+            workspace_name=workspace_name,
+            objective=objective or "Improve WOS with the active plan.",
+            note=note,
+            iteration_number=iteration_number,
+        )
+        primary_agent, secondary_agent = _cycle_agents_for_iteration(iteration_number - 1)
+        executor = agent_runner or run_agent
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future_primary = pool.submit(
+                executor,
+                primary_agent,
+                workspace_name,
+                f"cycle-work-{iteration_number}-primary",
+                work_prompt[f"primary:{primary_agent}"],
+                _workspace_root_for_sources(sources),
+                memory_store,
+            )
+            future_secondary = pool.submit(
+                executor,
+                secondary_agent,
+                workspace_name,
+                f"cycle-work-{iteration_number}-secondary",
+                work_prompt[f"secondary:{secondary_agent}"],
+                _workspace_root_for_sources(sources),
+                memory_store,
+            )
+            primary_result = future_primary.result()
+            secondary_result = future_secondary.result()
+
+        iteration_active = float(getattr(primary_result, "duration_seconds", 0.0)) + float(getattr(secondary_result, "duration_seconds", 0.0))
+        total_agent_active += iteration_active
+        total_delegations += 2
+
+        evaluation_after = run_cycle_evaluation(sources, memory_store)
+        checkpoint_label = _iteration_label(note, iteration_number)
+        checkpoint_id = record_cycle_checkpoint(
+            memory_store,
+            evaluation_after,
+            checkpoint_label,
+            iteration_number=iteration_number,
+            note=(
+                f"work iteration {iteration_number}: {primary_agent} primary, {secondary_agent} cross-check"
+                if not note or not note.strip()
+                else f"{note.strip()} | work iteration {iteration_number}: {primary_agent} primary, {secondary_agent} cross-check"
+            ),
+            cycle_id=cycle_id,
+            created_at=now_fn().isoformat(),
+        )
+        iteration_results.append(
+            CycleIterationResult(
+                iteration_number=iteration_number,
+                checkpoint_id=checkpoint_id,
+                label=checkpoint_label,
+                evaluation=evaluation_after,
+                primary_agent=primary_agent,
+                secondary_agent=secondary_agent,
+                delegation_count=2,
+                agent_active_duration_seconds=iteration_active,
+                work_summary=(
+                    f"Primary {primary_agent} returncode={getattr(primary_result, 'returncode', 'n/a')} "
+                    f"and secondary {secondary_agent} returncode={getattr(secondary_result, 'returncode', 'n/a')}."
+                ),
+            )
+        )
+        if stop_on_failure and not evaluation_after.overall_ok():
+            break
+        iteration_number += 1
+
+    ended_at = now_fn()
+    wall_ended_at = time.perf_counter()
+    if started_cycle:
+        stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    report = memory_store.cycle_report(cycle_id)
+    if report is None:
+        raise ValueError("Cycle report could not be generated.")
+    logical_duration_seconds = max(0.0, (ended_at - started_at).total_seconds())
+    wall_clock_duration_seconds = max(0.0, wall_ended_at - wall_started_at)
+    idle_ratio = 0.0 if logical_duration_seconds <= 0 else min(1.0, max(0.0, (logical_duration_seconds - total_agent_active) / logical_duration_seconds))
+    return CycleRunResult(
+        cycle_id=cycle_id,
+        started_cycle=started_cycle,
+        iterations_completed=len(iteration_results),
+        iteration_results=tuple(iteration_results),
+        report=CycleReport(
+            cycle=report["cycle"],
+            checkpoint_count=int(report["checkpoint_count"]),
+            health_pass_rate=float(report["health_pass_rate"]),
+            stability_pass_rate=float(report["stability_pass_rate"]),
+            security_pass_rate=float(report["security_pass_rate"]),
+            quality_pass_rate=float(report["quality_pass_rate"]),
+            latest_checkpoint=report["latest_checkpoint"],
+        ),
+        target_duration_minutes=duration_minutes,
+        window_started_at=started_at.isoformat(),
+        window_ended_at=ended_at.isoformat(),
+        logical_duration_seconds=logical_duration_seconds,
+        wall_clock_duration_seconds=wall_clock_duration_seconds,
+        sleep_duration_seconds=0.0,
+        logical_active_duration_seconds=logical_duration_seconds,
+        wall_clock_active_duration_seconds=wall_clock_duration_seconds,
+        idle_ratio=idle_ratio,
+        delegation_count=total_delegations,
+        agent_active_duration_seconds=total_agent_active,
     )
 
 

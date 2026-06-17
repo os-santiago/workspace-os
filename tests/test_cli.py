@@ -3,6 +3,8 @@ import os
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from workspace_os.batch import start_batch, start_process
 from workspace_os.cli import main
@@ -658,6 +660,82 @@ class CliTests(unittest.TestCase):
         self.assertIn("Cycle report:", status_rendered)
         self.assertIn("Cycle report:", report_rendered)
         self.assertIn("Cycle report:", stop_rendered)
+
+    def test_cycle_work_command_reports_delegations_and_journal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "workspace_root": ".",
+                        "memory_db": "memory.sqlite3",
+                        "sources": [
+                            {
+                                "name": "source",
+                                "type": "product",
+                                "responsibility": "Product.",
+                                "path": "source",
+                                "search": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_result = SimpleNamespace(
+                cycle_id=7,
+                started_cycle=True,
+                iterations_completed=1,
+                iteration_results=(
+                    SimpleNamespace(
+                        checkpoint_id=1,
+                        label="work-1",
+                        evaluation=SimpleNamespace(render_lines=lambda: ("health=pass", "stability=pass", "security=pass", "quality=pass")),
+                        work_summary="Primary opencode returncode=0 and secondary claude returncode=0.",
+                    ),
+                ),
+                report=SimpleNamespace(
+                    cycle={"id": "7", "label": "cycle-1", "objective": "busy work", "started_at": "2026-06-14T10:00:00+00:00", "ended_at": "2026-06-14T10:01:00+00:00"},
+                    checkpoint_count=1,
+                    health_pass_rate=1.0,
+                    stability_pass_rate=1.0,
+                    security_pass_rate=1.0,
+                    quality_pass_rate=1.0,
+                    latest_checkpoint={"iteration_number": 1, "label": "work-1"},
+                ),
+                target_duration_minutes=1.0,
+                window_started_at="2026-06-14T10:00:00+00:00",
+                window_ended_at="2026-06-14T10:01:00+00:00",
+                logical_duration_seconds=60.0,
+                wall_clock_duration_seconds=60.0,
+                sleep_duration_seconds=0.0,
+                logical_active_duration_seconds=60.0,
+                wall_clock_active_duration_seconds=60.0,
+                idle_ratio=0.0,
+                delegation_count=2,
+                agent_active_duration_seconds=60.0,
+            )
+
+            with patch("workspace_os.cli.run_cycle_work_window", return_value=fake_result), patch(
+                "workspace_os.cli.write_cycle_journal",
+                return_value=SimpleNamespace(entry_path=root / "journal"),
+            ):
+                with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                    from contextlib import redirect_stdout
+
+                    with redirect_stdout(buffer):
+                        exit_code = main(["--config", str(config), "cycle", "work", "--duration-minutes", "1"])
+                    buffer.seek(0)
+                    rendered = buffer.read()
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("delegation_count=2", rendered)
+        self.assertIn("agent_active_duration_seconds=60.00", rendered)
+        self.assertIn("journal_written=", rendered)
 
     def test_bridge_command_reports_workspace_capabilities(self):
         with tempfile.TemporaryDirectory() as directory:

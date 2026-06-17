@@ -56,6 +56,8 @@ class JournalEntry:
     logical_active_duration_seconds: float
     wall_clock_active_duration_seconds: float
     idle_ratio: float
+    delegation_count: int
+    agent_active_duration_seconds: float
     checkpoints: tuple[dict[str, object], ...]
     source_metrics: tuple[JournalSourceMetrics, ...]
     functional_metrics: JournalFunctionalMetrics
@@ -75,6 +77,8 @@ class JournalEntry:
         lines.append(f"logical_active_duration={_format_duration(self.logical_active_duration_seconds)}")
         lines.append(f"wall_clock_active_duration={_format_duration(self.wall_clock_active_duration_seconds)}")
         lines.append(f"idle_ratio={self.idle_ratio:.2f}")
+        lines.append(f"delegation_count={self.delegation_count}")
+        lines.append(f"agent_active_duration={_format_duration(self.agent_active_duration_seconds)}")
         lines.append(f"checkpoint_count={self.checkpoint_count}")
         lines.append(f"checkpoints_passed={self.checkpoints_passed}")
         lines.append(f"checkpoints_failed={self.checkpoints_failed}")
@@ -118,6 +122,8 @@ def write_cycle_journal(
     logical_active_duration_seconds: float | None = None,
     wall_clock_active_duration_seconds: float | None = None,
     idle_ratio: float | None = None,
+    delegation_count: int | None = None,
+    agent_active_duration_seconds: float | None = None,
 ) -> JournalEntry:
     cycle_id = int(cycle["id"])
     entry_id = _entry_id(str(cycle["started_at"]), story_title, cycle_id)
@@ -136,6 +142,8 @@ def write_cycle_journal(
     logical_active_duration_seconds = max(0.0, logical_duration_seconds - sleep_duration_seconds) if logical_active_duration_seconds is None else logical_active_duration_seconds
     wall_clock_active_duration_seconds = max(0.0, wall_clock_duration_seconds - sleep_duration_seconds) if wall_clock_active_duration_seconds is None else wall_clock_active_duration_seconds
     idle_ratio = 0.0 if idle_ratio is None else idle_ratio
+    delegation_count = len(checkpoints) if delegation_count is None else delegation_count
+    agent_active_duration_seconds = 0.0 if agent_active_duration_seconds is None else agent_active_duration_seconds
     story_lines = _build_story_lines(
         cycle,
         checkpoints,
@@ -147,6 +155,8 @@ def write_cycle_journal(
         logical_active_duration_seconds,
         wall_clock_active_duration_seconds,
         idle_ratio,
+        delegation_count,
+        agent_active_duration_seconds,
     )
     entry = JournalEntry(
         entry_id=entry_id,
@@ -165,6 +175,8 @@ def write_cycle_journal(
         logical_active_duration_seconds=logical_active_duration_seconds,
         wall_clock_active_duration_seconds=wall_clock_active_duration_seconds,
         idle_ratio=idle_ratio,
+        delegation_count=delegation_count,
+        agent_active_duration_seconds=agent_active_duration_seconds,
         checkpoints=checkpoints,
         source_metrics=source_metrics,
         functional_metrics=functional_metrics,
@@ -215,6 +227,8 @@ def _persist_entry(entry: JournalEntry, checkpoints: Iterable[dict[str, object]]
         "logical_active_duration_seconds": entry.logical_active_duration_seconds,
         "wall_clock_active_duration_seconds": entry.wall_clock_active_duration_seconds,
         "idle_ratio": entry.idle_ratio,
+        "delegation_count": entry.delegation_count,
+        "agent_active_duration_seconds": entry.agent_active_duration_seconds,
         "checkpoint_count": entry.checkpoint_count,
         "checkpoints_passed": entry.checkpoints_passed,
         "checkpoints_failed": entry.checkpoints_failed,
@@ -266,6 +280,8 @@ def _load_entry(entry_dir: Path) -> JournalEntry:
         logical_active_duration_seconds=float(payload.get("logical_active_duration_seconds", 0.0)),
         wall_clock_active_duration_seconds=float(payload.get("wall_clock_active_duration_seconds", 0.0)),
         idle_ratio=float(payload.get("idle_ratio", 0.0)),
+        delegation_count=int(payload.get("delegation_count", 0)),
+        agent_active_duration_seconds=float(payload.get("agent_active_duration_seconds", 0.0)),
         checkpoints=tuple(),
         source_metrics=source_metrics,
         functional_metrics=functional_metrics,
@@ -388,6 +404,8 @@ def _build_story_lines(
     logical_active_duration_seconds: float,
     wall_clock_active_duration_seconds: float,
     idle_ratio: float,
+    delegation_count: int,
+    agent_active_duration_seconds: float,
 ) -> tuple[str, ...]:
     lines = [
         f"The cycle '{cycle['label']}' stayed alive for {_format_duration(logical_duration_seconds)} logical time and delivered {len(tuple(checkpoints))} checkpoints.",
@@ -399,6 +417,9 @@ def _build_story_lines(
         f"Active work measured {_format_duration(logical_active_duration_seconds)} logically and {_format_duration(wall_clock_active_duration_seconds)} against the live wall clock."
     )
     lines.append(f"Idle ratio stayed at {idle_ratio:.2f} across the window.")
+    lines.append(
+        f"Delegations issued: {delegation_count}; agent active duration: {_format_duration(agent_active_duration_seconds)}."
+    )
     if source_metrics:
         total_commits = sum(metric.commits for metric in source_metrics)
         total_lines = sum(metric.lines_added + metric.lines_deleted for metric in source_metrics)
@@ -437,7 +458,14 @@ def _render_markdown(entry: JournalEntry) -> str:
         f"- Objective: {entry.objective}",
         f"- Started: {entry.started_at}",
         f"- Ended: {entry.ended_at}",
-        f"- Duration: {_format_duration(entry.duration_seconds)}",
+        f"- Logical duration: {_format_duration(entry.logical_duration_seconds)}",
+        f"- Wall clock duration: {_format_duration(entry.wall_clock_duration_seconds)}",
+        f"- Sleep duration: {_format_duration(entry.sleep_duration_seconds)}",
+        f"- Active duration (logical): {_format_duration(entry.logical_active_duration_seconds)}",
+        f"- Active duration (wall clock): {_format_duration(entry.wall_clock_active_duration_seconds)}",
+        f"- Idle ratio: {entry.idle_ratio:.2f}",
+        f"- Delegation count: {entry.delegation_count}",
+        f"- Agent active duration: {_format_duration(entry.agent_active_duration_seconds)}",
         f"- Checkpoints: {entry.checkpoint_count}",
         f"- Checkpoints passed: {entry.checkpoints_passed}",
         f"- Checkpoints failed: {entry.checkpoints_failed}",

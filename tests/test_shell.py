@@ -4,6 +4,8 @@ import io
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from workspace_os.config import Source
 from workspace_os.shell import WorkspaceShell
@@ -348,6 +350,59 @@ class ShellTests(unittest.TestCase):
         self.assertIn("Cycle report:", status_rendered)
         self.assertIn("Cycle report:", report_rendered)
         self.assertIn("Cycle report:", stop_rendered)
+
+    def test_shell_cycle_work_reports_delegations_and_journal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            shell = WorkspaceShell([Source("source", "product", "Product.", source_root)], root / "memory.sqlite3")
+            fake_result = SimpleNamespace(
+                cycle_id=7,
+                started_cycle=True,
+                iterations_completed=1,
+                iteration_results=(
+                    SimpleNamespace(
+                        checkpoint_id=1,
+                        label="work-1",
+                        evaluation=SimpleNamespace(render_lines=lambda: ("health=pass", "stability=pass", "security=pass", "quality=pass")),
+                        work_summary="Primary opencode returncode=0 and secondary claude returncode=0.",
+                    ),
+                ),
+                report=SimpleNamespace(
+                    cycle={"id": "7", "label": "cycle-1", "objective": "busy work", "started_at": "2026-06-14T10:00:00+00:00", "ended_at": "2026-06-14T10:01:00+00:00"},
+                    checkpoint_count=1,
+                    health_pass_rate=1.0,
+                    stability_pass_rate=1.0,
+                    security_pass_rate=1.0,
+                    quality_pass_rate=1.0,
+                    latest_checkpoint={"iteration_number": 1, "label": "work-1"},
+                ),
+                target_duration_minutes=1.0,
+                window_started_at="2026-06-14T10:00:00+00:00",
+                window_ended_at="2026-06-14T10:01:00+00:00",
+                logical_duration_seconds=60.0,
+                wall_clock_duration_seconds=60.0,
+                sleep_duration_seconds=0.0,
+                logical_active_duration_seconds=60.0,
+                wall_clock_active_duration_seconds=60.0,
+                idle_ratio=0.0,
+                delegation_count=2,
+                agent_active_duration_seconds=60.0,
+            )
+
+            with patch("workspace_os.shell.run_cycle_work_window", return_value=fake_result), patch(
+                "workspace_os.shell.write_cycle_journal",
+                return_value=SimpleNamespace(entry_path=root / "journal"),
+            ):
+                with redirect_stdout(io.StringIO()) as buffer:
+                    shell.do_cycle("work --duration-minutes 1")
+                rendered = buffer.getvalue()
+
+        self.assertIn("delegation_count=2", rendered)
+        self.assertIn("agent_active_duration_seconds=60.00", rendered)
+        self.assertIn("journal_written=", rendered)
 
     def test_shell_bridge_reports_workspace_capabilities(self):
         with tempfile.TemporaryDirectory() as directory:

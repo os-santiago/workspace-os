@@ -4,9 +4,11 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+import threading
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, start_cycle, stop_cycle
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -111,6 +113,43 @@ class CycleTests(unittest.TestCase):
         self.assertIsNotNone(result.window_started_at)
         self.assertIsNotNone(result.window_ended_at)
         self.assertEqual(3, result.report.checkpoint_count)
+
+    def test_cycle_work_runs_parallel_agents_until_deadline_without_idle_sleep(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+            lock = threading.Lock()
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                del agent, workspace_name, task, prompt, workspace_root, memory_store
+                with lock:
+                    current[0] = current[0] + timedelta(seconds=30)
+                return SimpleNamespace(returncode=0, duration_seconds=30.0)
+
+            result = run_cycle_work_window(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                duration_minutes=1,
+                label="cycle-1",
+                objective="busy long run implementation",
+                now_fn=now_fn,
+                agent_runner=agent_runner,
+            )
+
+        self.assertTrue(result.started_cycle)
+        self.assertEqual(1, result.iterations_completed)
+        self.assertEqual(2, result.delegation_count)
+        self.assertGreaterEqual(result.agent_active_duration_seconds or 0.0, 60.0)
+        self.assertEqual(1, result.report.checkpoint_count)
+        self.assertEqual(0.0, result.idle_ratio)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

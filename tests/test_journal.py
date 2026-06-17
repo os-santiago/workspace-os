@@ -4,9 +4,11 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+import threading
 
 from workspace_os.config import Source
-from workspace_os.cycle import run_cycle_window
+from workspace_os.cycle import run_cycle_window, run_cycle_work_window
 from workspace_os.journal import write_cycle_journal
 from workspace_os.memory import WorkspaceMemoryStore
 
@@ -55,6 +57,56 @@ class JournalTests(unittest.TestCase):
             self.assertIn("wall_clock_duration=", journal.render())
             self.assertIn("idle_ratio=", journal.render())
             self.assertIn("Story:", journal.render())
+
+    def test_cycle_work_writes_narrative_journal_and_delegation_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+            lock = threading.Lock()
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                del agent, workspace_name, task, prompt, workspace_root, memory_store
+                with lock:
+                    current[0] = current[0] + timedelta(seconds=30)
+                return SimpleNamespace(returncode=0, duration_seconds=30.0)
+
+            result = run_cycle_work_window(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                duration_minutes=1,
+                label="cycle-1",
+                objective="busy journal test",
+                now_fn=now_fn,
+                agent_runner=agent_runner,
+            )
+            journal = write_cycle_journal(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                result.report.cycle,
+                store.cycle_checkpoints(result.cycle_id, limit=1000),
+                story_title=result.report.cycle["label"],
+                logical_duration_seconds=result.logical_duration_seconds,
+                wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+                sleep_duration_seconds=result.sleep_duration_seconds,
+                logical_active_duration_seconds=result.logical_active_duration_seconds,
+                wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+                idle_ratio=result.idle_ratio,
+                delegation_count=result.delegation_count,
+                agent_active_duration_seconds=result.agent_active_duration_seconds,
+            )
+
+            self.assertTrue(journal.entry_path.exists())
+            self.assertIn("delegation_count=", journal.render())
+            self.assertIn("agent_active_duration=", journal.render())
+            self.assertIn("Delegations issued:", journal.render())
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
