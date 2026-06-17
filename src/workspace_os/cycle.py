@@ -768,6 +768,11 @@ def run_cycle_work_window_continuous(
     max_queue_depth = 0
     work_item_durations: list[float] = []
 
+    # Adaptive checkpoint tracking
+    last_checkpoint_at = time.perf_counter()
+    checkpoint_interval_seconds = 120.0  # Default: checkpoint every 2 minutes
+    min_items_per_checkpoint = 2  # Minimum work items before considering time-based checkpoint
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         # Start initial two work items
         for _ in range(2):
@@ -863,8 +868,15 @@ def run_cycle_work_window_continuous(
                     # Track queue depth
                     max_queue_depth = max(max_queue_depth, len(pending_futures))
 
-                # Checkpoint every 4 completed work items
-                if completed_work_items > 0 and completed_work_items % 4 == 0:
+                # Adaptive checkpointing: checkpoint based on elapsed time since last checkpoint
+                # AND minimum work items completed to avoid excessive overhead
+                elapsed_since_checkpoint = time.perf_counter() - last_checkpoint_at
+                items_since_last = completed_work_items - ((checkpoint_counter - 1) * min_items_per_checkpoint)
+                should_checkpoint = (
+                    items_since_last >= min_items_per_checkpoint
+                    and elapsed_since_checkpoint >= checkpoint_interval_seconds
+                )
+                if should_checkpoint:
                     evaluation_after = run_cycle_evaluation(sources, memory_store)
                     checkpoint_label = _iteration_label(note, checkpoint_counter)
                     checkpoint_id = record_cycle_checkpoint(
@@ -886,11 +898,12 @@ def run_cycle_work_window_continuous(
                             checkpoint_id=checkpoint_id,
                             label=checkpoint_label,
                             evaluation=evaluation_after,
-                            delegation_count=4,
+                            delegation_count=items_since_last,
                             agent_active_duration_seconds=total_agent_active / completed_work_items if completed_work_items > 0 else 0.0,
                             work_summary=f"Continuous work: {completed_work_items} items completed, agents alternating.",
                         )
                     )
+                    last_checkpoint_at = time.perf_counter()
                     if stop_on_failure and not evaluation_after.overall_ok():
                         # Cancel pending work
                         for pending_future in pending_futures.keys():
