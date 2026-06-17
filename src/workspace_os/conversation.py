@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import os
+import re
 
 from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
@@ -50,8 +51,9 @@ def build_workspace_reply(
         request_hash = _hash_text(clean_message)
         memory_store.record_turn(session_id=session_id, role="user", message=clean_message)
 
-    answer_lines = _answer_lines(clean_message, sources, memory_store)
-    suggested_actions = _suggested_actions(clean_message, conscience, memory_store)
+    target_source = _resolve_target_source(clean_message, sources)
+    answer_lines = _answer_lines(clean_message, sources, memory_store, target_source=target_source)
+    suggested_actions = _suggested_actions(clean_message, conscience, memory_store, sources=sources, target_source=target_source)
     if suggested_actions:
         answer_lines.extend(_redirect_guidance_lines(suggested_actions))
     trace_lines = [
@@ -360,23 +362,43 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     return lines
 
 
-def _suggested_actions(message: str, conscience: ConscienceDecision, memory_store: WorkspaceMemoryStore | None) -> list[dict[str, str]]:
+def _suggested_actions(
+    message: str,
+    conscience: ConscienceDecision,
+    memory_store: WorkspaceMemoryStore | None,
+    sources: list[Source] | None = None,
+    target_source: Source | None = None,
+) -> list[dict[str, str]]:
     if _is_greeting(message) or _is_app_overview_query(message) or _is_repetition_query(message):
         return []
-    if conscience.decision != "SAFE_REDIRECT" and not (_is_workspace_status_query(message) or _is_continuation_request(message)):
+    repo_request = target_source is not None and _is_repository_request(message)
+    if conscience.decision != "SAFE_REDIRECT" and not (_is_workspace_status_query(message) or _is_continuation_request(message) or repo_request):
         return []
     profile = load_profile(memory_store) if memory_store else None
     workspace_name = "all workspaces"
     if profile and profile.default_workspace:
         workspace_name = profile.default_workspace
+    if target_source is not None:
+        workspace_name = target_source.name
     primary_agent = conscience.primary_agent or "opencode"
     secondary_agent = conscience.secondary_agent or ("claude" if primary_agent != "claude" else "opencode")
-    primary_agent, secondary_agent, route_reason = _refine_route_with_history(
-        primary_agent,
-        secondary_agent,
-        conscience,
-        memory_store,
-    )
+    if target_source is not None:
+        primary_agent, secondary_agent, target_reason = _preferred_agents_for_source(target_source)
+        primary_agent, secondary_agent, route_reason = _refine_route_with_history(
+            primary_agent,
+            secondary_agent,
+            conscience,
+            memory_store,
+        )
+        if route_reason == "immediate_context" and target_reason:
+            route_reason = target_reason
+    else:
+        primary_agent, secondary_agent, route_reason = _refine_route_with_history(
+            primary_agent,
+            secondary_agent,
+            conscience,
+            memory_store,
+        )
     primary_task = build_agent_route_prompt(primary_agent, workspace_name)
     secondary_task = build_agent_route_prompt(secondary_agent, workspace_name)
     return [
@@ -406,12 +428,19 @@ def _redirect_guidance_lines(actions: list[dict[str, str]]) -> list[str]:
     return lines
 
 
-def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMemoryStore | None) -> list[str]:
+def _answer_lines(
+    message: str,
+    sources: list[Source],
+    memory_store: WorkspaceMemoryStore | None,
+    target_source: Source | None = None,
+) -> list[str]:
     if _is_greeting(message):
         return [
             "Hola. Soy WOS: orquesto trabajo sobre tus repos, recuerdo contexto y delego a Opencode o Claude cuando hace falta, con Codex como respaldo.",
             "Dame un repo, un objetivo o una pregunta y te devuelvo el siguiente paso concreto.",
         ]
+    if target_source is not None and _is_repository_request(message):
+        return _repository_request_lines(message, target_source)
     if _is_app_overview_query(message):
         return [
             "Workspace OS is your local workspace control plane.",
@@ -451,7 +480,31 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
     return [
             "Give me a repo, goal, or question and I'll turn it into a task plan, route work through OCE, or cross-check with Claude.",
             "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/opencode <task>', or '/claude <task>'.",
-        ]
+    ]
+
+
+def _repository_request_lines(message: str, source: Source) -> list[str]:
+    resolved_agent, secondary_agent, reason = _preferred_agents_for_source(source)
+    status = inspect_source(source)
+    branch = status.branch or "n/a"
+    command = _route_command(resolved_agent, source.name)
+    lines = [
+        f"Repo resolved: {source.name}",
+        f"Path: {source.path}",
+        f"Group: {source.group}",
+        f"State: {status.state} branch={branch} changes={status.dirty_count} untracked={status.untracked_count}",
+        f"Primary route: /{resolved_agent}",
+        f"Command: {command}",
+    ]
+    if secondary_agent != resolved_agent:
+        lines.extend([
+            f"Optional cross-check: /{secondary_agent}",
+            f"Command: {_route_command(secondary_agent, source.name)}",
+        ])
+    lines.append(f"Preference: {reason}")
+    if status.ahead or status.behind:
+        lines.append(f"Divergence: ahead={status.ahead} behind={status.behind}")
+    return lines
 
 
 def _workspace_status_answer_lines(sources: list[Source], memory_store: WorkspaceMemoryStore) -> list[str]:
@@ -569,6 +622,64 @@ def _workspace_name_from_sources(sources: list[Source]) -> str:
     if len(sources) == 1:
         return sources[0].name
     return "workspace-os"
+
+
+def _is_repository_request(message: str) -> bool:
+    text = message.casefold()
+    return any(
+        marker in text
+        for marker in (
+            "repo",
+            "repositorio",
+            "repository",
+            "analiza",
+            "analyze",
+            "inspect",
+            "revisa",
+            "review",
+        )
+    )
+
+
+def _preferred_agents_for_source(source: Source) -> tuple[str, str, str]:
+    if source.group == "knowledge_base":
+        return "claude", "opencode", "knowledge_base_first"
+    return "opencode", "claude", "workspace_repo_first"
+
+
+def _resolve_target_source(message: str, sources: list[Source]) -> Source | None:
+    text = _normalized_text(message)
+    best_source: Source | None = None
+    best_score = 0
+    for source in sources:
+        score = _score_source_match(text, source)
+        if score > best_score:
+            best_score = score
+            best_source = source
+    return best_source if best_score > 0 else None
+
+
+def _score_source_match(text: str, source: Source) -> int:
+    score = 0
+    name = _normalized_text(source.name)
+    path_name = _normalized_text(source.path.name)
+    path_stem = _normalized_text(source.path.stem)
+    responsibility = _normalized_text(source.responsibility)
+    if name and name in text:
+        score += 6
+    if path_name and path_name in text:
+        score += 5
+    if path_stem and path_stem in text:
+        score += 4
+    if responsibility:
+        for token in responsibility.split():
+            if len(token) > 3 and token in text:
+                score += 1
+    return score
+
+
+def _normalized_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.casefold())
 
 
 def _route_command(agent: str, workspace_name: str) -> str:

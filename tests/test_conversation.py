@@ -290,6 +290,28 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Next step:", reply.reply)
         self.assertIn("opencode", reply.reply)
 
+    def test_workspace_reply_resolves_requested_repo_and_prefers_opencode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                "analiza el repositorio workspace-os",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Repo resolved: workspace-os", reply.reply)
+        self.assertIn(f"Path: {source_root}", reply.reply)
+        self.assertIn("Primary route: /opencode", reply.reply)
+        self.assertIn("Command: /opencode", reply.reply)
+        self.assertIn("Preference: workspace_repo_first", reply.reply)
+
     def test_workspace_reply_routes_ambiguous_status_to_opencode_and_claude(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -368,8 +390,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual("SAFE_REDIRECT", reply.conscience.decision)
         self.assertEqual("claude", reply.suggested_actions[0]["agent"])
         self.assertEqual("opencode", reply.suggested_actions[1]["agent"])
-        self.assertIn("Primary route: /opencode", reply.reply)
-        self.assertIn("Optional cross-check: /claude", reply.reply)
+        self.assertIn("Primary route: /claude", reply.reply)
+        self.assertIn("Optional cross-check: /opencode", reply.reply)
 
 
 if __name__ == "__main__":
