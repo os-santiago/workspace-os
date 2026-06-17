@@ -36,6 +36,7 @@ class JournalFunctionalMetrics:
     questionable_feedback: int
     over_expectation_feedback: int
     decision_total: int
+    plan_coverage_hints: tuple[str, ...] = ()  # Product plan items potentially addressed
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,9 @@ class JournalEntry:
         lines.append(f"- questionable_feedback={self.functional_metrics.questionable_feedback}")
         lines.append(f"- over_expectation_feedback={self.functional_metrics.over_expectation_feedback}")
         lines.append(f"- decision_total={self.functional_metrics.decision_total}")
+        if self.functional_metrics.plan_coverage_hints:
+            lines.append("Plan coverage hints:")
+            lines.extend(f"- {hint}" for hint in self.functional_metrics.plan_coverage_hints)
         if self.story_lines:
             lines.append("Story:")
             lines.extend(f"- {line}" for line in self.story_lines)
@@ -130,7 +134,8 @@ def write_cycle_journal(
     entry_path = journal_root(memory_store) / "cycles" / entry_id
     checkpoints = tuple(sorted(checkpoints, key=lambda item: int(item["iteration_number"])))
     source_metrics = tuple(_collect_source_metrics(sources, str(cycle["started_at"]), str(cycle["ended_at"] or _utc_now())))
-    functional_metrics = _collect_functional_metrics(memory_store)
+    plan_coverage = detect_plan_coverage_from_commits(sources, str(cycle["started_at"]), str(cycle["ended_at"] or _utc_now()))
+    functional_metrics = _collect_functional_metrics(memory_store, plan_coverage_hints=plan_coverage)
     checkpoints_passed = sum(
         1 for checkpoint in checkpoints if all(int(checkpoint.get(f"{name}_ok", 0)) for name in ("health", "stability", "security", "quality"))
     )
@@ -290,7 +295,10 @@ def _load_entry(entry_dir: Path) -> JournalEntry:
     )
 
 
-def _collect_functional_metrics(memory_store: WorkspaceMemoryStore) -> JournalFunctionalMetrics:
+def _collect_functional_metrics(
+    memory_store: WorkspaceMemoryStore,
+    plan_coverage_hints: tuple[str, ...] = (),
+) -> JournalFunctionalMetrics:
     task_metrics = memory_store.task_outcome_metrics()
     success_count = 0
     failure_count = 0
@@ -310,6 +318,7 @@ def _collect_functional_metrics(memory_store: WorkspaceMemoryStore) -> JournalFu
         questionable_feedback=int(feedback_metrics["questionable_count"]),
         over_expectation_feedback=int(feedback_metrics["over_expectation_count"]),
         decision_total=int(decision_summary["total"]),
+        plan_coverage_hints=plan_coverage_hints,
     )
 
 
@@ -540,3 +549,42 @@ def _format_duration(seconds: float) -> str:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, until: str) -> tuple[str, ...]:
+    """Detect which product plan items might have been addressed based on commit messages.
+
+    Scans commit messages for keywords related to product plan competencies and gaps.
+    Returns hints about potentially addressed plan items for gap analysis.
+    """
+    plan_keywords = {
+        "workspace discovery": ["workspace", "repo", "resolution", "discovery"],
+        "agent orchestration": ["agent", "routing", "delegation", "orchestration"],
+        "context compaction": ["context", "memory", "compaction", "snapshot"],
+        "parallel execution": ["parallel", "concurrent", "cross-check"],
+        "learning": ["learning", "feedback", "mastery", "preference"],
+        "cycle orchestration": ["cycle", "checkpoint", "long-run", "iteration"],
+        "traceability": ["trace", "handoff", "recovery", "journal"],
+    }
+
+    coverage_hints = set()
+    for source in sources:
+        if source.type != "repository":
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "log", f"--since={since}", f"--until={until}", "--pretty=format:%s"],
+                cwd=source.path,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+            if result.returncode == 0:
+                commits = result.stdout.lower()
+                for plan_item, keywords in plan_keywords.items():
+                    if any(kw in commits for kw in keywords):
+                        coverage_hints.add(plan_item)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    return tuple(sorted(coverage_hints))
