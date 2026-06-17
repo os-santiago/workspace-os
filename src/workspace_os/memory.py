@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 @dataclass(frozen=True)
@@ -96,6 +96,7 @@ class WorkspaceMemoryStore:
                     result_text TEXT NOT NULL,
                     feedback_text TEXT NOT NULL,
                     status TEXT NOT NULL CHECK(status IN ('positive', 'questionable', 'over_expectation')),
+                    error_type TEXT NOT NULL DEFAULT 'neutral',
                     reason TEXT NOT NULL,
                     has_objection INTEGER NOT NULL DEFAULT 0,
                     has_praise INTEGER NOT NULL DEFAULT 0,
@@ -153,6 +154,7 @@ class WorkspaceMemoryStore:
                 self._ensure_batch_column(conn, table)
             self._ensure_decision_columns(conn)
             self._ensure_agent_launches_schema(conn)
+            self._ensure_feedback_columns(conn)
             conn.execute("DELETE FROM schema_version")
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
             conn.commit()
@@ -317,6 +319,7 @@ class WorkspaceMemoryStore:
         feedback_text: str,
         status: str,
         reason: str,
+        error_type: str = "neutral",
         has_objection: bool = False,
         has_praise: bool = False,
         created_at: str | None = None,
@@ -327,16 +330,17 @@ class WorkspaceMemoryStore:
             cursor = conn.execute(
                 """
                 INSERT INTO feedback_events (
-                    request_text, result_text, feedback_text, status, reason,
+                    request_text, result_text, feedback_text, status, error_type, reason,
                     has_objection, has_praise, created_at, batch_id, process_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request_text.strip(),
                     result_text.strip(),
                     feedback_text.strip(),
                     status.strip(),
+                    error_type.strip() if error_type and error_type.strip() else "neutral",
                     reason.strip(),
                     1 if has_objection else 0,
                     1 if has_praise else 0,
@@ -906,6 +910,12 @@ class WorkspaceMemoryStore:
         )
         conn.execute("DROP TABLE agent_launches_legacy")
 
+    def _ensure_feedback_columns(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute("PRAGMA table_info(feedback_events)").fetchall()
+        columns = {str(item["name"]) for item in row}
+        if "error_type" not in columns:
+            conn.execute("ALTER TABLE feedback_events ADD COLUMN error_type TEXT NOT NULL DEFAULT 'neutral'")
+
     def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
         with self._connection() as conn:
             rows = conn.execute(
@@ -1061,7 +1071,7 @@ class WorkspaceMemoryStore:
         with self._connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, request_text, result_text, feedback_text, status, reason, has_objection, has_praise, created_at, batch_id, process_id
+                SELECT id, request_text, result_text, feedback_text, status, error_type, reason, has_objection, has_praise, created_at, batch_id, process_id
                 FROM feedback_events
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
@@ -1075,6 +1085,7 @@ class WorkspaceMemoryStore:
                     "result_text": str(row["result_text"]),
                     "feedback_text": str(row["feedback_text"]),
                     "status": str(row["status"]),
+                    "error_type": str(row["error_type"] or "neutral"),
                     "reason": str(row["reason"]),
                     "has_objection": int(row["has_objection"] or 0),
                     "has_praise": int(row["has_praise"] or 0),
@@ -1094,6 +1105,12 @@ class WorkspaceMemoryStore:
                     SUM(CASE WHEN status = 'positive' THEN 1 ELSE 0 END) AS positive_count,
                     SUM(CASE WHEN status = 'questionable' THEN 1 ELSE 0 END) AS questionable_count,
                     SUM(CASE WHEN status = 'over_expectation' THEN 1 ELSE 0 END) AS over_expectation_count,
+                    SUM(CASE WHEN error_type = 'too_verbose' THEN 1 ELSE 0 END) AS too_verbose_count,
+                    SUM(CASE WHEN error_type = 'wrong_agent' THEN 1 ELSE 0 END) AS wrong_agent_count,
+                    SUM(CASE WHEN error_type = 'missing_repo_resolution' THEN 1 ELSE 0 END) AS missing_repo_resolution_count,
+                    SUM(CASE WHEN error_type = 'missing_clarification' THEN 1 ELSE 0 END) AS missing_clarification_count,
+                    SUM(CASE WHEN error_type = 'ignored_preference' THEN 1 ELSE 0 END) AS ignored_preference_count,
+                    SUM(CASE WHEN error_type = 'generic_fallback' THEN 1 ELSE 0 END) AS generic_fallback_count,
                     SUM(has_objection) AS objection_count,
                     SUM(has_praise) AS praise_count
                 FROM feedback_events
@@ -1104,6 +1121,12 @@ class WorkspaceMemoryStore:
                 "positive_count": int(row["positive_count"] or 0) if row else 0,
                 "questionable_count": int(row["questionable_count"] or 0) if row else 0,
                 "over_expectation_count": int(row["over_expectation_count"] or 0) if row else 0,
+                "too_verbose_count": int(row["too_verbose_count"] or 0) if row else 0,
+                "wrong_agent_count": int(row["wrong_agent_count"] or 0) if row else 0,
+                "missing_repo_resolution_count": int(row["missing_repo_resolution_count"] or 0) if row else 0,
+                "missing_clarification_count": int(row["missing_clarification_count"] or 0) if row else 0,
+                "ignored_preference_count": int(row["ignored_preference_count"] or 0) if row else 0,
+                "generic_fallback_count": int(row["generic_fallback_count"] or 0) if row else 0,
                 "objection_count": int(row["objection_count"] or 0) if row else 0,
                 "praise_count": int(row["praise_count"] or 0) if row else 0,
             }
@@ -1137,9 +1160,9 @@ class WorkspaceMemoryStore:
                     FROM conversation_turns
                     WHERE session_id LIKE :needle OR role LIKE :needle OR message LIKE :needle
                     UNION ALL
-                    SELECT 'feedback' AS kind, status AS title, feedback_text AS body, created_at
+                    SELECT 'feedback' AS kind, status AS title, feedback_text || ' [' || error_type || ']' AS body, created_at
                     FROM feedback_events
-                    WHERE request_text LIKE :needle OR result_text LIKE :needle OR feedback_text LIKE :needle OR status LIKE :needle OR reason LIKE :needle
+                    WHERE request_text LIKE :needle OR result_text LIKE :needle OR feedback_text LIKE :needle OR status LIKE :needle OR reason LIKE :needle OR error_type LIKE :needle
                     UNION ALL
                     SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary AS body, created_at
                     FROM context_snapshots
@@ -1172,7 +1195,7 @@ class WorkspaceMemoryStore:
                     SELECT 'conversation' AS kind, role AS title, message AS body, created_at
                     FROM conversation_turns
                     UNION ALL
-                    SELECT 'feedback' AS kind, status AS title, feedback_text AS body, created_at
+                    SELECT 'feedback' AS kind, status AS title, feedback_text || ' [' || error_type || ']' AS body, created_at
                     FROM feedback_events
                     UNION ALL
                     SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary AS body, created_at

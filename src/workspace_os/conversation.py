@@ -52,7 +52,13 @@ def build_workspace_reply(
         memory_store.record_turn(session_id=session_id, role="user", message=clean_message)
 
     target_source = _resolve_target_source(clean_message, sources)
-    answer_lines = _answer_lines(clean_message, sources, memory_store, target_source=target_source)
+    answer_lines = _answer_lines(
+        clean_message,
+        sources,
+        memory_store,
+        target_source=target_source,
+        profile=load_profile(memory_store) if memory_store else None,
+    )
     suggested_actions = _suggested_actions(clean_message, conscience, memory_store, sources=sources, target_source=target_source)
     if suggested_actions:
         answer_lines.extend(_redirect_guidance_lines(suggested_actions))
@@ -114,6 +120,7 @@ def build_workspace_reply(
                 "",
                 "Feedback layer:",
                 f"- status={feedback_event['status']} objection={feedback_event['has_objection']} praise={feedback_event['has_praise']}",
+                f"- error_type={feedback_event['error_type']}",
                 f"- reason={feedback_event['reason']}",
             ]
         )
@@ -191,12 +198,14 @@ def _record_feedback_event(
         feedback_text=feedback_text,
         status=assessment.status,
         reason=assessment.reason,
+        error_type=assessment.error_type,
         has_objection=assessment.has_objection,
         has_praise=assessment.has_praise,
     )
     return {
         "status": assessment.status,
         "reason": assessment.reason,
+        "error_type": assessment.error_type,
         "has_objection": assessment.has_objection,
         "has_praise": assessment.has_praise,
         "session_id": session_id,
@@ -350,11 +359,12 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     else:
         lines.append("- recent launches=none")
     if process is None and batch is None:
+        primary_agent = profile.primary_agent if profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
         lines.extend(
             [
-                f"- primary route={build_agent_route_command('opencode', profile.default_workspace or 'all workspaces')}",
+                f"- primary route={build_agent_route_command(primary_agent, profile.default_workspace or 'all workspaces')}",
                 f"- fallback route={build_agent_route_command('claude', profile.default_workspace or 'all workspaces')}",
-                f"- opencode prompt={build_agent_route_prompt('opencode', profile.default_workspace or 'all workspaces')}",
+                f"- {primary_agent} prompt={build_agent_route_prompt(primary_agent, profile.default_workspace or 'all workspaces')}",
             ]
         )
     else:
@@ -380,10 +390,10 @@ def _suggested_actions(
         workspace_name = profile.default_workspace
     if target_source is not None:
         workspace_name = target_source.name
-    primary_agent = conscience.primary_agent or "opencode"
+    primary_agent = conscience.primary_agent or (profile.primary_agent if profile else None) or "opencode"
     secondary_agent = conscience.secondary_agent or ("claude" if primary_agent != "claude" else "opencode")
     if target_source is not None:
-        primary_agent, secondary_agent, target_reason = _preferred_agents_for_source(target_source)
+        primary_agent, secondary_agent, target_reason = _preferred_agents_for_source(target_source, primary_agent)
         primary_agent, secondary_agent, route_reason = _refine_route_with_history(
             primary_agent,
             secondary_agent,
@@ -433,37 +443,41 @@ def _answer_lines(
     sources: list[Source],
     memory_store: WorkspaceMemoryStore | None,
     target_source: Source | None = None,
+    profile=None,
 ) -> list[str]:
     if _is_greeting(message):
         return [
-            "Hola. Soy WOS: orquesto trabajo sobre tus repos, recuerdo contexto y delego a Opencode o Claude cuando hace falta, con Codex como respaldo.",
+            "Hola. Soy WOS: orquesto trabajo sobre tus repos, recuerdo contexto y delego al agente primario configurado o a Claude cuando hace falta.",
             "Dame un repo, un objetivo o una pregunta y te devuelvo el siguiente paso concreto.",
         ]
     if target_source is not None and _is_repository_request(message):
-        return _repository_request_lines(message, target_source)
+        return _repository_request_lines(message, target_source, profile)
     if _is_app_overview_query(message):
         return [
             "Workspace OS is your local workspace control plane.",
             "- tracks repos and git state",
             "- remembers context, decisions, handoffs, and preferences",
-            "- routes ambiguous work through OCE, then Opencode first and Claude as backup",
+            "- routes ambiguous work through OCE, then the configured primary agent and Claude as backup",
             "- delegates execution and cross-checks to those agents when work needs throughput",
             "- compacts global context after each work window",
-            "Try: /inspect, /context latest, /oce, /opencode <task>, /claude <task>",
+            "Try: /inspect, /context latest, /oce, /opencode <task>, /codex <task>, /claude <task>",
         ]
     if _is_repetition_query(message):
+        primary_agent = profile.primary_agent if profile and profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
+        primary_agent_label = primary_agent.capitalize()
         return [
             "No. I now answer by intent instead of repeating the same fallback.",
-            "If a question is ambiguous, I route it to Opencode first and use Claude in parallel when a second pass is useful.",
+            f"If a question is ambiguous, I route it to {primary_agent_label} first and use Claude in parallel when a second pass is useful.",
             "Ask for repo state, an objective, or a task and I'll return the next action instead of a canned reply.",
         ]
     if _is_continuation_request(message):
         workspace_name = _workspace_name_from_sources(sources)
+        primary_agent = profile.primary_agent if profile and profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
         return [
             f"Ready. Continue with {workspace_name}.",
             "Fastest path: /inspect, then /next.",
-            f"Primary route: /opencode",
-            f"Command: {_route_command('opencode', workspace_name)}",
+            f"Primary route: /{primary_agent}",
+            f"Command: {_route_command(primary_agent, workspace_name)}",
             "Optional cross-check: /claude",
             f"Command: {_route_command('claude', workspace_name)}",
         ]
@@ -479,12 +493,13 @@ def _answer_lines(
         return _workspace_status_answer_lines(sources, memory_store)
     return [
             "Give me a repo, goal, or question and I'll turn it into a task plan, route work through OCE, or cross-check with Claude.",
-            "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/opencode <task>', or '/claude <task>'.",
-    ]
+            "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/opencode <task>', '/codex <task>', or '/claude <task>'.",
+        ]
 
 
-def _repository_request_lines(message: str, source: Source) -> list[str]:
-    resolved_agent, secondary_agent, reason = _preferred_agents_for_source(source)
+def _repository_request_lines(message: str, source: Source, profile=None) -> list[str]:
+    preferred_primary_agent = profile.primary_agent if profile and profile.primary_agent in {"opencode", "codex", "claude"} else None
+    resolved_agent, secondary_agent, reason = _preferred_agents_for_source(source, preferred_primary_agent)
     status = inspect_source(source)
     branch = status.branch or "n/a"
     command = _route_command(resolved_agent, source.name)
@@ -641,10 +656,14 @@ def _is_repository_request(message: str) -> bool:
     )
 
 
-def _preferred_agents_for_source(source: Source) -> tuple[str, str, str]:
+def _preferred_agents_for_source(source: Source, preferred_primary_agent: str | None = None) -> tuple[str, str, str]:
+    primary = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude"} else "opencode"
     if source.group == "knowledge_base":
-        return "claude", "opencode", "knowledge_base_first"
-    return "opencode", "claude", "workspace_repo_first"
+        if primary == "claude":
+            return "claude", "opencode", "knowledge_base_first"
+        return "claude", primary, "knowledge_base_first"
+    secondary = "claude" if primary != "claude" else "opencode"
+    return primary, secondary, "workspace_repo_first"
 
 
 def _resolve_target_source(message: str, sources: list[Source]) -> Source | None:

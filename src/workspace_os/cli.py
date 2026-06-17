@@ -648,28 +648,34 @@ def _memory(memory_path: Path, command: str, args: argparse.Namespace) -> int:
                 feedback_text=args.feedback,
                 status=assessment.status,
                 reason=assessment.reason,
+                error_type=assessment.error_type,
                 has_objection=assessment.has_objection,
                 has_praise=assessment.has_praise,
             )
             print(f"saved feedback {entry_id}")
             print(f"status={assessment.status}")
+            print(f"error_type={assessment.error_type}")
             print(f"reason={assessment.reason}")
             return 0
         if args.feedback_command == "history":
             entries = store.feedback_history(limit=args.limit)
             for entry in entries:
                 print(
-                    f"- {entry['id']} {entry['status']}: {entry['feedback_text']} "
+                    f"- {entry['id']} {entry['status']} ({entry['error_type']}): {entry['feedback_text']} "
                     f"({entry['created_at']})"
                 )
             if not entries:
                 print("No feedback entries found.")
             return 0
         if args.feedback_command == "status":
+            from workspace_os.learning import build_workspace_learning_model
+
+            profile = load_profile(store)
             metrics = store.feedback_metrics()
             print("Feedback report")
             for key, value in metrics.items():
                 print(f"{key}={value}")
+            print(f"learning_model={build_workspace_learning_model(store, profile).render_summary()}")
             return 0
 
     print("error: unsupported memory command", file=sys.stderr)

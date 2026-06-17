@@ -15,6 +15,7 @@ class ProfileTests(unittest.TestCase):
             save_profile_key(store, "tone", "terse")
             save_profile_key(store, "detail_level", "minimal")
             save_profile_key(store, "default_workspace", "adev")
+            save_profile_key(store, "primary_agent", "codex")
             save_shortcut(store, "s", "/status")
 
             profile = load_profile(store)
@@ -22,6 +23,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual("terse", profile.tone)
         self.assertEqual("minimal", profile.detail_level)
         self.assertEqual("adev", profile.default_workspace)
+        self.assertEqual("codex", profile.primary_agent)
         self.assertEqual("/status", profile.shortcuts["s"])
 
 

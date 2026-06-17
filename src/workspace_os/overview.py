@@ -5,6 +5,7 @@ from pathlib import Path
 
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.delegation import build_agent_route_command
+from workspace_os.learning import build_workspace_learning_model
 from workspace_os.git_status import inspect_source, recent_source_activities
 from workspace_os.habits import compute_habits
 from workspace_os.memory import WorkspaceMemoryStore
@@ -156,6 +157,7 @@ def build_workspace_overview(
 ) -> WorkspaceOverview:
     profile = load_profile(memory_store)
     habits = compute_habits(memory_store, profile)
+    learning_model = build_workspace_learning_model(memory_store, profile)
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     stats = memory_store.stats()
@@ -260,6 +262,7 @@ def build_workspace_next_action(
 ) -> WorkspaceNextAction:
     profile = load_profile(memory_store)
     habits = compute_habits(memory_store, profile)
+    learning_model = build_workspace_learning_model(memory_store, profile)
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     stats = memory_store.stats()
@@ -281,6 +284,7 @@ def build_workspace_next_action(
             f"Primary route={route_hint}",
             f"Suggested command: {_route_command(route_hint, workspace_name)}",
             "Fallback route=/analysis --compact",
+            f"Learning model: {learning_model.render_summary()}",
             "Use analysis to pick the repo that changed most recently, then inspect it before delegating.",
             *analysis.recommendation_lines,
         )
@@ -345,7 +349,8 @@ def build_workspace_analysis(
             *_render_activity_lines(knowledge_activities, compact=False),
         )
 
-    recommendation_lines = _analysis_recommendation_lines(workspace_activities, workspace_name)
+    recommendation_lines = _analysis_recommendation_lines(workspace_activities, workspace_name, profile.primary_agent)
+    recommendation_lines = recommendation_lines + (f"Learning model: {build_workspace_learning_model(memory_store, profile).render_summary()}",)
     return WorkspaceAnalysis(
         workspace=workspace_name,
         source_lines=source_lines,
@@ -369,14 +374,15 @@ def build_workspace_roots(
     knowledge_activities = recent_source_activities(knowledge_sources, limit=limit)
     workspace_lines = tuple(_render_activity_lines(workspace_activities, compact=True))
     knowledge_base_lines = tuple(_render_activity_lines(knowledge_activities, compact=True))
-    recommendation = _build_workspace_continuation_recommendation(workspace_activities, workspace_name)
+    recommendation = _build_workspace_continuation_recommendation(workspace_activities, workspace_name, profile.primary_agent)
+    learning_model = build_workspace_learning_model(memory_store, profile)
     return WorkspaceRoots(
         workspace=workspace_name,
         workspace_root=workspace_root,
         knowledge_base_root=knowledge_base_root,
         workspace_lines=workspace_lines,
         knowledge_base_lines=knowledge_base_lines,
-        recommendation_lines=recommendation.lines,
+        recommendation_lines=recommendation.lines + (f"Learning model: {learning_model.render_summary()}",),
     )
 
 
@@ -648,12 +654,13 @@ def _render_activity_lines(activities, compact: bool = False) -> tuple[str, ...]
     return tuple(lines)
 
 
-def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str, ...]:
+def _analysis_recommendation_lines(activities, workspace_name: str, preferred_primary_agent: str | None = None) -> tuple[str, ...]:
+    route_agent = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude"} else "opencode"
     if not activities:
         return (
             "Continue with: inspect the workspace first.",
             "Recommended continue: inspect the workspace first.",
-            "Primary route: /opencode",
+            f"Primary route: /{route_agent}",
             "Suggested command: /inspect --compact",
             "No updated repo was available to rank.",
         )
@@ -668,8 +675,8 @@ def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str
         f"Continue with: {candidate.source.name}",
         f"Recommended continue: {candidate.source.name}",
         f"Reason: {reason}",
-        f"Primary route: /opencode",
-        f"Suggested command: {_route_command('opencode', candidate.source.name or workspace_name)}",
+        f"Primary route: /{route_agent}",
+        f"Suggested command: {_route_command(route_agent, candidate.source.name or workspace_name)}",
         f"Optional cross-check: {_route_command('claude', candidate.source.name or workspace_name)}",
     )
 
@@ -677,7 +684,9 @@ def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str
 def _build_workspace_continuation_recommendation(
     activities,
     workspace_name: str,
+    preferred_primary_agent: str | None = None,
 ) -> WorkspaceContinuationRecommendation:
+    primary_agent = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude"} else "opencode"
     if not activities:
         return WorkspaceContinuationRecommendation(
             target_workspace=None,
@@ -699,7 +708,7 @@ def _build_workspace_continuation_recommendation(
         reason = "it has uncommitted changes and is likely the active work surface"
     elif status.ahead or status.behind:
         reason = "it is diverged from upstream and likely needs attention"
-    primary_command = _route_command("opencode", candidate.source.name or workspace_name)
+    primary_command = _route_command(primary_agent, candidate.source.name or workspace_name)
     parallel_recommended = len(activities) > 1 or status.state == "dirty" or status.ahead or status.behind
     parallel_command = _route_command("claude", candidate.source.name or workspace_name) if parallel_recommended else None
     return WorkspaceContinuationRecommendation(
@@ -712,7 +721,7 @@ def _build_workspace_continuation_recommendation(
             f"Continue with: {candidate.source.name}",
             f"Reason: {reason}",
             f"Suggested command: {primary_command}",
-            f"Parallel review: {'opencode + claude' if parallel_recommended else 'not needed'}",
+            f"Parallel review: {primary_agent} + claude" if parallel_recommended else "Parallel review: not needed",
             f"Parallel cross-check: {parallel_command}" if parallel_command else "Parallel cross-check: optional",
         ),
     )

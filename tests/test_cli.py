@@ -532,6 +532,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, exit_code)
         self.assertIn("saved feedback", rendered)
         self.assertIn("status=over_expectation", rendered)
+        self.assertIn("error_type=positive", rendered)
         self.assertIn("reason=", rendered)
 
     def test_bridge_command_reports_workspace_capabilities(self):

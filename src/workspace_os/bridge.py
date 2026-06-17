@@ -5,6 +5,7 @@ import json
 
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
+from workspace_os.learning import build_workspace_learning_model
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.overview import (
     build_workspace_analysis,
@@ -137,9 +138,11 @@ def build_workspace_bridge_report(
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     feedback_metrics = memory_store.feedback_metrics()
+    learning_model = build_workspace_learning_model(memory_store, profile)
     active_workspace = workspace or profile.default_workspace or overview.workspace
     workspace_root = _workspace_root_from_sources(sources)
-    execution_mode = "parallel (opencode + claude)" if root_continuation_is_parallel(roots) else "sequential (opencode first)"
+    primary_agent = profile.primary_agent if profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
+    execution_mode = f"parallel ({primary_agent} + claude)" if root_continuation_is_parallel(roots) else f"sequential ({primary_agent} first)"
 
     summary_lines = (
         f"State: sources={len(sources)} memory_entries={memory_store.stats()['conversation_turns']} turns "
@@ -147,6 +150,7 @@ def build_workspace_bridge_report(
         "Hardening: always-on malicious agentic protection",
         "Extension model: layered and pluggable",
         f"OCE extensions: {len(registered_oce_extensions())} registered",
+        f"Learning model: {learning_model.render_summary()}",
         f"Execution mode: {execution_mode}",
         f"Process: {_render_process_summary(process)}",
         f"Batch: {_render_batch_summary(batch)}",
@@ -206,14 +210,14 @@ def build_workspace_bridge_report(
             "workspace chat \"What projects are in flight?\"",
         ),
         BridgeCapability(
-            "opencode",
-            "Launch an Opencode task against the active workspace using the DeepSeek free model.",
-            "wos shell -> /opencode <task>",
+        "opencode",
+        "Launch an Opencode task against the active workspace using the DeepSeek free model.",
+        "wos shell -> /opencode <task>",
         ),
         BridgeCapability(
-            "codex",
-            "Launch a Codex task against the active workspace.",
-            "wos shell -> /codex <task>",
+        "codex",
+        "Launch a Codex task against the active workspace.",
+        "wos shell -> /codex <task>",
         ),
         BridgeCapability(
             "claude",
@@ -247,6 +251,7 @@ def build_workspace_bridge_next_report(
     analysis = build_workspace_analysis(sources, memory_store, workspace=workspace, compact=True)
     roots = build_workspace_roots(sources, memory_store, workspace=workspace, limit=5)
     overview = build_workspace_overview(sources, memory_store, workspace=workspace, compact=True)
+    learning_model = build_workspace_learning_model(memory_store, profile)
     recommended_workspace = _extract_first_line(roots.recommendation_lines, prefix="Continue with:")
     if recommended_workspace:
         recommended_workspace = recommended_workspace.removeprefix("Continue with: ").strip()
@@ -269,6 +274,7 @@ def build_workspace_bridge_next_report(
     detail_lines = (
         *next_action.summary_lines[:2],
         "Hardening: always-on malicious agentic protection",
+        f"Learning model: {learning_model.render_summary()}",
         *roots.recommendation_lines[:3],
         *analysis.recommendation_lines[:2],
     )

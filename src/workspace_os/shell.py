@@ -278,25 +278,31 @@ class WorkspaceShell(cmd.Cmd):
                 feedback_text=options.feedback,
                 status=assessment.status,
                 reason=assessment.reason,
+                error_type=assessment.error_type,
                 has_objection=assessment.has_objection,
                 has_praise=assessment.has_praise,
             )
             self._emit(f"saved feedback {entry_id}")
             self._emit(f"status={assessment.status}")
+            self._emit(f"error_type={assessment.error_type}")
             self._emit(f"reason={assessment.reason}")
             return
         if options.feedback_command == "history":
             entries = self.memory_store.feedback_history(limit=options.limit)
             for entry in entries:
-                self._emit(f"- {entry['id']} {entry['status']}: {entry['feedback_text']} ({entry['created_at']})")
+                self._emit(f"- {entry['id']} {entry['status']} ({entry['error_type']}): {entry['feedback_text']} ({entry['created_at']})")
             if not entries:
                 self._emit("No feedback entries found.")
             return
         if options.feedback_command == "status":
+            from workspace_os.learning import build_workspace_learning_model
+
+            profile = load_profile(self.memory_store)
             metrics = self.memory_store.feedback_metrics()
             self._emit("Feedback report")
             for key, value in metrics.items():
                 self._emit(f"{key}={value}")
+            self._emit(f"learning_model={build_workspace_learning_model(self.memory_store, profile).render_summary()}")
             return
 
     def do_inspect(self, arg: str) -> None:
@@ -458,8 +464,8 @@ class WorkspaceShell(cmd.Cmd):
             return
         key = parts[0].strip()
         value = " ".join(parts[1:]).strip()
-        if key not in {"tone", "detail_level", "default_workspace"}:
-            print("Supported keys: tone, detail_level, default_workspace")
+        if key not in {"tone", "detail_level", "default_workspace", "primary_agent"}:
+            print("Supported keys: tone, detail_level, default_workspace, primary_agent")
             return
         save_profile_key(self.memory_store, key, value)
         self.profile = load_profile(self.memory_store)
@@ -742,6 +748,7 @@ class WorkspaceShell(cmd.Cmd):
         print(f"tone={self.profile.tone}")
         print(f"detail_level={self.profile.detail_level}")
         print(f"default_workspace={self.profile.default_workspace or ''}")
+        print(f"primary_agent={self.profile.primary_agent or ''}")
 
     def _print_aliases(self) -> None:
         if not self.profile.shortcuts:

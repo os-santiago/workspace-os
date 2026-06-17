@@ -77,7 +77,7 @@ def compute_habits(memory_store: WorkspaceMemoryStore, profile: OperatorProfile)
         for launch in launches
         if launch["agent"]
     )
-    primary_agent = _most_frequent_value(agent_counts)
+    primary_agent = profile.primary_agent or _most_frequent_value(agent_counts)
 
     workspace_counts = Counter(
         launch["workspace"]

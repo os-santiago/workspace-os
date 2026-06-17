@@ -95,6 +95,7 @@ class ShellTests(unittest.TestCase):
                 shell.do_profile("tone terse")
                 shell.do_profile("detail_level minimal")
                 shell.do_profile("default_workspace source")
+                shell.do_profile("primary_agent codex")
                 shell.do_alias("s /status")
                 shell.default("Remember this")
                 shell.do_habits("")
@@ -110,6 +111,7 @@ class ShellTests(unittest.TestCase):
         self.assertEqual("/status", shell.profile.shortcuts["s"])
         self.assertEqual("terse", shell.profile.tone)
         self.assertEqual("minimal", shell.profile.detail_level)
+        self.assertEqual("codex", shell.profile.primary_agent)
 
     def test_shell_conscience_status_reports_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -289,6 +291,7 @@ class ShellTests(unittest.TestCase):
 
         self.assertIn("saved feedback", rendered)
         self.assertIn("status=over_expectation", rendered)
+        self.assertIn("error_type=positive", rendered)
         self.assertIn("reason=", rendered)
 
     def test_shell_bridge_reports_workspace_capabilities(self):
