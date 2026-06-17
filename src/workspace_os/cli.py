@@ -1170,6 +1170,10 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
         print(f"window_ended_at={result.window_ended_at}")
         print(f"delegation_count={result.delegation_count or 0}")
         print(f"agent_active_duration_seconds={result.agent_active_duration_seconds or 0.0:.2f}")
+        if result.queue_utilization_ratio is not None:
+            print(f"queue_utilization_ratio={result.queue_utilization_ratio:.2f}")
+            print(f"max_queue_depth={result.max_queue_depth or 0}")
+            print(f"avg_work_item_duration_seconds={result.avg_work_item_duration_seconds or 0.0:.2f}")
         for iteration in result.iteration_results:
             print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
             print(render_cycle_evaluation(iteration.evaluation), end="")

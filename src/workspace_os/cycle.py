@@ -148,6 +148,9 @@ class CycleRunResult:
     idle_ratio: float | None = None
     delegation_count: int | None = None
     agent_active_duration_seconds: float | None = None
+    queue_utilization_ratio: float | None = None
+    max_queue_depth: int | None = None
+    avg_work_item_duration_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -761,6 +764,10 @@ def run_cycle_work_window_continuous(
     pending_futures = {}
     checkpoint_counter = 1
 
+    # Queue utilization tracking
+    max_queue_depth = 0
+    work_item_durations: list[float] = []
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         # Start initial two work items
         for _ in range(2):
@@ -795,6 +802,8 @@ def run_cycle_work_window_continuous(
             }
             total_delegations += 1
             work_item_number += 1
+            # Track queue depth
+            max_queue_depth = max(max_queue_depth, len(pending_futures))
 
         # Process completions and queue new work continuously
         while pending_futures and now_fn() < deadline:
@@ -809,6 +818,7 @@ def run_cycle_work_window_continuous(
                 try:
                     result = future.result()
                     duration = time.perf_counter() - work_info["started_at"]
+                    work_item_durations.append(duration)
                     total_agent_active += float(getattr(result, "duration_seconds", duration))
                     completed_work_items += 1
 
@@ -850,6 +860,8 @@ def run_cycle_work_window_continuous(
                     }
                     total_delegations += 1
                     work_item_number += 1
+                    # Track queue depth
+                    max_queue_depth = max(max_queue_depth, len(pending_futures))
 
                 # Checkpoint every 4 completed work items
                 if completed_work_items > 0 and completed_work_items % 4 == 0:
@@ -902,6 +914,11 @@ def run_cycle_work_window_continuous(
     # A value close to 0 means agents were kept busy; close to 1 means mostly idle
     max_parallel_work = wall_clock_duration_seconds * 2  # 2 agents max
     idle_ratio = 0.0 if max_parallel_work <= 0 else min(1.0, max(0.0, (max_parallel_work - total_agent_active) / max_parallel_work))
+
+    # Calculate queue utilization metrics
+    # Queue utilization ratio: how well we kept the queue full (close to 1 = good)
+    queue_utilization_ratio = max_queue_depth / 2.0 if max_queue_depth > 0 else 0.0
+    avg_work_item_duration_seconds = sum(work_item_durations) / len(work_item_durations) if work_item_durations else 0.0
     return CycleRunResult(
         cycle_id=cycle_id,
         started_cycle=started_cycle,
@@ -927,6 +944,9 @@ def run_cycle_work_window_continuous(
         idle_ratio=idle_ratio,
         delegation_count=total_delegations,
         agent_active_duration_seconds=total_agent_active,
+        queue_utilization_ratio=queue_utilization_ratio,
+        max_queue_depth=max_queue_depth,
+        avg_work_item_duration_seconds=avg_work_item_duration_seconds,
     )
 
 
