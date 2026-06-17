@@ -65,6 +65,9 @@ class JournalEntry:
     functional_metrics: JournalFunctionalMetrics
     story_lines: tuple[str, ...]
     entry_path: Path
+    queue_utilization_ratio: float | None = None
+    max_queue_depth: int | None = None
+    avg_work_item_duration_seconds: float | None = None
 
     def render(self) -> str:
         lines = [f"Journal entry: {self.label}"]
@@ -81,6 +84,12 @@ class JournalEntry:
         lines.append(f"idle_ratio={self.idle_ratio:.2f}")
         lines.append(f"delegation_count={self.delegation_count}")
         lines.append(f"agent_active_duration={_format_duration(self.agent_active_duration_seconds)}")
+        if self.queue_utilization_ratio is not None:
+            lines.append(f"queue_utilization_ratio={self.queue_utilization_ratio:.2f}")
+        if self.max_queue_depth is not None:
+            lines.append(f"max_queue_depth={self.max_queue_depth}")
+        if self.avg_work_item_duration_seconds is not None:
+            lines.append(f"avg_work_item_duration={_format_duration(self.avg_work_item_duration_seconds)}")
         lines.append(f"checkpoint_count={self.checkpoint_count}")
         lines.append(f"checkpoints_passed={self.checkpoints_passed}")
         lines.append(f"checkpoints_failed={self.checkpoints_failed}")
@@ -132,6 +141,9 @@ def write_cycle_journal(
     idle_ratio: float | None = None,
     delegation_count: int | None = None,
     agent_active_duration_seconds: float | None = None,
+    queue_utilization_ratio: float | None = None,
+    max_queue_depth: int | None = None,
+    avg_work_item_duration_seconds: float | None = None,
 ) -> JournalEntry:
     cycle_id = int(cycle["id"])
     entry_id = _entry_id(str(cycle["started_at"]), story_title, cycle_id)
@@ -192,6 +204,9 @@ def write_cycle_journal(
         functional_metrics=functional_metrics,
         story_lines=story_lines,
         entry_path=entry_path,
+        queue_utilization_ratio=queue_utilization_ratio,
+        max_queue_depth=max_queue_depth,
+        avg_work_item_duration_seconds=avg_work_item_duration_seconds,
     )
     _persist_entry(entry, checkpoints)
     return entry
@@ -245,6 +260,9 @@ def _persist_entry(entry: JournalEntry, checkpoints: Iterable[dict[str, object]]
         "source_metrics": [metric.__dict__ for metric in entry.source_metrics],
         "functional_metrics": entry.functional_metrics.__dict__,
         "story_lines": list(entry.story_lines),
+        "queue_utilization_ratio": entry.queue_utilization_ratio,
+        "max_queue_depth": entry.max_queue_depth,
+        "avg_work_item_duration_seconds": entry.avg_work_item_duration_seconds,
     }
     (entry.entry_path / "journal.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     (entry.entry_path / "journal.md").write_text(_render_markdown(entry), encoding="utf-8")
@@ -297,6 +315,9 @@ def _load_entry(entry_dir: Path) -> JournalEntry:
         functional_metrics=functional_metrics,
         story_lines=tuple(payload.get("story_lines", [])),
         entry_path=entry_dir,
+        queue_utilization_ratio=float(payload["queue_utilization_ratio"]) if payload.get("queue_utilization_ratio") is not None else None,
+        max_queue_depth=int(payload["max_queue_depth"]) if payload.get("max_queue_depth") is not None else None,
+        avg_work_item_duration_seconds=float(payload["avg_work_item_duration_seconds"]) if payload.get("avg_work_item_duration_seconds") is not None else None,
     )
 
 

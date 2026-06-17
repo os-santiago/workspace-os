@@ -1102,6 +1102,9 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
                 idle_ratio=result.idle_ratio,
                 delegation_count=result.delegation_count,
                 agent_active_duration_seconds=result.agent_active_duration_seconds,
+                queue_utilization_ratio=result.queue_utilization_ratio,
+                max_queue_depth=result.max_queue_depth,
+                avg_work_item_duration_seconds=result.avg_work_item_duration_seconds,
             )
             print(f"journal_written={journal.entry_path}")
         return 0
@@ -1144,6 +1147,9 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             idle_ratio=result.idle_ratio,
             delegation_count=result.delegation_count,
             agent_active_duration_seconds=result.agent_active_duration_seconds,
+            queue_utilization_ratio=result.queue_utilization_ratio,
+            max_queue_depth=result.max_queue_depth,
+            avg_work_item_duration_seconds=result.avg_work_item_duration_seconds,
         )
         print(f"journal_written={journal.entry_path}")
         return 0
@@ -1194,6 +1200,9 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             idle_ratio=result.idle_ratio,
             delegation_count=result.delegation_count,
             agent_active_duration_seconds=result.agent_active_duration_seconds,
+            queue_utilization_ratio=result.queue_utilization_ratio,
+            max_queue_depth=result.max_queue_depth,
+            avg_work_item_duration_seconds=result.avg_work_item_duration_seconds,
         )
         print(f"journal_written={journal.entry_path}")
         return 0
