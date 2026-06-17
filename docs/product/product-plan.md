@@ -338,3 +338,50 @@ The product is healthy when it improves:
 - reusable workspace intelligence;
 - adoption beyond the first operator.
 
+## Long-Run Operating Plan
+
+Long runs should be the default mode for multi-capability work that cannot be completed safely in a single minimal deliverable.
+
+### Objective
+
+Keep WOS moving through a plan over a long window with minimal operator interaction while still enforcing checkpoints that prevent drift, regressions, and silent failure.
+
+### Cadence
+
+- start with a clear objective and one active cycle;
+- run repeated checkpoints at a fixed interval;
+- alternate execution and cross-check roles when the plan benefits from divergent review;
+- pause or stop early if a health, stability, security, or quality gate fails;
+- compact the result into a handoff before the window closes;
+- preserve context snapshots so the next window can continue without re-explaining the plan.
+
+### Minimum Deliverable Per Checkpoint
+
+Each checkpoint should produce:
+
+- current gate state;
+- one recommended next action;
+- any failing gate or missing context;
+- the chosen execution role and cross-check role;
+- a compact record of the work completed during the interval.
+
+### One-Hour Target
+
+For a one-hour run, WOS should behave as a supervised long-run controller:
+
+- hold the cycle open for the target duration;
+- continue checkpointing on schedule;
+- keep agent choice stable enough to reduce noise but flexible enough to alternate roles;
+- avoid requiring the operator to reissue the same intent;
+- keep the user-facing output compact while the learning and trace layers retain the full context.
+
+### Success Criteria
+
+A one-hour long run is successful when it:
+
+- advances the intended product plan continuously;
+- keeps the recommended next action obvious;
+- records checkpoints at the expected cadence;
+- avoids repeated defect patterns;
+- finishes with a usable handoff and compacted context;
+- reduces the amount of manual orchestration required from the operator.
