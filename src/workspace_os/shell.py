@@ -11,7 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
@@ -112,6 +112,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
                     "/cycle ...          start, stop, report, status, checkpoint, or list long-run cycles",
+                    "/cycle next         recommend the next cycle action",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/conscience ...     show decision metrics, history, recommendation, or extensions",
                     "/oce ...           alias for /conscience",
@@ -719,6 +720,7 @@ class WorkspaceShell(cmd.Cmd):
         run_parser.add_argument("--stop-on-failure", action="store_true")
 
         subparsers.add_parser("stop", add_help=False)
+        subparsers.add_parser("next", add_help=False)
 
         report_parser = subparsers.add_parser("report", add_help=False)
         report_parser.add_argument("--id", type=int)
@@ -787,6 +789,10 @@ class WorkspaceShell(cmd.Cmd):
                 self._emit("No active cycle found.")
                 return
             self._emit(report.render(), end="")
+            return
+
+        if options.cycle_command == "next":
+            self._emit(build_cycle_next_action(self.memory_store).render(), end="")
             return
 
         if options.cycle_command == "report":

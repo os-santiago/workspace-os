@@ -127,6 +127,24 @@ class CycleRunResult:
     report: CycleReport
 
 
+@dataclass(frozen=True)
+class CycleNextAction:
+    cycle_id: int | None
+    cycle_label: str
+    recommendation: str
+    command: str
+    detail_lines: tuple[str, ...]
+
+    def render(self) -> str:
+        lines = [f"Cycle next: {self.cycle_label}"]
+        lines.append(self.recommendation)
+        lines.append(f"Suggested command: {self.command}")
+        if self.detail_lines:
+            lines.append("")
+            lines.extend(self.detail_lines)
+        return "\n".join(lines) + "\n"
+
+
 def start_cycle(memory_store: WorkspaceMemoryStore, label: str, objective: str, started_at: str | None = None) -> int:
     return memory_store.start_cycle(label, objective, started_at=started_at)
 
@@ -147,6 +165,56 @@ def active_cycle_report(memory_store: WorkspaceMemoryStore) -> CycleReport | Non
         security_pass_rate=float(report["security_pass_rate"]),
         quality_pass_rate=float(report["quality_pass_rate"]),
         latest_checkpoint=report["latest_checkpoint"],
+    )
+
+
+def build_cycle_next_action(memory_store: WorkspaceMemoryStore) -> CycleNextAction:
+    report = memory_store.cycle_report()
+    if report is None:
+        return CycleNextAction(
+            cycle_id=None,
+            cycle_label="no active cycle",
+            recommendation="Start a long-running cycle before the next implementation loop.",
+            command="workspace cycle start --label <name> --objective <text>",
+            detail_lines=(
+                "Use cycle run to bundle several checkpoints once the cycle is open.",
+                "Health, stability, security, and quality gates are enforced on each iteration.",
+            ),
+        )
+
+    cycle_id = int(report["cycle_id"])
+    checkpoint_count = int(report["checkpoint_count"])
+    latest = report.get("latest_checkpoint")
+    if checkpoint_count == 0:
+        recommendation = "Run the first checkpoint to establish the cycle baseline."
+        command = "workspace cycle run --iterations 1"
+    elif isinstance(latest, dict) and all(latest.get(f"{name}_ok") for name in ("health", "stability", "security", "quality")):
+        recommendation = "The latest checkpoint is healthy. Continue with the next iteration or close the cycle if the objective is done."
+        command = "workspace cycle run --iterations 1"
+    else:
+        recommendation = "The latest checkpoint needs follow-up. Fix the failing gate, then run the next checkpoint."
+        command = "workspace cycle run --iterations 1 --stop-on-failure"
+
+    detail_lines = (
+        f"Cycle report: {report['cycle']['label']}",
+        f"checkpoint_count={checkpoint_count}",
+        f"health={_cycle_status_label(checkpoint_count, float(report['health_pass_rate']))}",
+        f"stability={_cycle_status_label(checkpoint_count, float(report['stability_pass_rate']))}",
+        f"security={_cycle_status_label(checkpoint_count, float(report['security_pass_rate']))}",
+        f"quality={_cycle_status_label(checkpoint_count, float(report['quality_pass_rate']))}",
+    )
+    if isinstance(latest, dict):
+        detail_lines = (
+            *detail_lines,
+            f"latest_checkpoint={latest.get('iteration_number', 'n/a')}",
+            f"latest_label={latest.get('label', 'n/a')}",
+        )
+    return CycleNextAction(
+        cycle_id=cycle_id,
+        cycle_label=str(report["cycle"]["label"]),
+        recommendation=recommendation,
+        command=command,
+        detail_lines=detail_lines,
     )
 
 
@@ -346,6 +414,16 @@ def _run_quality_checks(sources: list[Source], memory_store: WorkspaceMemoryStor
 def _iteration_label(note: str | None, iteration_number: int) -> str:
     prefix = note.strip() if note and note.strip() else "iteration"
     return f"{prefix}-{iteration_number}"
+
+
+def _cycle_status_label(checkpoint_count: int, pass_rate: float) -> str:
+    if checkpoint_count == 0:
+        return "n/a"
+    if pass_rate >= 1.0:
+        return "pass"
+    if pass_rate <= 0.0:
+        return "fail"
+    return "partial"
 
 
 def _init_git_repo(path: Path) -> None:

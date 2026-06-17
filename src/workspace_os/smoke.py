@@ -172,6 +172,11 @@ def _run_cli_checks(config: Path) -> list[SmokeCheckResult]:
             ["iterations_completed=2", "Cycle checks:"],
         ),
         (
+            "cli:cycle-next",
+            ["--config", str(config), "cycle", "next"],
+            ["Cycle next:", "workspace cycle run"],
+        ),
+        (
             "cli:cycle-status",
             ["--config", str(config), "cycle", "status"],
             ["Cycle report", "health=", "stability=", "security=", "quality="],
@@ -213,6 +218,7 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
             shell.do_roots("")
             shell.do_oce("status 5")
             shell.do_cycle("run --iterations 2")
+            shell.do_cycle("next")
             shell.do_cycle("status")
             shell.do_cycle("checkpoint --label iteration-1")
             shell.do_cycle("report")
@@ -223,6 +229,8 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
         ("shell:roots", "Workspace roots:"),
         ("shell:oce", "OCE report"),
         ("shell:cycle-run", "iterations_completed=2"),
+        ("shell:cycle-next", "Cycle next:"),
+        ("shell:cycle-command", "workspace cycle run"),
         ("shell:cycle", "Cycle report"),
         ("shell:reply", "Primary route: /opencode"),
         ("shell:route", "Optional cross-check: /claude"),

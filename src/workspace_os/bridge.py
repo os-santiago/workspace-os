@@ -5,7 +5,7 @@ import json
 
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action
 from workspace_os.learning import build_workspace_learning_model
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.overview import (
@@ -139,6 +139,7 @@ def build_workspace_bridge_report(
     process = current_process_report(memory_store)
     batch = current_batch_report(memory_store)
     cycle = active_cycle_report(memory_store)
+    cycle_next = build_cycle_next_action(memory_store)
     feedback_metrics = memory_store.feedback_metrics()
     learning_model = build_workspace_learning_model(memory_store, profile)
     active_workspace = workspace or profile.default_workspace or overview.workspace
@@ -155,6 +156,7 @@ def build_workspace_bridge_report(
         f"Learning model: {learning_model.render_summary()}",
         f"Execution mode: {execution_mode}",
         f"Cycle: {_render_cycle_summary(cycle)}",
+        f"Cycle next: {cycle_next.recommendation}",
         f"Process: {_render_process_summary(process)}",
         f"Batch: {_render_batch_summary(batch)}",
         f"Context: {_render_context_summary(memory_store)}",
@@ -196,6 +198,11 @@ def build_workspace_bridge_report(
             "cycle",
             "Orchestrate long-running iterations with health, stability, security, and quality checkpoints.",
             "workspace cycle status",
+        ),
+        BridgeCapability(
+            "cycle next",
+            "Recommend the next cycle action for a long-running plan.",
+            "workspace cycle next",
         ),
         BridgeCapability(
             "feedback",
@@ -261,6 +268,7 @@ def build_workspace_bridge_next_report(
     overview = build_workspace_overview(sources, memory_store, workspace=workspace, compact=True)
     learning_model = build_workspace_learning_model(memory_store, profile)
     cycle = active_cycle_report(memory_store)
+    cycle_next = build_cycle_next_action(memory_store)
     recommended_workspace = _extract_first_line(roots.recommendation_lines, prefix="Continue with:")
     if recommended_workspace:
         recommended_workspace = recommended_workspace.removeprefix("Continue with: ").strip()
@@ -285,6 +293,7 @@ def build_workspace_bridge_next_report(
         "Hardening: always-on malicious agentic protection",
         f"Learning model: {learning_model.render_summary()}",
         f"Cycle: {_render_cycle_summary(cycle)}",
+        f"Cycle next: {cycle_next.recommendation}",
         *roots.recommendation_lines[:3],
         *analysis.recommendation_lines[:2],
     )

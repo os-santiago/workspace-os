@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
@@ -381,6 +381,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_run.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
+    cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
     cycle_report = cycle_subparsers.add_parser("report", help="Render the active or selected cycle report.")
     cycle_report.add_argument("--id", type=int, help="Cycle identifier.")
     cycle_history = cycle_subparsers.add_parser("history", help="List recent cycles.")
@@ -1054,6 +1055,10 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             print("No active cycle found.")
             return 0
         print(report.render(), end="")
+        return 0
+
+    if command == "next":
+        print(build_cycle_next_action(store).render(), end="")
         return 0
 
     if command == "report":
