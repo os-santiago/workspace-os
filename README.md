@@ -50,7 +50,7 @@ workspace bridge status --format json
 ```text
 docs/
 |-- architecture/       # System boundaries and decisions
-|-- product/            # Vision, roadmap, backlog, operating model
+|-- product/            # Vision, product plan, roadmap, backlog, operating model
 `-- runbooks/           # Operational procedures
 ```
 
@@ -67,6 +67,7 @@ The first MVP is an integrated local tool environment, not a broad knowledge bas
 It should connect the core repositories, expose workspace status, support librarian search, and prepare governed context for agents before delegated work starts.
 
 Progress toward the UI is tracked in `docs/product/roadmap.md`.
+The canonical product plan lives in `docs/product/product-plan.md`.
 
 ## Local Usage
 

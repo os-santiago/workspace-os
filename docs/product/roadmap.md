@@ -1,5 +1,7 @@
 # Roadmap
 
+This roadmap operationalizes the canonical product plan in `docs/product/product-plan.md`.
+
 ## Progress Map
 
 Status legend:
