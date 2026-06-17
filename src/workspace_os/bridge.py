@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
+from workspace_os.agent_policy import available_work_agents, normalize_agent_name
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
 from workspace_os.cycle import active_cycle_report, build_cycle_next_action
@@ -144,7 +145,7 @@ def build_workspace_bridge_report(
     learning_model = build_workspace_learning_model(memory_store, profile)
     active_workspace = workspace or profile.default_workspace or overview.workspace
     workspace_root = _workspace_root_from_sources(sources)
-    primary_agent = profile.primary_agent if profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
+    primary_agent = normalize_agent_name(profile.primary_agent) or "opencode"
     execution_mode = f"parallel ({primary_agent} + claude)" if root_continuation_is_parallel(roots) else f"sequential ({primary_agent} first)"
 
     summary_lines = (
@@ -153,6 +154,7 @@ def build_workspace_bridge_report(
         "Hardening: always-on malicious agentic protection",
         "Extension model: layered and pluggable",
         f"OCE extensions: {len(registered_oce_extensions())} registered",
+        f"Agent pool: {', '.join(available_work_agents())}",
         f"Learning model: {learning_model.render_summary()}",
         f"Execution mode: {execution_mode}",
         f"Cycle: {_render_cycle_summary(cycle)}",
@@ -235,9 +237,14 @@ def build_workspace_bridge_report(
         "wos shell -> /opencode <task>",
         ),
         BridgeCapability(
-        "codex",
-        "Launch a Codex task against the active workspace.",
-        "wos shell -> /codex <task>",
+            "codex",
+            "Launch a Codex task against the active workspace.",
+            "wos shell -> /codex <task>",
+        ),
+        BridgeCapability(
+            "antigravity",
+            "Launch an Antigravity task against the active workspace.",
+            "wos shell -> /antigravity <task>",
         ),
         BridgeCapability(
             "claude",

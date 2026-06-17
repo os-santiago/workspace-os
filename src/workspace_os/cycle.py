@@ -5,11 +5,13 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
+import random
 from pathlib import Path
 import time
 import tempfile
 from collections.abc import Callable
 
+from workspace_os.agent_policy import choose_work_agent_pair, available_work_agents
 from workspace_os.config import Source
 from workspace_os.agent_adapter import run_agent
 from workspace_os.delegation import build_agent_route_command
@@ -269,6 +271,23 @@ def _cycle_agents_for_iteration(checkpoint_count: int) -> tuple[str, str]:
     return "opencode", "claude"
 
 
+def _choose_work_agents(
+    iteration_number: int,
+    memory_store: WorkspaceMemoryStore,
+    rng: random.Random | None = None,
+) -> tuple[str, str]:
+    from workspace_os.learning import build_workspace_learning_model
+    from workspace_os.profile import load_profile
+
+    profile = load_profile(memory_store)
+    learning = build_workspace_learning_model(memory_store, profile)
+    preferred = learning.primary_agent_bias or profile.primary_agent
+    pair = choose_work_agent_pair(rng=rng, preferred_primary=preferred, learning_bias=learning.primary_agent_bias)
+    if pair[0] == pair[1] and len(available_work_agents()) > 1:
+        return _cycle_agents_for_iteration(iteration_number - 1)
+    return pair
+
+
 def _workspace_root_for_sources(sources: list[Source]) -> Path:
     workspace_paths = [source.path for source in sources if getattr(source, "group", "workspace") == "workspace"]
     if not workspace_paths:
@@ -366,6 +385,7 @@ def _build_cycle_work_prompt(
             "Prefer code, tests, and docs over prose-only output.",
             "Keep unrelated local changes intact.",
             "Return a concise summary of changed files, validations, and any remaining gaps.",
+            f"Supported work agents: {', '.join(available_work_agents())}.",
         ]
     )
     if recent_work_lines:
@@ -644,6 +664,7 @@ def run_cycle_work_window(
     stop_on_failure: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
+    rng: random.Random | None = None,
 ) -> CycleRunResult:
     if duration_minutes < 0:
         raise ValueError("Cycle duration must be at least 0 minutes.")
@@ -666,6 +687,7 @@ def run_cycle_work_window(
     iteration_number = 1
     total_delegations = 0
     total_agent_active = 0.0
+    rng = rng or random.Random()
     while True:
         if now_fn() >= deadline:
             break
@@ -680,7 +702,7 @@ def run_cycle_work_window(
             note=note,
             iteration_number=iteration_number,
         )
-        primary_agent, secondary_agent = _cycle_agents_for_iteration(iteration_number - 1)
+        primary_agent, secondary_agent = _choose_work_agents(iteration_number, memory_store, rng=rng)
         executor = agent_runner or run_agent
         with ThreadPoolExecutor(max_workers=2) as pool:
             future_primary = pool.submit(
@@ -792,6 +814,7 @@ def run_cycle_work_window_continuous(
     stop_on_failure: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
+    rng: random.Random | None = None,
 ) -> CycleRunResult:
     """Run cycle work with continuous agent utilization to minimize idle time.
 
@@ -823,6 +846,7 @@ def run_cycle_work_window_continuous(
     total_agent_active = 0.0
     executor = agent_runner or run_agent
     workspace_name = _work_workspace_name(sources)
+    rng = rng or random.Random()
 
     # Queue for pending work items
     pending_futures = {}
@@ -851,8 +875,7 @@ def run_cycle_work_window_continuous(
                 note=note,
                 iteration_number=work_item_number,
             )
-            agent_type = "opencode" if work_item_number % 2 == 1 else "claude"
-            role = "primary" if work_item_number % 2 == 1 else "secondary"
+            agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
 
             print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
             future = pool.submit(
@@ -918,8 +941,7 @@ def run_cycle_work_window_continuous(
                         note=note,
                         iteration_number=work_item_number,
                     )
-                    agent_type = "opencode" if work_item_number % 2 == 1 else "claude"
-                    role = "primary" if work_item_number % 2 == 1 else "secondary"
+                    agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
 
                     print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
                     new_future = pool.submit(
@@ -1035,6 +1057,17 @@ def run_cycle_work_window_continuous(
         max_queue_depth=max_queue_depth,
         avg_work_item_duration_seconds=avg_work_item_duration_seconds,
     )
+
+
+def _choose_continuous_work_item(
+    work_item_number: int,
+    memory_store: WorkspaceMemoryStore,
+    rng: random.Random,
+) -> tuple[str, str]:
+    primary_agent, secondary_agent = _choose_work_agents(work_item_number, memory_store, rng=rng)
+    if work_item_number % 2 == 1:
+        return primary_agent, "primary"
+    return secondary_agent, "secondary"
 
 
 def render_cycle_evaluation(evaluation: CycleEvaluation) -> str:

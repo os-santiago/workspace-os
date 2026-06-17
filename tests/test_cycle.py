@@ -3,12 +3,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+import random
 from pathlib import Path
 from types import SimpleNamespace
 import threading
+from unittest.mock import patch
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle, _build_cycle_work_prompt
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle, _build_cycle_work_prompt, _choose_work_agents
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.journal import write_cycle_journal
 
@@ -151,6 +153,19 @@ class CycleTests(unittest.TestCase):
         self.assertGreaterEqual(result.agent_active_duration_seconds or 0.0, 60.0)
         self.assertEqual(1, result.report.checkpoint_count)
         self.assertEqual(0.0, result.idle_ratio)
+
+    def test_cycle_work_can_select_antigravity_when_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+
+            with patch("workspace_os.cycle.available_work_agents", return_value=("opencode", "claude", "antigravity")):
+                primary, secondary = _choose_work_agents(1, store, rng=random.Random(7))
+
+        self.assertIn(primary, {"opencode", "claude", "antigravity"})
+        self.assertIn(secondary, {"opencode", "claude", "antigravity"})
+        self.assertNotEqual(primary, secondary)
 
     def test_cycle_work_continuous_starts_new_work_immediately(self):
         with tempfile.TemporaryDirectory() as directory:

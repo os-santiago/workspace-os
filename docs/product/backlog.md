@@ -186,7 +186,7 @@ Initial implementation:
 - Software delegation can launch an approved Codex or Claude run from the local Git workspace.
 - Document and presentation delegation remain blocked until a real Google Drive connector exists.
 - Shell profile commands remember tone, detail level, default workspace, and shortcut aliases in persistent memory, and the shell startup banner summarizes inferred operator habits from recent launches and conversation activity.
-- Shell agent commands launch allowlisted Codex or Claude tasks from the active workspace and record the launch.
+- Shell agent commands launch allowlisted Codex, Claude, or Antigravity tasks from the active workspace and record the launch.
 - Batch telemetry records start and end time, delegations, defects, and conversation activity so each iteration can be reported with duration and defect-driven churn.
 - Chat and web responses surface the active batch summary so the current work window stays visible outside the shell.
 - Batch summary output lists the recent batch count with duration and defect iterations per batch, and reports the global process window from first start to last end for accurate stopwatch-style measurement.

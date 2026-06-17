@@ -69,7 +69,7 @@ Workspace OS should use generative logic for:
 
 The product goal is not to generate everything. The product goal is to use the lowest-cost technique that can make the next decision correct, then use generation only when it adds clear value.
 
-Workspace OS also exposes a non-interactive bridge for other CLI agents. The bridge lets Codex, Claude, or any comparable tool ask WOS what is available, what should continue next, and which surfaces are safe to use without entering the interactive shell.
+Workspace OS also exposes a non-interactive bridge for other CLI agents. The bridge lets Codex, Claude, Antigravity, or any comparable tool ask WOS what is available, what should continue next, and which surfaces are safe to use without entering the interactive shell.
 
 ## Long-Run Execution Model
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.profile import OperatorProfile
 
@@ -51,7 +52,7 @@ def build_workspace_learning_model(memory_store: WorkspaceMemoryStore, profile: 
         "generic_fallback": metrics.get("generic_fallback_count", 0),
     }
     dominant_error_type, dominant_error_count = _top_error_type(error_counts)
-    primary_agent = profile.primary_agent if profile.primary_agent in {"opencode", "codex", "claude"} else None
+    primary_agent = normalize_agent_name(profile.primary_agent)
 
     if dominant_error_type is None:
         return WorkspaceLearningModel(

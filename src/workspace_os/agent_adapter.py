@@ -5,7 +5,10 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+import os
+import shlex
 
+from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.memory import WorkspaceMemoryStore
 
@@ -20,7 +23,8 @@ class AgentExecutionResult:
 
 def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_args: list[str] | None = None) -> list[str]:
     args = list(extra_args or [])
-    if agent == "opencode":
+    normalized_agent = normalize_agent_name(agent) or agent
+    if normalized_agent == "opencode":
         return [
             "opencode",
             "run",
@@ -33,7 +37,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             *args,
             prompt,
         ]
-    if agent == "codex":
+    if normalized_agent == "codex":
         return [
             "codex",
             "exec",
@@ -47,7 +51,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             *args,
             prompt,
         ]
-    if agent == "claude":
+    if normalized_agent == "claude":
         return [
             "claude",
             "--allow-dangerously-skip-permissions",
@@ -57,7 +61,24 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             *args,
             prompt,
         ]
-    raise ValueError("Allowed agents are opencode, codex and claude.")
+    if normalized_agent == "antigravity":
+        template = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
+        if template:
+            expanded = template.format(
+                workspace_root=str(workspace_root),
+                prompt=prompt.replace('"', '\\"'),
+                workspace=workspace_root.name,
+            )
+            return shlex.split(expanded)
+        return [
+            "antigravity",
+            "run",
+            "--workspace",
+            str(workspace_root),
+            "--prompt",
+            prompt,
+        ]
+    raise ValueError("Allowed agents are opencode, codex, claude and antigravity.")
 
 
 def launch_agent(

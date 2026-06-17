@@ -10,10 +10,13 @@ class AgentAdapterTests(unittest.TestCase):
     def test_build_agent_command_uses_allowlisted_args(self):
         codex = build_agent_command("codex", Path("workspace"), "Do the task.")
         claude = build_agent_command("claude", Path("workspace"), "Do the task.")
+        antigravity = build_agent_command("antigravity", Path("workspace"), "Do the task.")
 
         self.assertEqual(["codex", "exec"], codex[:2])
         self.assertIn("--allow-dangerously-skip-permissions", claude)
         self.assertIn("--add-dir", claude)
+        self.assertEqual("antigravity", antigravity[0])
+        self.assertIn("Do the task.", antigravity)
 
     def test_launch_agent_records_memory(self):
         with tempfile.TemporaryDirectory() as directory:

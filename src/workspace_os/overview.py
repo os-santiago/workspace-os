@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.delegation import build_agent_route_command
 from workspace_os.learning import build_workspace_learning_model
@@ -655,7 +656,7 @@ def _render_activity_lines(activities, compact: bool = False) -> tuple[str, ...]
 
 
 def _analysis_recommendation_lines(activities, workspace_name: str, preferred_primary_agent: str | None = None) -> tuple[str, ...]:
-    route_agent = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude"} else "opencode"
+    route_agent = normalize_agent_name(preferred_primary_agent) or "opencode"
     if not activities:
         return (
             "Continue with: inspect the workspace first.",
@@ -686,7 +687,7 @@ def _build_workspace_continuation_recommendation(
     workspace_name: str,
     preferred_primary_agent: str | None = None,
 ) -> WorkspaceContinuationRecommendation:
-    primary_agent = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude"} else "opencode"
+    primary_agent = normalize_agent_name(preferred_primary_agent) or "opencode"
     if not activities:
         return WorkspaceContinuationRecommendation(
             target_workspace=None,

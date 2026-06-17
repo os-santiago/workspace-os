@@ -5,6 +5,7 @@ from hashlib import sha256
 import os
 import re
 
+from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.conscience import ConscienceDecision, evaluate_request
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.config import Source
@@ -369,7 +370,7 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore, target_source: S
     else:
         lines.append("- recent launches=none")
     if process is None and batch is None:
-        primary_agent = profile.primary_agent if profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
+        primary_agent = normalize_agent_name(profile.primary_agent) or "opencode"
         lines.extend(
             [
                 f"- primary route={build_agent_route_command(primary_agent, profile.default_workspace or 'all workspaces')}",
@@ -473,7 +474,7 @@ def _answer_lines(
             "Try: /inspect, /context latest, /oce, /opencode <task>, /codex <task>, /claude <task>",
         ]
     if _is_repetition_query(message):
-        primary_agent = profile.primary_agent if profile and profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
+        primary_agent = normalize_agent_name(profile.primary_agent) or "opencode"
         primary_agent_label = primary_agent.capitalize()
         return [
             "No. I now answer by intent instead of repeating the same fallback.",
@@ -482,7 +483,7 @@ def _answer_lines(
         ]
     if _is_continuation_request(message):
         workspace_name = _workspace_name_from_sources(sources)
-        primary_agent = profile.primary_agent if profile and profile.primary_agent in {"opencode", "codex", "claude"} else "opencode"
+        primary_agent = normalize_agent_name(profile.primary_agent) or "opencode"
         return [
             f"Ready. Continue with {workspace_name}.",
             "Fastest path: /inspect, then /next.",
@@ -508,7 +509,7 @@ def _answer_lines(
 
 
 def _repository_request_lines(message: str, source: Source, profile=None) -> list[str]:
-    preferred_primary_agent = profile.primary_agent if profile and profile.primary_agent in {"opencode", "codex", "claude"} else None
+    preferred_primary_agent = normalize_agent_name(profile.primary_agent) if profile else None
     resolved_agent, secondary_agent, reason = _preferred_agents_for_source(source, preferred_primary_agent)
     status = inspect_source(source)
     branch = status.branch or "n/a"
@@ -682,7 +683,7 @@ def _is_repository_request(message: str) -> bool:
 
 
 def _preferred_agents_for_source(source: Source, preferred_primary_agent: str | None = None) -> tuple[str, str, str]:
-    primary = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude"} else "opencode"
+    primary = preferred_primary_agent if preferred_primary_agent in {"opencode", "codex", "claude", "antigravity"} else "opencode"
     if source.group == "knowledge_base":
         if primary == "claude":
             return "claude", "opencode", "knowledge_base_first"

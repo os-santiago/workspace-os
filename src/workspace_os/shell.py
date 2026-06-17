@@ -122,6 +122,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/opencode <task>    launch opencode with the active workspace",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
+                    "/antigravity <task> launch antigravity with the active workspace",
                     "/launches           show recent agent launches",
                     "/exit               exit shell",
                     "",
@@ -694,6 +695,9 @@ class WorkspaceShell(cmd.Cmd):
 
     def do_claude(self, arg: str) -> None:
         self._launch_agent("claude", arg)
+
+    def do_antigravity(self, arg: str) -> None:
+        self._launch_agent("antigravity", arg)
 
     def do_launches(self, arg: str) -> None:
         launches = self.memory_store.recent_launches(limit=10)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.sanitization import sanitize_text
 
 
@@ -37,15 +38,21 @@ def build_hardened_delegate_prompt(
 
 
 def build_agent_route_prompt(agent: str, workspace_name: str) -> str:
-    if agent == "opencode":
+    normalized_agent = normalize_agent_name(agent) or agent
+    if normalized_agent == "opencode":
         task = (
             f"Inspect the current workspace state for {workspace_name}, rank the active repos, "
             "identify blockers, and suggest the fastest next action."
         )
-    elif agent == "claude":
+    elif normalized_agent == "claude":
         task = (
             f"Cross-check the workspace inventory for {workspace_name}; confirm any active work, "
             "identify gaps, and suggest the fastest next step."
+        )
+    elif normalized_agent == "antigravity":
+        task = (
+            f"Inspect the current workspace state for {workspace_name}, search for hidden implementation gaps, "
+            "and propose the fastest high-leverage next action."
         )
     else:
         task = (

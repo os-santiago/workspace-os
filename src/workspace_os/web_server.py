@@ -3,11 +3,13 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from workspace_os.capture import build_capture_draft
+from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
@@ -603,7 +605,7 @@ def _delegate_launch_payload(
     workspace_root: Path | None = None,
     launcher: object | None = None,
 ) -> dict[str, object]:
-    agent = _string_payload(payload, "agent").casefold()
+    agent = normalize_agent_name(_string_payload(payload, "agent")) or _string_payload(payload, "agent").casefold()
     destination = _string_payload(payload, "destination").casefold()
     task = _string_payload(payload, "task")
     brief = _string_payload(payload, "brief")
@@ -611,8 +613,8 @@ def _delegate_launch_payload(
 
     if not approved:
         return {"ok": False, "error": "Delegation requires explicit approval."}
-    if agent not in {"opencode", "codex", "claude"}:
-        return {"ok": False, "error": "Allowed agents are opencode, codex and claude."}
+    if agent not in {"opencode", "codex", "claude", "antigravity"}:
+        return {"ok": False, "error": "Allowed agents are opencode, codex, claude and antigravity."}
     if not task or not brief:
         return {"ok": False, "error": "Delegation requires both task and brief."}
 
@@ -702,6 +704,11 @@ def _agent_command(agent: str, workspace_root: Path, prompt: str) -> list[str]:
             "on-request",
             prompt,
         ]
+    if agent == "antigravity":
+        command = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
+        if command:
+            return shlex.split(command.format(workspace_root=str(workspace_root), prompt=prompt, workspace=workspace_root.name))
+        return ["antigravity", "run", "--workspace", str(workspace_root), "--prompt", prompt]
     return ["claude", "-p", prompt]
 
 
