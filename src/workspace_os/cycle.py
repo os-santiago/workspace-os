@@ -840,6 +840,7 @@ def run_cycle_work_window_continuous(
             agent_type = "opencode" if work_item_number % 2 == 1 else "claude"
             role = "primary" if work_item_number % 2 == 1 else "secondary"
 
+            print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
             future = pool.submit(
                 executor,
                 agent_type,
@@ -876,14 +877,22 @@ def run_cycle_work_window_continuous(
                     work_item_durations.append(duration)
                     total_agent_active += float(getattr(result, "duration_seconds", duration))
                     completed_work_items += 1
+                    print(
+                        f"[cycle] Completed work item {work_info['work_item_number']} "
+                        f"({work_info['role']}/{work_info['agent_type']}) "
+                        f"in {duration:.1f}s"
+                    )
 
                     # Record completion for this work item
                     # Note: We checkpoint every N completions rather than every iteration
                     # to reduce checkpoint overhead while maintaining visibility
 
-                except Exception:
+                except Exception as e:
                     # Agent failed - record but continue
-                    pass
+                    print(
+                        f"[cycle] Failed work item {work_info['work_item_number']} "
+                        f"({work_info['role']}/{work_info['agent_type']}): {e}"
+                    )
 
                 # Queue next work item immediately if time permits
                 if now_fn() < deadline:
@@ -898,6 +907,7 @@ def run_cycle_work_window_continuous(
                     agent_type = "opencode" if work_item_number % 2 == 1 else "claude"
                     role = "primary" if work_item_number % 2 == 1 else "secondary"
 
+                    print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
                     new_future = pool.submit(
                         executor,
                         agent_type,
