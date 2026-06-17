@@ -205,6 +205,11 @@ def build_workspace_bridge_report(
             "workspace cycle next",
         ),
         BridgeCapability(
+            "cycle watch",
+            "Run a time-based long cycle with repeated checkpoints until the deadline.",
+            "workspace cycle watch --duration-minutes 60 --interval-minutes 5",
+        ),
+        BridgeCapability(
             "feedback",
             "Record or inspect request/result feedback cycles.",
             "workspace feedback status",

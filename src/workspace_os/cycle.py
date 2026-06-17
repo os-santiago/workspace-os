@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import time
 import tempfile
+from collections.abc import Callable
 
 from workspace_os.config import Source
 from workspace_os.delegation import build_agent_route_command
@@ -126,6 +129,9 @@ class CycleRunResult:
     iterations_completed: int
     iteration_results: tuple[CycleIterationResult, ...]
     report: CycleReport
+    target_duration_minutes: float | None = None
+    window_started_at: str | None = None
+    window_ended_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -270,6 +276,7 @@ def record_cycle_checkpoint(
     iteration_number: int,
     note: str | None = None,
     cycle_id: int | None = None,
+    created_at: str | None = None,
 ) -> int:
     return memory_store.record_cycle_checkpoint(
         label=label,
@@ -277,6 +284,7 @@ def record_cycle_checkpoint(
         report=evaluation.to_dict(),
         note=note,
         cycle_id=cycle_id,
+        created_at=created_at,
     )
 
 
@@ -345,6 +353,101 @@ def run_cycle_plan(
             quality_pass_rate=float(report["quality_pass_rate"]),
             latest_checkpoint=report["latest_checkpoint"],
         ),
+    )
+
+
+def run_cycle_window(
+    memory_store: WorkspaceMemoryStore,
+    sources: list[Source],
+    duration_minutes: float,
+    interval_minutes: float = 5.0,
+    label: str | None = None,
+    objective: str | None = None,
+    note: str | None = None,
+    stop_on_failure: bool = False,
+    now_fn: Callable[[], datetime] | None = None,
+    sleep_fn: Callable[[float], None] | None = None,
+) -> CycleRunResult:
+    if duration_minutes < 0:
+        raise ValueError("Cycle duration must be at least 0 minutes.")
+    if interval_minutes <= 0:
+        raise ValueError("Cycle interval must be greater than 0 minutes.")
+
+    now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+    sleep_fn = sleep_fn or time.sleep
+    started_at = now_fn()
+    deadline = started_at + timedelta(minutes=duration_minutes)
+    active = memory_store.active_cycle()
+    started_cycle = False
+    if active is None:
+        if not label or not label.strip() or not objective or not objective.strip():
+            raise ValueError("An active cycle is required, or provide --label and --objective to start one.")
+        cycle_id = start_cycle(memory_store, label.strip(), objective.strip(), started_at=started_at.isoformat())
+        started_cycle = True
+    else:
+        cycle_id = int(active["id"])
+
+    iteration_results: list[CycleIterationResult] = []
+    interval_seconds = interval_minutes * 60.0
+    iteration_number = 1
+    while True:
+        evaluation = run_cycle_evaluation(sources, memory_store)
+        checkpoint_label = _iteration_label(note, iteration_number)
+        checkpoint_id = record_cycle_checkpoint(
+            memory_store,
+            evaluation,
+            checkpoint_label,
+            iteration_number=iteration_number,
+            note=note.strip() if note and note.strip() else None,
+            cycle_id=cycle_id,
+            created_at=now_fn().isoformat(),
+        )
+        iteration_results.append(
+            CycleIterationResult(
+                iteration_number=iteration_number,
+                checkpoint_id=checkpoint_id,
+                label=checkpoint_label,
+                evaluation=evaluation,
+            )
+        )
+        if stop_on_failure and not evaluation.overall_ok():
+            break
+
+        current_time = now_fn()
+        if current_time >= deadline:
+            break
+
+        remaining_seconds = max(0.0, (deadline - current_time).total_seconds())
+        sleep_for = min(interval_seconds, remaining_seconds)
+        if sleep_for <= 0:
+            break
+        sleep_fn(sleep_for)
+        iteration_number += 1
+
+    ended_at = now_fn()
+    if started_cycle:
+        stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    report = memory_store.cycle_report(cycle_id)
+    if report is None:
+        raise ValueError("Cycle report could not be generated.")
+    return CycleRunResult(
+        cycle_id=cycle_id,
+        started_cycle=started_cycle,
+        iterations_completed=len(iteration_results),
+        iteration_results=tuple(iteration_results),
+        report=CycleReport(
+            cycle=report["cycle"],
+            checkpoint_count=int(report["checkpoint_count"]),
+            health_pass_rate=float(report["health_pass_rate"]),
+            stability_pass_rate=float(report["stability_pass_rate"]),
+            security_pass_rate=float(report["security_pass_rate"]),
+            quality_pass_rate=float(report["quality_pass_rate"]),
+            latest_checkpoint=report["latest_checkpoint"],
+        ),
+        target_duration_minutes=duration_minutes,
+        window_started_at=started_at.isoformat(),
+        window_ended_at=ended_at.isoformat(),
     )
 
 

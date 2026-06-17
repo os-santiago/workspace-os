@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -76,6 +77,40 @@ class CycleTests(unittest.TestCase):
 
         self.assertIn("Cycle next:", recommendation.render())
         self.assertIn("workspace cycle run", recommendation.command)
+
+    def test_cycle_window_runs_until_deadline_with_checkpoint_spacing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def sleep_fn(seconds: float) -> None:
+                current[0] = current[0] + timedelta(seconds=seconds)
+
+            result = run_cycle_window(
+                store,
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                duration_minutes=10,
+                interval_minutes=5,
+                label="cycle-1",
+                objective="long run implementation",
+                now_fn=now_fn,
+                sleep_fn=sleep_fn,
+            )
+
+        self.assertTrue(result.started_cycle)
+        self.assertEqual(3, result.iterations_completed)
+        self.assertEqual(10.0, result.target_duration_minutes)
+        self.assertIsNotNone(result.window_started_at)
+        self.assertIsNotNone(result.window_ended_at)
+        self.assertEqual(3, result.report.checkpoint_count)
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

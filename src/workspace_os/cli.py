@@ -7,7 +7,7 @@ import sys
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
@@ -379,6 +379,15 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_run.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
     cycle_run.add_argument("--note", default="", help="Optional checkpoint note prefix.")
     cycle_run.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
+    cycle_run.add_argument("--duration-minutes", type=float, help="Run checkpoints until the duration elapses.")
+    cycle_run.add_argument("--interval-minutes", type=float, default=5.0, help="Minutes between duration-based checkpoints.")
+    cycle_watch = cycle_subparsers.add_parser("watch", help="Run checkpoints over a duration window.")
+    cycle_watch.add_argument("--duration-minutes", type=float, required=True, help="Total duration to keep checkpointing.")
+    cycle_watch.add_argument("--interval-minutes", type=float, default=5.0, help="Minutes between checkpoints.")
+    cycle_watch.add_argument("--label", help="Optional cycle label when no cycle is active.")
+    cycle_watch.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
+    cycle_watch.add_argument("--note", default="", help="Optional checkpoint note prefix.")
+    cycle_watch.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
@@ -1019,10 +1028,51 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
 
     if command == "run":
         try:
-            result = run_cycle_plan(
+            if args.duration_minutes is not None:
+                result = run_cycle_window(
+                    store,
+                    sources,
+                    duration_minutes=max(0.0, args.duration_minutes),
+                    interval_minutes=max(0.01, args.interval_minutes),
+                    label=args.label,
+                    objective=args.objective,
+                    note=args.note,
+                    stop_on_failure=args.stop_on_failure,
+                )
+            else:
+                result = run_cycle_plan(
+                    store,
+                    sources,
+                    iterations=max(1, args.iterations),
+                    label=args.label,
+                    objective=args.objective,
+                    note=args.note,
+                    stop_on_failure=args.stop_on_failure,
+                )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"cycle_id={result.cycle_id}")
+        print(f"iterations_completed={result.iterations_completed}")
+        if result.target_duration_minutes is not None:
+            print(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+        if result.window_started_at is not None:
+            print(f"window_started_at={result.window_started_at}")
+        if result.window_ended_at is not None:
+            print(f"window_ended_at={result.window_ended_at}")
+        for iteration in result.iteration_results:
+            print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+            print(render_cycle_evaluation(iteration.evaluation), end="")
+        print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+        return 0
+
+    if command == "watch":
+        try:
+            result = run_cycle_window(
                 store,
                 sources,
-                iterations=max(1, args.iterations),
+                duration_minutes=max(0.0, args.duration_minutes),
+                interval_minutes=max(0.01, args.interval_minutes),
                 label=args.label,
                 objective=args.objective,
                 note=args.note,
@@ -1033,6 +1083,9 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             return 2
         print(f"cycle_id={result.cycle_id}")
         print(f"iterations_completed={result.iterations_completed}")
+        print(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+        print(f"window_started_at={result.window_started_at}")
+        print(f"window_ended_at={result.window_ended_at}")
         for iteration in result.iteration_results:
             print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
             print(render_cycle_evaluation(iteration.evaluation), end="")

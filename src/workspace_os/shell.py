@@ -11,7 +11,7 @@ from workspace_os.agent_adapter import launch_agent
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.capture import build_capture_draft
 from workspace_os.classification import classify_content
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, start_cycle, stop_cycle
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source
@@ -111,7 +111,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/habits             show inferred operator habits",
                     "/batch ...          start, stop, report, handoff, status, summary, or list batches",
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
-                    "/cycle ...          start, stop, report, status, checkpoint, or list long-run cycles",
+                    "/cycle ...          start, stop, run, watch, report, status, checkpoint, or list long-run cycles",
                     "/cycle next         recommend the next cycle action",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/conscience ...     show decision metrics, history, recommendation, or extensions",
@@ -718,6 +718,16 @@ class WorkspaceShell(cmd.Cmd):
         run_parser.add_argument("--objective")
         run_parser.add_argument("--note", default="")
         run_parser.add_argument("--stop-on-failure", action="store_true")
+        run_parser.add_argument("--duration-minutes", type=float)
+        run_parser.add_argument("--interval-minutes", type=float, default=5.0)
+
+        watch_parser = subparsers.add_parser("watch", add_help=False)
+        watch_parser.add_argument("--duration-minutes", type=float, required=True)
+        watch_parser.add_argument("--interval-minutes", type=float, default=5.0)
+        watch_parser.add_argument("--label")
+        watch_parser.add_argument("--objective")
+        watch_parser.add_argument("--note", default="")
+        watch_parser.add_argument("--stop-on-failure", action="store_true")
 
         subparsers.add_parser("stop", add_help=False)
         subparsers.add_parser("next", add_help=False)
@@ -739,6 +749,8 @@ class WorkspaceShell(cmd.Cmd):
         except SystemExit:
             print("Usage: /cycle start --label <name> --objective <text>")
             print("       /cycle run --iterations N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle run --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle watch --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
             print("       /cycle stop")
             print("       /cycle status")
             print("       /cycle report [--id N]")
@@ -753,10 +765,51 @@ class WorkspaceShell(cmd.Cmd):
 
         if options.cycle_command == "run":
             try:
-                result = run_cycle_plan(
+                if getattr(options, "duration_minutes", None) is not None:
+                    result = run_cycle_window(
+                        self.memory_store,
+                        self._selected_sources(),
+                        duration_minutes=max(0.0, options.duration_minutes),
+                        interval_minutes=max(0.01, options.interval_minutes),
+                        label=options.label,
+                        objective=options.objective,
+                        note=options.note,
+                        stop_on_failure=options.stop_on_failure,
+                    )
+                else:
+                    result = run_cycle_plan(
+                        self.memory_store,
+                        self._selected_sources(),
+                        iterations=max(1, options.iterations),
+                        label=options.label,
+                        objective=options.objective,
+                        note=options.note,
+                        stop_on_failure=options.stop_on_failure,
+                    )
+            except ValueError as exc:
+                self._emit(f"error: {exc}")
+                return
+            self._emit(f"cycle_id={result.cycle_id}")
+            self._emit(f"iterations_completed={result.iterations_completed}")
+            if result.target_duration_minutes is not None:
+                self._emit(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+            if result.window_started_at is not None:
+                self._emit(f"window_started_at={result.window_started_at}")
+            if result.window_ended_at is not None:
+                self._emit(f"window_ended_at={result.window_ended_at}")
+            for iteration in result.iteration_results:
+                self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                self._emit(render_cycle_evaluation(iteration.evaluation), end="")
+            self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            return
+
+        if options.cycle_command == "watch":
+            try:
+                result = run_cycle_window(
                     self.memory_store,
                     self._selected_sources(),
-                    iterations=max(1, options.iterations),
+                    duration_minutes=max(0.0, options.duration_minutes),
+                    interval_minutes=max(0.01, options.interval_minutes),
                     label=options.label,
                     objective=options.objective,
                     note=options.note,
@@ -767,6 +820,9 @@ class WorkspaceShell(cmd.Cmd):
                 return
             self._emit(f"cycle_id={result.cycle_id}")
             self._emit(f"iterations_completed={result.iterations_completed}")
+            self._emit(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+            self._emit(f"window_started_at={result.window_started_at}")
+            self._emit(f"window_ended_at={result.window_ended_at}")
             for iteration in result.iteration_results:
                 self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
                 self._emit(render_cycle_evaluation(iteration.evaluation), end="")
