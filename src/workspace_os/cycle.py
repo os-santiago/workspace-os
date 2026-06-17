@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 
 from workspace_os.config import Source
+from workspace_os.delegation import build_agent_route_command
 from workspace_os.conscience import REFUSE, ALLOW_WITH_LIMITS, evaluate_request
 from workspace_os.batch import start_batch, start_process
 from workspace_os.conversation import build_workspace_reply
@@ -133,12 +134,15 @@ class CycleNextAction:
     cycle_label: str
     recommendation: str
     command: str
+    secondary_command: str | None
     detail_lines: tuple[str, ...]
 
     def render(self) -> str:
         lines = [f"Cycle next: {self.cycle_label}"]
         lines.append(self.recommendation)
         lines.append(f"Suggested command: {self.command}")
+        if self.secondary_command:
+            lines.append(f"Suggested cross-check: {self.secondary_command}")
         if self.detail_lines:
             lines.append("")
             lines.extend(self.detail_lines)
@@ -176,6 +180,7 @@ def build_cycle_next_action(memory_store: WorkspaceMemoryStore) -> CycleNextActi
             cycle_label="no active cycle",
             recommendation="Start a long-running cycle before the next implementation loop.",
             command="workspace cycle start --label <name> --objective <text>",
+            secondary_command=None,
             detail_lines=(
                 "Use cycle run to bundle several checkpoints once the cycle is open.",
                 "Health, stability, security, and quality gates are enforced on each iteration.",
@@ -185,19 +190,27 @@ def build_cycle_next_action(memory_store: WorkspaceMemoryStore) -> CycleNextActi
     cycle_id = int(report["cycle_id"])
     checkpoint_count = int(report["checkpoint_count"])
     latest = report.get("latest_checkpoint")
+    primary_agent, secondary_agent = _cycle_agents_for_iteration(checkpoint_count)
+    workspace_target = "the active workspace"
     if checkpoint_count == 0:
         recommendation = "Run the first checkpoint to establish the cycle baseline."
         command = "workspace cycle run --iterations 1"
+        secondary_command = None
     elif isinstance(latest, dict) and all(latest.get(f"{name}_ok") for name in ("health", "stability", "security", "quality")):
         recommendation = "The latest checkpoint is healthy. Continue with the next iteration or close the cycle if the objective is done."
         command = "workspace cycle run --iterations 1"
+        secondary_command = None
     else:
         recommendation = "The latest checkpoint needs follow-up. Fix the failing gate, then run the next checkpoint."
         command = "workspace cycle run --iterations 1 --stop-on-failure"
+        secondary_command = None
 
     detail_lines = (
         f"Cycle report: {report['cycle']['label']}",
         f"checkpoint_count={checkpoint_count}",
+        f"execution_mode=parallel ({primary_agent} + {secondary_agent})",
+        f"Primary route: {build_agent_route_command(primary_agent, workspace_target)}",
+        f"Optional cross-check: {build_agent_route_command(secondary_agent, workspace_target)}",
         f"health={_cycle_status_label(checkpoint_count, float(report['health_pass_rate']))}",
         f"stability={_cycle_status_label(checkpoint_count, float(report['stability_pass_rate']))}",
         f"security={_cycle_status_label(checkpoint_count, float(report['security_pass_rate']))}",
@@ -209,13 +222,26 @@ def build_cycle_next_action(memory_store: WorkspaceMemoryStore) -> CycleNextActi
             f"latest_checkpoint={latest.get('iteration_number', 'n/a')}",
             f"latest_label={latest.get('label', 'n/a')}",
         )
+    if checkpoint_count == 0:
+        detail_lines = (*detail_lines, "Start with Opencode as the first-pass executor and Claude as the cross-check.")
+    elif checkpoint_count % 2 == 1:
+        detail_lines = (*detail_lines, "Swap roles on the next pass: Claude executes, Opencode cross-checks.")
+    else:
+        detail_lines = (*detail_lines, "Swap roles on the next pass: Opencode executes, Claude cross-checks.")
     return CycleNextAction(
         cycle_id=cycle_id,
         cycle_label=str(report["cycle"]["label"]),
         recommendation=recommendation,
         command=command,
+        secondary_command=secondary_command,
         detail_lines=detail_lines,
     )
+
+
+def _cycle_agents_for_iteration(checkpoint_count: int) -> tuple[str, str]:
+    if checkpoint_count % 2 == 1:
+        return "claude", "opencode"
+    return "opencode", "claude"
 
 
 def cycle_history_report(memory_store: WorkspaceMemoryStore, limit: int = 5) -> list[dict[str, str | None]]:
