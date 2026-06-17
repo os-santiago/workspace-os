@@ -52,6 +52,8 @@ class JournalTests(unittest.TestCase):
             self.assertGreaterEqual(journal.checkpoint_count, 1)
             self.assertTrue(journal.story_lines)
             self.assertIn("Journal entry:", journal.render())
+            self.assertIn("wall_clock_duration=", journal.render())
+            self.assertIn("idle_ratio=", journal.render())
             self.assertIn("Story:", journal.render())
 
     def _init_git_repo(self, path: Path) -> None:

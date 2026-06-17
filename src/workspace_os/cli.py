@@ -1087,6 +1087,12 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
                 result.report.cycle,
                 store.cycle_checkpoints(result.cycle_id, limit=1000),
                 story_title=result.report.cycle["label"],
+                logical_duration_seconds=result.logical_duration_seconds,
+                wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+                sleep_duration_seconds=result.sleep_duration_seconds,
+                logical_active_duration_seconds=result.logical_active_duration_seconds,
+                wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+                idle_ratio=result.idle_ratio,
             )
             print(f"journal_written={journal.entry_path}")
         return 0
@@ -1121,6 +1127,12 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             result.report.cycle,
             store.cycle_checkpoints(result.cycle_id, limit=1000),
             story_title=result.report.cycle["label"],
+            logical_duration_seconds=result.logical_duration_seconds,
+            wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+            sleep_duration_seconds=result.sleep_duration_seconds,
+            logical_active_duration_seconds=result.logical_active_duration_seconds,
+            wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+            idle_ratio=result.idle_ratio,
         )
         print(f"journal_written={journal.entry_path}")
         return 0

@@ -388,6 +388,7 @@ The journal should capture:
 - code metrics such as commits, lines changed, tags, and release markers;
 - functional metrics such as completed outcomes, defects, and regressions;
 - execution signals such as feedback, errors, and correction loops;
+- timing metrics such as wall-clock duration, logical duration, active work, waiting time, and idle ratio;
 - one file per checkpoint plus a summary for the whole window.
 
 The journal exists so WOS can compare long runs against short cycles over time without depending on chat transcripts.

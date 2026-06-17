@@ -132,6 +132,12 @@ class CycleRunResult:
     target_duration_minutes: float | None = None
     window_started_at: str | None = None
     window_ended_at: str | None = None
+    logical_duration_seconds: float | None = None
+    wall_clock_duration_seconds: float | None = None
+    sleep_duration_seconds: float | None = None
+    logical_active_duration_seconds: float | None = None
+    wall_clock_active_duration_seconds: float | None = None
+    idle_ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -376,6 +382,7 @@ def run_cycle_window(
     now_fn = now_fn or (lambda: datetime.now(timezone.utc))
     sleep_fn = sleep_fn or time.sleep
     started_at = now_fn()
+    wall_started_at = time.perf_counter()
     deadline = started_at + timedelta(minutes=duration_minutes)
     active = memory_store.active_cycle()
     started_cycle = False
@@ -390,6 +397,7 @@ def run_cycle_window(
     iteration_results: list[CycleIterationResult] = []
     interval_seconds = interval_minutes * 60.0
     iteration_number = 1
+    sleep_duration_seconds = 0.0
     while True:
         evaluation = run_cycle_evaluation(sources, memory_store)
         checkpoint_label = _iteration_label(note, iteration_number)
@@ -422,15 +430,22 @@ def run_cycle_window(
         if sleep_for <= 0:
             break
         sleep_fn(sleep_for)
+        sleep_duration_seconds += sleep_for
         iteration_number += 1
 
     ended_at = now_fn()
+    wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
 
     report = memory_store.cycle_report(cycle_id)
     if report is None:
         raise ValueError("Cycle report could not be generated.")
+    logical_duration_seconds = max(0.0, (ended_at - started_at).total_seconds())
+    wall_clock_duration_seconds = max(0.0, wall_ended_at - wall_started_at)
+    logical_active_duration_seconds = max(0.0, logical_duration_seconds - sleep_duration_seconds)
+    wall_clock_active_duration_seconds = max(0.0, wall_clock_duration_seconds - sleep_duration_seconds)
+    idle_ratio = 0.0 if logical_duration_seconds <= 0 else min(1.0, sleep_duration_seconds / logical_duration_seconds)
     return CycleRunResult(
         cycle_id=cycle_id,
         started_cycle=started_cycle,
@@ -448,6 +463,12 @@ def run_cycle_window(
         target_duration_minutes=duration_minutes,
         window_started_at=started_at.isoformat(),
         window_ended_at=ended_at.isoformat(),
+        logical_duration_seconds=logical_duration_seconds,
+        wall_clock_duration_seconds=wall_clock_duration_seconds,
+        sleep_duration_seconds=sleep_duration_seconds,
+        logical_active_duration_seconds=logical_active_duration_seconds,
+        wall_clock_active_duration_seconds=wall_clock_active_duration_seconds,
+        idle_ratio=idle_ratio,
     )
 
 

@@ -50,6 +50,12 @@ class JournalEntry:
     checkpoint_count: int
     checkpoints_passed: int
     checkpoints_failed: int
+    logical_duration_seconds: float
+    wall_clock_duration_seconds: float
+    sleep_duration_seconds: float
+    logical_active_duration_seconds: float
+    wall_clock_active_duration_seconds: float
+    idle_ratio: float
     checkpoints: tuple[dict[str, object], ...]
     source_metrics: tuple[JournalSourceMetrics, ...]
     functional_metrics: JournalFunctionalMetrics
@@ -63,7 +69,12 @@ class JournalEntry:
         lines.append(f"objective={self.objective}")
         lines.append(f"started_at={self.started_at}")
         lines.append(f"ended_at={self.ended_at}")
-        lines.append(f"duration={_format_duration(self.duration_seconds)}")
+        lines.append(f"logical_duration={_format_duration(self.logical_duration_seconds)}")
+        lines.append(f"wall_clock_duration={_format_duration(self.wall_clock_duration_seconds)}")
+        lines.append(f"sleep_duration={_format_duration(self.sleep_duration_seconds)}")
+        lines.append(f"logical_active_duration={_format_duration(self.logical_active_duration_seconds)}")
+        lines.append(f"wall_clock_active_duration={_format_duration(self.wall_clock_active_duration_seconds)}")
+        lines.append(f"idle_ratio={self.idle_ratio:.2f}")
         lines.append(f"checkpoint_count={self.checkpoint_count}")
         lines.append(f"checkpoints_passed={self.checkpoints_passed}")
         lines.append(f"checkpoints_failed={self.checkpoints_failed}")
@@ -101,6 +112,12 @@ def write_cycle_journal(
     cycle: dict[str, object],
     checkpoints: Iterable[dict[str, object]],
     story_title: str = "cycle",
+    logical_duration_seconds: float | None = None,
+    wall_clock_duration_seconds: float | None = None,
+    sleep_duration_seconds: float | None = None,
+    logical_active_duration_seconds: float | None = None,
+    wall_clock_active_duration_seconds: float | None = None,
+    idle_ratio: float | None = None,
 ) -> JournalEntry:
     cycle_id = int(cycle["id"])
     entry_id = _entry_id(str(cycle["started_at"]), story_title, cycle_id)
@@ -113,7 +130,24 @@ def write_cycle_journal(
     )
     checkpoints_failed = len(checkpoints) - checkpoints_passed
     duration_seconds = _duration_seconds(str(cycle["started_at"]), str(cycle["ended_at"] or _utc_now()))
-    story_lines = _build_story_lines(cycle, checkpoints, source_metrics, functional_metrics, duration_seconds)
+    logical_duration_seconds = duration_seconds if logical_duration_seconds is None else logical_duration_seconds
+    wall_clock_duration_seconds = logical_duration_seconds if wall_clock_duration_seconds is None else wall_clock_duration_seconds
+    sleep_duration_seconds = 0.0 if sleep_duration_seconds is None else sleep_duration_seconds
+    logical_active_duration_seconds = max(0.0, logical_duration_seconds - sleep_duration_seconds) if logical_active_duration_seconds is None else logical_active_duration_seconds
+    wall_clock_active_duration_seconds = max(0.0, wall_clock_duration_seconds - sleep_duration_seconds) if wall_clock_active_duration_seconds is None else wall_clock_active_duration_seconds
+    idle_ratio = 0.0 if idle_ratio is None else idle_ratio
+    story_lines = _build_story_lines(
+        cycle,
+        checkpoints,
+        source_metrics,
+        functional_metrics,
+        logical_duration_seconds,
+        wall_clock_duration_seconds,
+        sleep_duration_seconds,
+        logical_active_duration_seconds,
+        wall_clock_active_duration_seconds,
+        idle_ratio,
+    )
     entry = JournalEntry(
         entry_id=entry_id,
         cycle_id=cycle_id,
@@ -125,6 +159,12 @@ def write_cycle_journal(
         checkpoint_count=len(checkpoints),
         checkpoints_passed=checkpoints_passed,
         checkpoints_failed=checkpoints_failed,
+        logical_duration_seconds=logical_duration_seconds,
+        wall_clock_duration_seconds=wall_clock_duration_seconds,
+        sleep_duration_seconds=sleep_duration_seconds,
+        logical_active_duration_seconds=logical_active_duration_seconds,
+        wall_clock_active_duration_seconds=wall_clock_active_duration_seconds,
+        idle_ratio=idle_ratio,
         checkpoints=checkpoints,
         source_metrics=source_metrics,
         functional_metrics=functional_metrics,
@@ -169,6 +209,12 @@ def _persist_entry(entry: JournalEntry, checkpoints: Iterable[dict[str, object]]
         "started_at": entry.started_at,
         "ended_at": entry.ended_at,
         "duration_seconds": entry.duration_seconds,
+        "logical_duration_seconds": entry.logical_duration_seconds,
+        "wall_clock_duration_seconds": entry.wall_clock_duration_seconds,
+        "sleep_duration_seconds": entry.sleep_duration_seconds,
+        "logical_active_duration_seconds": entry.logical_active_duration_seconds,
+        "wall_clock_active_duration_seconds": entry.wall_clock_active_duration_seconds,
+        "idle_ratio": entry.idle_ratio,
         "checkpoint_count": entry.checkpoint_count,
         "checkpoints_passed": entry.checkpoints_passed,
         "checkpoints_failed": entry.checkpoints_failed,
@@ -214,6 +260,12 @@ def _load_entry(entry_dir: Path) -> JournalEntry:
         checkpoint_count=int(payload["checkpoint_count"]),
         checkpoints_passed=int(payload["checkpoints_passed"]),
         checkpoints_failed=int(payload["checkpoints_failed"]),
+        logical_duration_seconds=float(payload.get("logical_duration_seconds", payload["duration_seconds"])),
+        wall_clock_duration_seconds=float(payload.get("wall_clock_duration_seconds", payload["duration_seconds"])),
+        sleep_duration_seconds=float(payload.get("sleep_duration_seconds", 0.0)),
+        logical_active_duration_seconds=float(payload.get("logical_active_duration_seconds", 0.0)),
+        wall_clock_active_duration_seconds=float(payload.get("wall_clock_active_duration_seconds", 0.0)),
+        idle_ratio=float(payload.get("idle_ratio", 0.0)),
         checkpoints=tuple(),
         source_metrics=source_metrics,
         functional_metrics=functional_metrics,
@@ -330,11 +382,23 @@ def _build_story_lines(
     checkpoints: Iterable[dict[str, object]],
     source_metrics: Iterable[JournalSourceMetrics],
     functional_metrics: JournalFunctionalMetrics,
-    duration_seconds: float,
+    logical_duration_seconds: float,
+    wall_clock_duration_seconds: float,
+    sleep_duration_seconds: float,
+    logical_active_duration_seconds: float,
+    wall_clock_active_duration_seconds: float,
+    idle_ratio: float,
 ) -> tuple[str, ...]:
     lines = [
-        f"The cycle '{cycle['label']}' stayed alive for {_format_duration(duration_seconds)} and delivered {len(tuple(checkpoints))} checkpoints.",
+        f"The cycle '{cycle['label']}' stayed alive for {_format_duration(logical_duration_seconds)} logical time and delivered {len(tuple(checkpoints))} checkpoints.",
     ]
+    lines.append(
+        f"Wall clock time was {_format_duration(wall_clock_duration_seconds)} with {_format_duration(sleep_duration_seconds)} spent waiting between checkpoints."
+    )
+    lines.append(
+        f"Active work measured {_format_duration(logical_active_duration_seconds)} logically and {_format_duration(wall_clock_active_duration_seconds)} against the live wall clock."
+    )
+    lines.append(f"Idle ratio stayed at {idle_ratio:.2f} across the window.")
     if source_metrics:
         total_commits = sum(metric.commits for metric in source_metrics)
         total_lines = sum(metric.lines_added + metric.lines_deleted for metric in source_metrics)
