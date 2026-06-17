@@ -134,7 +134,7 @@ class CliTests(unittest.TestCase):
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -151,7 +151,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("OCE report", rendered)
         self.assertIn("total=1", rendered)
         self.assertIn("SAFE_REDIRECT=1", rendered)
-        self.assertIn("primary=codex", rendered)
+        self.assertIn("primary=opencode", rendered)
 
     def test_oce_alias_renders_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -187,7 +187,7 @@ class CliTests(unittest.TestCase):
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -237,7 +237,7 @@ class CliTests(unittest.TestCase):
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -252,7 +252,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         self.assertIn("OCE recommendation", rendered)
-        self.assertIn("next_action=route_to_codex_for_inventory", rendered)
+        self.assertIn("next_action=route_to_opencode_for_inventory", rendered)
         self.assertIn("top_missing_context=missing_workspace", rendered)
 
     def test_next_command_renders_operational_step(self):
@@ -348,7 +348,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("Knowledge base projects:", rendered)
         self.assertIn("Continue with: newer", rendered)
         self.assertIn("Recommended continue: newer", rendered)
-        self.assertIn("Suggested command: /codex", rendered)
+        self.assertIn("Suggested command: /opencode", rendered)
         self.assertLess(rendered.index("newer"), rendered.index("older"))
 
     def test_roots_command_reports_workspace_and_knowledge_base_roots(self):
@@ -476,8 +476,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, roots_exit_code)
         self.assertEqual(0, bridge_exit_code)
         self.assertIn("Continue with: newer", roots_rendered)
-        self.assertIn("Suggested command: /codex", roots_rendered)
-        self.assertIn("Parallel review: codex + claude", roots_rendered)
+        self.assertIn("Suggested command: /opencode", roots_rendered)
+        self.assertIn("Parallel review: opencode + claude", roots_rendered)
         self.assertIn("Workspace next: newer", bridge_rendered)
         self.assertIn("Next: continue with newer", bridge_rendered)
         self.assertIn("parallel review", bridge_rendered)
@@ -626,6 +626,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("Available surfaces:", detail_rendered)
         self.assertIn("Workspace next:", next_rendered)
         self.assertIn("Suggested command:", next_rendered)
+        self.assertIn("opencode", capabilities_rendered)
         self.assertIn("codex", capabilities_rendered)
         self.assertIn("claude", capabilities_rendered)
         self.assertIn("OCE extensions", extensions_rendered)

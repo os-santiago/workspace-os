@@ -653,7 +653,7 @@ def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str
         return (
             "Continue with: inspect the workspace first.",
             "Recommended continue: inspect the workspace first.",
-            "Primary route: /codex",
+            "Primary route: /opencode",
             "Suggested command: /inspect --compact",
             "No updated repo was available to rank.",
         )
@@ -668,8 +668,8 @@ def _analysis_recommendation_lines(activities, workspace_name: str) -> tuple[str
         f"Continue with: {candidate.source.name}",
         f"Recommended continue: {candidate.source.name}",
         f"Reason: {reason}",
-        f"Primary route: /codex",
-        f"Suggested command: {_route_command('codex', candidate.source.name or workspace_name)}",
+        f"Primary route: /opencode",
+        f"Suggested command: {_route_command('opencode', candidate.source.name or workspace_name)}",
         f"Optional cross-check: {_route_command('claude', candidate.source.name or workspace_name)}",
     )
 
@@ -699,7 +699,7 @@ def _build_workspace_continuation_recommendation(
         reason = "it has uncommitted changes and is likely the active work surface"
     elif status.ahead or status.behind:
         reason = "it is diverged from upstream and likely needs attention"
-    primary_command = _route_command("codex", candidate.source.name or workspace_name)
+    primary_command = _route_command("opencode", candidate.source.name or workspace_name)
     parallel_recommended = len(activities) > 1 or status.state == "dirty" or status.ahead or status.behind
     parallel_command = _route_command("claude", candidate.source.name or workspace_name) if parallel_recommended else None
     return WorkspaceContinuationRecommendation(
@@ -712,7 +712,7 @@ def _build_workspace_continuation_recommendation(
             f"Continue with: {candidate.source.name}",
             f"Reason: {reason}",
             f"Suggested command: {primary_command}",
-            f"Parallel review: {'codex + claude' if parallel_recommended else 'not needed'}",
+            f"Parallel review: {'opencode + claude' if parallel_recommended else 'not needed'}",
             f"Parallel cross-check: {parallel_command}" if parallel_command else "Parallel cross-check: optional",
         ),
     )
@@ -804,11 +804,13 @@ def _recommended_route(memory_store: WorkspaceMemoryStore, default_agent: str | 
     recommended = str(summary.get("recommended_next_action") or "")
     if recommended == "route_to_claude_for_cross_check":
         return "claude"
-    if recommended == "route_to_codex_for_inventory":
-        return "codex"
-    if default_agent in {"codex", "claude"}:
+    if recommended == "route_to_opencode_for_inventory":
+        return "opencode"
+    if recommended == "keep_opencode_as_primary_for_workspace_execution":
+        return "opencode"
+    if default_agent in {"opencode", "claude", "codex"}:
         return default_agent
-    return "codex"
+    return "opencode"
 
 
 def _route_command(agent: str, workspace_name: str) -> str:

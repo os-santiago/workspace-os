@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 @dataclass(frozen=True)
@@ -106,7 +106,7 @@ class WorkspaceMemoryStore:
 
                 CREATE TABLE IF NOT EXISTS agent_launches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    agent TEXT NOT NULL CHECK(agent IN ('codex', 'claude')),
+                    agent TEXT NOT NULL,
                     task TEXT NOT NULL,
                     workspace TEXT,
                     launched_at TEXT NOT NULL
@@ -152,6 +152,7 @@ class WorkspaceMemoryStore:
             for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches", "feedback_events"):
                 self._ensure_batch_column(conn, table)
             self._ensure_decision_columns(conn)
+            self._ensure_agent_launches_schema(conn)
             conn.execute("DELETE FROM schema_version")
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
             conn.commit()
@@ -870,6 +871,41 @@ class WorkspaceMemoryStore:
                 if "duplicate column name" not in str(exc).casefold():
                     raise
 
+    def _ensure_agent_launches_schema(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'agent_launches'
+            """
+        ).fetchone()
+        if row is None:
+            return
+        sql = str(row["sql"] or "")
+        if "CHECK(agent IN ('codex', 'claude'))" not in sql:
+            return
+
+        conn.execute("ALTER TABLE agent_launches RENAME TO agent_launches_legacy")
+        conn.execute(
+            """
+            CREATE TABLE agent_launches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent TEXT NOT NULL,
+                task TEXT NOT NULL,
+                workspace TEXT,
+                launched_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO agent_launches (id, agent, task, workspace, launched_at)
+            SELECT id, agent, task, workspace, launched_at
+            FROM agent_launches_legacy
+            """
+        )
+        conn.execute("DROP TABLE agent_launches_legacy")
+
     def recent_launches(self, limit: int = 10) -> list[dict[str, str | None]]:
         with self._connection() as conn:
             rows = conn.execute(
@@ -1206,15 +1242,17 @@ def _recommended_next_action(
     if top_missing in {"authorization", "role", "permission", "owner", "ownership"}:
         return "ask_clarification_before_delegating"
     if top_missing in {"workspace", "inventory", "repo", "branch", "status", "missing_workspace"}:
-        return "route_to_codex_for_inventory"
+        return "route_to_opencode_for_inventory"
     if top_missing in {"safety", "privacy", "legal", "policy"}:
         return "route_to_claude_for_cross_check"
     if top_routing and "clarify" in top_routing:
         return "prefer_minimal_clarification_then_delegate"
+    if top_agent == "opencode":
+        return "keep_opencode_as_primary_for_workspace_execution"
     if top_agent == "claude":
         return "keep_claude_as_primary_for_sensitive_reviews"
     if top_agent == "codex":
-        return "keep_codex_as_primary_for_workspace_execution"
+        return "keep_opencode_as_primary_for_workspace_execution"
     return "keep_ambiguous_requests_explicit_and_actionable"
 
 

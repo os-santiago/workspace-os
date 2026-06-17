@@ -27,7 +27,7 @@ class SmokeQueryTests(unittest.TestCase):
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -56,7 +56,7 @@ class SmokeQueryTests(unittest.TestCase):
                         "Workspace projects under root:",
                         "Knowledge base projects:",
                         "Next step:",
-                        "Primary route: /codex",
+                        "Primary route: /opencode",
                         "Optional cross-check: /claude",
                     ],
                 ),
@@ -71,14 +71,14 @@ class SmokeQueryTests(unittest.TestCase):
                     [
                         "Ready. Continue with workspace-os.",
                         "Fastest path: /inspect, then /next.",
-                        "Primary route: /codex",
+                        "Primary route: /opencode",
                         "Optional cross-check: /claude",
                     ],
                 ),
                 (
                     "what should we do next?",
                     [
-                        "Primary route: /codex",
+                        "Primary route: /opencode",
                         "Optional cross-check: /claude",
                     ],
                 ),
@@ -244,7 +244,7 @@ class SmokeQueryTests(unittest.TestCase):
         self.assertIn("Knowledge base projects:", rendered)
         self.assertIn("Continue with:", rendered)
         self.assertIn("OCE report", rendered)
-        self.assertIn("Primary route: /codex", rendered)
+        self.assertIn("Primary route: /opencode", rendered)
         self.assertIn("Optional cross-check: /claude", rendered)
 
     def _init_git_repo(self, path: Path) -> None:

@@ -611,8 +611,8 @@ def _delegate_launch_payload(
 
     if not approved:
         return {"ok": False, "error": "Delegation requires explicit approval."}
-    if agent not in {"codex", "claude"}:
-        return {"ok": False, "error": "Allowed agents are codex and claude."}
+    if agent not in {"opencode", "codex", "claude"}:
+        return {"ok": False, "error": "Allowed agents are opencode, codex and claude."}
     if not task or not brief:
         return {"ok": False, "error": "Delegation requires both task and brief."}
 
@@ -677,6 +677,18 @@ def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision
 
 
 def _agent_command(agent: str, workspace_root: Path, prompt: str) -> list[str]:
+    if agent == "opencode":
+        return [
+            "opencode",
+            "run",
+            "--model",
+            "opencode/deepseek-v4-flash-free",
+            "--dir",
+            str(workspace_root),
+            "--dangerously-skip-permissions",
+            "--prompt",
+            prompt,
+        ]
     if agent == "codex":
         return [
             "codex",

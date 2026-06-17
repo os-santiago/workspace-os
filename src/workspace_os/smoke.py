@@ -100,7 +100,7 @@ def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeC
                 "Workspace projects under root:",
                 "Knowledge base projects:",
                 "Next step: record the first process checkpoint",
-                "Primary route: /codex",
+                "Primary route: /opencode",
                 "Optional cross-check: /claude",
             ],
         ),
@@ -109,14 +109,14 @@ def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeC
             "respondes siempre lo mismo?",
             [
                 "No. I now answer by intent instead of repeating the same fallback.",
-                "route it to Codex first",
+                "route it to Opencode first",
             ],
         ),
         (
             "chat:next",
             "what should we do next?",
             [
-                "Primary route: /codex",
+                "Primary route: /opencode",
                 "Optional cross-check: /claude",
             ],
         ),
@@ -196,7 +196,7 @@ def _run_shell_checks(source: Source, memory: Path) -> list[SmokeCheckResult]:
         ("shell:next", "Workspace next action:"),
         ("shell:roots", "Workspace roots:"),
         ("shell:oce", "OCE report"),
-        ("shell:reply", "Primary route: /codex"),
+        ("shell:reply", "Primary route: /opencode"),
         ("shell:route", "Optional cross-check: /claude"),
     ]
     results: list[SmokeCheckResult] = []

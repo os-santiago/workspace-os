@@ -21,7 +21,7 @@ class OverviewTests(unittest.TestCase):
             store.record_preference("tone", "terse")
             start_process(store, "process-1", "overview flow", started_at="2026-06-14T09:00:00+00:00")
             start_batch(store, "batch-1", "overview batch", started_at="2026-06-14T09:05:00+00:00")
-            store.record_agent_launch("codex", "review overview", "source", launched_at="2026-06-14T09:06:00+00:00")
+            store.record_agent_launch("opencode", "review overview", "source", launched_at="2026-06-14T09:06:00+00:00")
             store.record_process_checkpoint(
                 "checkpoint-1",
                 note="first pass",

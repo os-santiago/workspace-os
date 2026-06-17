@@ -19,7 +19,7 @@ class ProcessTests(unittest.TestCase):
             stop_batch(store, ended_at="2026-06-14T08:10:00+00:00")
 
             start_batch(store, "batch-2", "second batch", started_at="2026-06-14T08:15:00+00:00")
-            store.record_agent_launch("codex", "review second batch", "workspace-os", launched_at="2026-06-14T08:15:30+00:00")
+            store.record_agent_launch("opencode", "review second batch", "workspace-os", launched_at="2026-06-14T08:15:30+00:00")
             store.record_task_outcome("shell", "ctx-2", "partial", "note-2", created_at="2026-06-14T08:16:00+00:00")
             stop_batch(store, ended_at="2026-06-14T08:20:00+00:00")
 

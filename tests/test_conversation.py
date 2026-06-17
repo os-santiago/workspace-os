@@ -125,7 +125,7 @@ class ConversationTests(unittest.TestCase):
             )
 
         self.assertIn("No. I now answer by intent instead of repeating the same fallback.", reply.reply)
-        self.assertIn("route it to Codex first", reply.reply)
+        self.assertIn("route it to Opencode first", reply.reply)
         self.assertIn("return the next action", reply.reply)
         self.assertNotIn("Primary route:", reply.reply)
 
@@ -147,7 +147,7 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Ready. Continue with workspace-os.", reply.reply)
         self.assertIn("Fastest path: /inspect, then /next.", reply.reply)
-        self.assertIn("Primary route: /codex", reply.reply)
+        self.assertIn("Primary route: /opencode", reply.reply)
         self.assertIn("Optional cross-check: /claude", reply.reply)
 
     def test_workspace_reply_default_fallback_is_actionable(self):
@@ -168,7 +168,7 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Give me a repo, goal, or question", reply.reply)
         self.assertIn("task plan", reply.reply)
-        self.assertIn("/codex <task>", reply.reply)
+        self.assertIn("/opencode <task>", reply.reply)
         self.assertIn("/claude <task>", reply.reply)
 
     def test_workspace_reply_guides_inventory_first_without_active_windows(self):
@@ -196,7 +196,7 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("No active work window is tracked.", reply.reply)
         self.assertIn("Analysis:", reply.reply)
         self.assertIn("Continue with:", reply.reply)
-        self.assertIn("Primary route: /codex", reply.reply)
+        self.assertIn("Primary route: /opencode", reply.reply)
         self.assertIn("Optional cross-check: /claude", reply.reply)
 
     def test_workspace_reply_includes_active_batch_summary(self):
@@ -273,7 +273,7 @@ class ConversationTests(unittest.TestCase):
             store.ensure_schema()
             start_process(store, "process-1", "keep process visible", started_at="2026-06-14T10:00:00+00:00")
             start_batch(store, "batch-1", "keep batch visible", started_at="2026-06-14T10:05:00+00:00")
-            store.record_agent_launch("codex", "review the workspace summary", "source", launched_at="2026-06-14T10:06:00+00:00")
+            store.record_agent_launch("opencode", "review the workspace summary", "source", launched_at="2026-06-14T10:06:00+00:00")
 
             reply = build_workspace_reply(
                 [Source("example", "doctrine", "Example.", source_root)],
@@ -288,9 +288,9 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("process-1", reply.reply)
         self.assertIn("batch-1", reply.reply)
         self.assertIn("Next step:", reply.reply)
-        self.assertIn("codex", reply.reply)
+        self.assertIn("opencode", reply.reply)
 
-    def test_workspace_reply_routes_ambiguous_status_to_codex_and_claude(self):
+    def test_workspace_reply_routes_ambiguous_status_to_opencode_and_claude(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source_root = root / "source"
@@ -308,15 +308,15 @@ class ConversationTests(unittest.TestCase):
 
         self.assertIn("Answer:", reply.reply)
         self.assertIn("Trace:", reply.reply)
-        self.assertIn("Primary route: /codex", reply.reply)
+        self.assertIn("Primary route: /opencode", reply.reply)
         self.assertIn("Optional cross-check: /claude", reply.reply)
-        self.assertIn("ADEV-aware route for codex", reply.reply)
+        self.assertIn("ADEV-aware route for opencode", reply.reply)
         self.assertIn("ADEV-aware route for claude", reply.reply)
-        self.assertIn("Command: /codex", reply.reply)
+        self.assertIn("Command: /opencode", reply.reply)
         self.assertIn("Command: /claude", reply.reply)
         self.assertNotIn("start a new process window before the next batch", reply.reply)
         self.assertEqual(2, len(reply.suggested_actions))
-        self.assertEqual("codex", reply.suggested_actions[0]["agent"])
+        self.assertEqual("opencode", reply.suggested_actions[0]["agent"])
         self.assertEqual("claude", reply.suggested_actions[1]["agent"])
 
     def test_workspace_reply_exposes_redirect_actions(self):
@@ -337,7 +337,7 @@ class ConversationTests(unittest.TestCase):
 
         self.assertEqual("SAFE_REDIRECT", reply.conscience.decision)
         self.assertEqual(2, len(reply.suggested_actions))
-        self.assertEqual("codex", reply.suggested_actions[0]["agent"])
+        self.assertEqual("opencode", reply.suggested_actions[0]["agent"])
         self.assertEqual("claude", reply.suggested_actions[1]["agent"])
 
     def test_workspace_reply_uses_history_to_prefer_claude_for_review(self):
@@ -367,9 +367,9 @@ class ConversationTests(unittest.TestCase):
 
         self.assertEqual("SAFE_REDIRECT", reply.conscience.decision)
         self.assertEqual("claude", reply.suggested_actions[0]["agent"])
-        self.assertEqual("codex", reply.suggested_actions[1]["agent"])
-        self.assertIn("Primary route: /claude", reply.reply)
-        self.assertIn("Optional cross-check: /codex", reply.reply)
+        self.assertEqual("opencode", reply.suggested_actions[1]["agent"])
+        self.assertIn("Primary route: /opencode", reply.reply)
+        self.assertIn("Optional cross-check: /claude", reply.reply)
 
 
 if __name__ == "__main__":

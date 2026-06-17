@@ -321,10 +321,6 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     profile = load_profile(memory_store)
     workspace_name = profile.default_workspace or "all workspaces"
     workspace_root = _workspace_root_from_sources([])
-    codex_prompt = (
-        f"Inspect the current workspace state for {workspace_name}, list the projects in flight, "
-        "active branches, current process or batch windows, blockers, and the next best action."
-    )
 
     lines = ["Projects in flight:"]
     if workspace_root != "all workspaces":
@@ -354,9 +350,9 @@ def _workspace_status_lines(memory_store: WorkspaceMemoryStore) -> list[str]:
     if process is None and batch is None:
         lines.extend(
             [
-                f"- primary route={build_agent_route_command('codex', profile.default_workspace or 'all workspaces')}",
+                f"- primary route={build_agent_route_command('opencode', profile.default_workspace or 'all workspaces')}",
                 f"- fallback route={build_agent_route_command('claude', profile.default_workspace or 'all workspaces')}",
-                f"- codex prompt={build_agent_route_prompt('codex', profile.default_workspace or 'all workspaces')}",
+                f"- opencode prompt={build_agent_route_prompt('opencode', profile.default_workspace or 'all workspaces')}",
             ]
         )
     else:
@@ -373,8 +369,8 @@ def _suggested_actions(message: str, conscience: ConscienceDecision, memory_stor
     workspace_name = "all workspaces"
     if profile and profile.default_workspace:
         workspace_name = profile.default_workspace
-    primary_agent = conscience.primary_agent or "codex"
-    secondary_agent = conscience.secondary_agent or ("claude" if primary_agent == "codex" else "codex")
+    primary_agent = conscience.primary_agent or "opencode"
+    secondary_agent = conscience.secondary_agent or ("claude" if primary_agent != "claude" else "opencode")
     primary_agent, secondary_agent, route_reason = _refine_route_with_history(
         primary_agent,
         secondary_agent,
@@ -413,7 +409,7 @@ def _redirect_guidance_lines(actions: list[dict[str, str]]) -> list[str]:
 def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMemoryStore | None) -> list[str]:
     if _is_greeting(message):
         return [
-            "Hola. Soy WOS: orquesto trabajo sobre tus repos, recuerdo contexto y delego a Codex o Claude cuando hace falta.",
+            "Hola. Soy WOS: orquesto trabajo sobre tus repos, recuerdo contexto y delego a Opencode o Claude cuando hace falta, con Codex como respaldo.",
             "Dame un repo, un objetivo o una pregunta y te devuelvo el siguiente paso concreto.",
         ]
     if _is_app_overview_query(message):
@@ -421,15 +417,15 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
             "Workspace OS is your local workspace control plane.",
             "- tracks repos and git state",
             "- remembers context, decisions, handoffs, and preferences",
-            "- routes ambiguous work through OCE, then Codex first and Claude as backup",
+            "- routes ambiguous work through OCE, then Opencode first and Claude as backup",
             "- delegates execution and cross-checks to those agents when work needs throughput",
             "- compacts global context after each work window",
-            "Try: /inspect, /context latest, /oce, /codex <task>, /claude <task>",
+            "Try: /inspect, /context latest, /oce, /opencode <task>, /claude <task>",
         ]
     if _is_repetition_query(message):
         return [
             "No. I now answer by intent instead of repeating the same fallback.",
-            "If a question is ambiguous, I route it to Codex first and use Claude in parallel when a second pass is useful.",
+            "If a question is ambiguous, I route it to Opencode first and use Claude in parallel when a second pass is useful.",
             "Ask for repo state, an objective, or a task and I'll return the next action instead of a canned reply.",
         ]
     if _is_continuation_request(message):
@@ -437,8 +433,8 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
         return [
             f"Ready. Continue with {workspace_name}.",
             "Fastest path: /inspect, then /next.",
-            f"Primary route: /codex",
-            f"Command: {_route_command('codex', workspace_name)}",
+            f"Primary route: /opencode",
+            f"Command: {_route_command('opencode', workspace_name)}",
             "Optional cross-check: /claude",
             f"Command: {_route_command('claude', workspace_name)}",
         ]
@@ -454,7 +450,7 @@ def _answer_lines(message: str, sources: list[Source], memory_store: WorkspaceMe
         return _workspace_status_answer_lines(sources, memory_store)
     return [
             "Give me a repo, goal, or question and I'll turn it into a task plan, route work through OCE, or cross-check with Claude.",
-            "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/codex <task>', or '/claude <task>'.",
+            "Try: 'what projects are in flight?', 'what does this app do?', '/inspect', '/opencode <task>', or '/claude <task>'.",
         ]
 
 
@@ -587,13 +583,13 @@ def _refine_route_with_history(
 ) -> tuple[str, str, str]:
     route_hint = _history_route_hint(memory_store)
     if route_hint == "route_to_claude_for_cross_check" and primary_agent != "claude":
-        return "claude", "codex", "history_prefers_claude_cross_check"
-    if route_hint == "route_to_codex_for_inventory" and primary_agent != "codex":
-        return "codex", "claude", "history_prefers_codex_inventory"
-    if route_hint == "keep_codex_as_primary_for_workspace_execution" and primary_agent != "codex":
-        return "codex", "claude", "history_prefers_codex_execution"
+        return "claude", "opencode", "history_prefers_claude_cross_check"
+    if route_hint == "route_to_opencode_for_inventory" and primary_agent != "opencode":
+        return "opencode", "claude", "history_prefers_opencode_inventory"
+    if route_hint == "keep_opencode_as_primary_for_workspace_execution" and primary_agent != "opencode":
+        return "opencode", "claude", "history_prefers_opencode_execution"
     if route_hint == "keep_claude_as_primary_for_sensitive_reviews" and primary_agent != "claude":
-        return "claude", "codex", "history_prefers_claude_review"
+        return "claude", "opencode", "history_prefers_claude_review"
     if conscience.routing_reason == "authority_required":
         return primary_agent, secondary_agent, "authority_clarification"
     return primary_agent, secondary_agent, route_hint or conscience.routing_reason or "immediate_context"

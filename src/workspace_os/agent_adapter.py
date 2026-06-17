@@ -9,6 +9,19 @@ from workspace_os.memory import WorkspaceMemoryStore
 
 def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_args: list[str] | None = None) -> list[str]:
     args = list(extra_args or [])
+    if agent == "opencode":
+        return [
+            "opencode",
+            "run",
+            "--model",
+            "opencode/deepseek-v4-flash-free",
+            "--dir",
+            str(workspace_root),
+            "--dangerously-skip-permissions",
+            "--prompt",
+            *args,
+            prompt,
+        ]
     if agent == "codex":
         return [
             "codex",
@@ -33,7 +46,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             *args,
             prompt,
         ]
-    raise ValueError("Allowed agents are codex and claude.")
+    raise ValueError("Allowed agents are opencode, codex and claude.")
 
 
 def launch_agent(

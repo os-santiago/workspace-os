@@ -550,14 +550,14 @@ def _contains_any(value: str, patterns: tuple[str, ...]) -> bool:
 
 def _select_redirect_agents(context: RequestContext, normative: NormativeAnalysis) -> tuple[str, str, str]:
     if context.domain in {"security", "privacy", "legal", "finance", "health"}:
-        return "claude", "codex", f"domain_{context.domain}_cross_check"
+        return "claude", "opencode", f"domain_{context.domain}_cross_check"
     if context.user_intent == "educational":
-        return "claude", "codex", "educational_explanation"
+        return "claude", "opencode", "educational_explanation"
     if context.domain == "workspace" or context.domain == "general":
-        return "codex", "claude", "workspace_inventory_first"
+        return "opencode", "claude", "workspace_inventory_first"
     if normative.priority == "clarify_or_redirect":
-        return "codex", "claude", "clarify_or_redirect"
-    return "codex", "claude", "default_workspace_route"
+        return "opencode", "claude", "clarify_or_redirect"
+    return "opencode", "claude", "default_workspace_route"
 
 
 def _policy_root() -> Path:

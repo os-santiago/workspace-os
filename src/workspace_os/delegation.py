@@ -37,7 +37,12 @@ def build_hardened_delegate_prompt(
 
 
 def build_agent_route_prompt(agent: str, workspace_name: str) -> str:
-    if agent == "claude":
+    if agent == "opencode":
+        task = (
+            f"Inspect the current workspace state for {workspace_name}, rank the active repos, "
+            "identify blockers, and suggest the fastest next action."
+        )
+    elif agent == "claude":
         task = (
             f"Cross-check the workspace inventory for {workspace_name}; confirm any active work, "
             "identify gaps, and suggest the fastest next step."

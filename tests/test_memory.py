@@ -29,7 +29,7 @@ class MemoryTests(unittest.TestCase):
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -56,10 +56,10 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(1, feedback_metrics["over_expectation_count"])
         self.assertEqual(1, report["total"])
         self.assertEqual(1, report["decision_counts"]["SAFE_REDIRECT"])
-        self.assertEqual(1, report["primary_agent_counts"]["codex"])
+        self.assertEqual(1, report["primary_agent_counts"]["opencode"])
         self.assertEqual(1, report["routing_reason_counts"]["workspace_inventory_first"])
         self.assertEqual("missing_workspace", report["top_missing_context"])
-        self.assertEqual("route_to_codex_for_inventory", report["recommended_next_action"])
+        self.assertEqual("route_to_opencode_for_inventory", report["recommended_next_action"])
 
 
 if __name__ == "__main__":

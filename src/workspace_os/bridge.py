@@ -139,7 +139,7 @@ def build_workspace_bridge_report(
     feedback_metrics = memory_store.feedback_metrics()
     active_workspace = workspace or profile.default_workspace or overview.workspace
     workspace_root = _workspace_root_from_sources(sources)
-    execution_mode = "parallel (codex + claude)" if root_continuation_is_parallel(roots) else "sequential (codex first)"
+    execution_mode = "parallel (opencode + claude)" if root_continuation_is_parallel(roots) else "sequential (opencode first)"
 
     summary_lines = (
         f"State: sources={len(sources)} memory_entries={memory_store.stats()['conversation_turns']} turns "
@@ -206,6 +206,11 @@ def build_workspace_bridge_report(
             "workspace chat \"What projects are in flight?\"",
         ),
         BridgeCapability(
+            "opencode",
+            "Launch an Opencode task against the active workspace using the DeepSeek free model.",
+            "wos shell -> /opencode <task>",
+        ),
+        BridgeCapability(
             "codex",
             "Launch a Codex task against the active workspace.",
             "wos shell -> /codex <task>",
@@ -270,8 +275,8 @@ def build_workspace_bridge_next_report(
     if root_continuation_is_parallel(roots):
         detail_lines = (
             *detail_lines,
-            "Parallel review: codex + claude",
-            "Use Codex for the first pass and Claude for the cross-check in parallel.",
+            "Parallel review: opencode + claude",
+            "Use Opencode for the first pass and Claude for the cross-check in parallel.",
         )
 
     return WorkspaceBridgeNextReport(

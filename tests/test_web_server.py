@@ -198,7 +198,7 @@ Batch 02 [NEXT] Web pilot
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -210,11 +210,11 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(1, result["report"]["summary"]["total"])
         self.assertEqual(1, result["report"]["summary"]["decision_counts"]["SAFE_REDIRECT"])
         self.assertEqual("missing_workspace", result["report"]["summary"]["top_missing_context"])
-        self.assertEqual("route_to_codex_for_inventory", result["report"]["summary"]["recommended_next_action"])
+        self.assertEqual("route_to_opencode_for_inventory", result["report"]["summary"]["recommended_next_action"])
         self.assertIn("OCE report", markdown["text"])
         self.assertIn("total=1", markdown["text"])
         self.assertIn("top_missing_context=missing_workspace", markdown["text"])
-        self.assertIn("recommended_next_action=route_to_codex_for_inventory", markdown["text"])
+        self.assertIn("recommended_next_action=route_to_opencode_for_inventory", markdown["text"])
 
     def test_conscience_recommendation_payload_renders_compact_text(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -229,7 +229,7 @@ Batch 02 [NEXT] Web pilot
                 "medium",
                 "SAFE_REDIRECT",
                 ["missing_workspace"],
-                primary_agent="codex",
+                primary_agent="opencode",
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
@@ -239,14 +239,16 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertIn("OCE recommendation", result["text"])
-        self.assertIn("next_action=route_to_codex_for_inventory", result["text"])
+        self.assertIn("next_action=route_to_opencode_for_inventory", result["text"])
         self.assertIn("top_missing_context=missing_workspace", markdown["text"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
-        command = _agent_command("codex", Path("workspace"), "Do the task.")
+        command = _agent_command("opencode", Path("workspace"), "Do the task.")
 
-        self.assertEqual(command[:2], ["codex", "exec"])
-        self.assertIn("--skip-git-repo-check", command)
+        self.assertEqual(command[:2], ["opencode", "run"])
+        self.assertIn("--model", command)
+        self.assertIn("opencode/deepseek-v4-flash-free", command)
+        self.assertIn("--dangerously-skip-permissions", command)
 
     def test_delegate_launch_passes_conscience_to_launcher(self):
         captured = {}
@@ -434,10 +436,10 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertEqual("SAFE_REDIRECT", result["conscience"]["decision"])
-        self.assertEqual("codex", result["conscience"]["primary_agent"])
+        self.assertEqual("opencode", result["conscience"]["primary_agent"])
         self.assertEqual("claude", result["conscience"]["secondary_agent"])
         self.assertEqual(2, len(result["suggested_actions"]))
-        self.assertEqual("codex", result["suggested_actions"][0]["agent"])
+        self.assertEqual("opencode", result["suggested_actions"][0]["agent"])
         self.assertEqual("claude", result["suggested_actions"][1]["agent"])
         self.assertIn("workspace.policy.global-safety", result["conscience"]["policy_refs"])
         self.assertIn("intent", result["conscience"]["context"])

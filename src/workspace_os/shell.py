@@ -114,6 +114,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/conscience ...     show decision metrics, history, recommendation, or extensions",
                     "/oce ...           alias for /conscience",
                     "/verbose [on|off]   toggle full answer+trace output (default is answer only)",
+                    "/opencode <task>    launch opencode with the active workspace",
                     "/codex <task>       launch codex with the active workspace",
                     "/claude <task>      launch claude with the active workspace",
                     "/launches           show recent agent launches",
@@ -676,6 +677,9 @@ class WorkspaceShell(cmd.Cmd):
 
     def do_codex(self, arg: str) -> None:
         self._launch_agent("codex", arg)
+
+    def do_opencode(self, arg: str) -> None:
+        self._launch_agent("opencode", arg)
 
     def do_claude(self, arg: str) -> None:
         self._launch_agent("claude", arg)
