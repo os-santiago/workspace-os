@@ -312,6 +312,26 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Command: /opencode", reply.reply)
         self.assertIn("Preference: workspace_repo_first", reply.reply)
 
+    def test_workspace_reply_resolves_repo_variants_with_fuzzy_matching(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            db_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            reply = build_workspace_reply(
+                [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                "analiza workspace os",
+                memory_store=store,
+                session_id="session-1",
+            )
+
+        self.assertIn("Repo resolved: workspace-os", reply.reply)
+        self.assertIn("Primary route: /opencode", reply.reply)
+        self.assertIn("Command: /opencode", reply.reply)
+
     def test_workspace_reply_routes_ambiguous_status_to_opencode_and_claude(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

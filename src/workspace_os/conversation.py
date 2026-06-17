@@ -661,6 +661,8 @@ def _resolve_target_source(message: str, sources: list[Source]) -> Source | None
 
 def _score_source_match(text: str, source: Source) -> int:
     score = 0
+    raw_tokens = _tokenize_text(text)
+    source_tokens = _source_match_tokens(source)
     name = _normalized_text(source.name)
     path_name = _normalized_text(source.path.name)
     path_stem = _normalized_text(source.path.stem)
@@ -671,11 +673,36 @@ def _score_source_match(text: str, source: Source) -> int:
         score += 5
     if path_stem and path_stem in text:
         score += 4
+    if source_tokens and raw_tokens:
+        overlap = len(source_tokens & raw_tokens)
+        score += overlap * 4
+        if any(token in raw_tokens for token in _source_alias_tokens(source)):
+            score += 3
     if responsibility:
         for token in responsibility.split():
             if len(token) > 3 and token in text:
                 score += 1
     return score
+
+
+def _source_match_tokens(source: Source) -> set[str]:
+    tokens = set(_tokenize_text(source.name))
+    tokens.update(_tokenize_text(source.path.name))
+    tokens.update(_tokenize_text(source.path.stem))
+    return {token for token in tokens if token}
+
+
+def _source_alias_tokens(source: Source) -> set[str]:
+    aliases: set[str] = set()
+    name = source.name.casefold()
+    aliases.add(name.replace("-", ""))
+    aliases.add(name.replace("_", ""))
+    aliases.update({token for token in _tokenize_text(source.name) if len(token) >= 2})
+    return {alias for alias in aliases if alias}
+
+
+def _tokenize_text(value: str) -> set[str]:
+    return {token for token in re.split(r"[^a-z0-9]+", value.casefold()) if token}
 
 
 def _normalized_text(value: str) -> str:
