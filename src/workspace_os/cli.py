@@ -9,6 +9,8 @@ from workspace_os.batch import batch_summary, current_batch_report, current_proc
 from workspace_os.classification import classify_content
 from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, start_cycle, stop_cycle
 from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
+from workspace_os.journal import write_cycle_journal
+from workspace_os.journal import journal_root, latest_journal_entry, list_journal_entries
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
 from workspace_os.config import Source, load_sources, load_workspace_memory_path
 from workspace_os.conversation import build_workspace_reply
@@ -87,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         return _process(sources, memory_path, args.process_command, args)
     if args.command == "cycle":
         return _cycle(sources, memory_path, args.cycle_command, args)
+    if args.command == "journal":
+        return _journal(sources, memory_path, args.journal_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
 
@@ -398,6 +402,17 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_checkpoint = cycle_subparsers.add_parser("checkpoint", help="Run the cycle gates and record a checkpoint.")
     cycle_checkpoint.add_argument("--label", required=True, help="Checkpoint label.")
     cycle_checkpoint.add_argument("--note", default="", help="Optional checkpoint note.")
+
+    journal_parser = subparsers.add_parser(
+        "journal",
+        help="Inspect productivity journals written during long runs.",
+    )
+    journal_subparsers = journal_parser.add_subparsers(dest="journal_command", required=True)
+    journal_subparsers.add_parser("status", help="Show the latest journal entry summary.")
+    journal_history = journal_subparsers.add_parser("history", help="List recent journal entries.")
+    journal_history.add_argument("--limit", type=int, default=10, help="Maximum journal entries to list.")
+    journal_report = journal_subparsers.add_parser("report", help="Render the latest journal entry.")
+    journal_report.add_argument("--limit", type=int, default=1, help="Maximum entries to consider.")
 
     web_parser = subparsers.add_parser(
         "web",
@@ -1028,6 +1043,7 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
 
     if command == "run":
         try:
+            is_duration_mode = args.duration_minutes is not None
             if args.duration_minutes is not None:
                 result = run_cycle_window(
                     store,
@@ -1064,6 +1080,15 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
             print(render_cycle_evaluation(iteration.evaluation), end="")
         print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+        if is_duration_mode:
+            journal = write_cycle_journal(
+                store,
+                sources,
+                result.report.cycle,
+                store.cycle_checkpoints(result.cycle_id, limit=1000),
+                story_title=result.report.cycle["label"],
+            )
+            print(f"journal_written={journal.entry_path}")
         return 0
 
     if command == "watch":
@@ -1090,6 +1115,14 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
             print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
             print(render_cycle_evaluation(iteration.evaluation), end="")
         print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+        journal = write_cycle_journal(
+            store,
+            sources,
+            result.report.cycle,
+            store.cycle_checkpoints(result.cycle_id, limit=1000),
+            story_title=result.report.cycle["label"],
+        )
+        print(f"journal_written={journal.entry_path}")
         return 0
 
     if command == "stop":
@@ -1152,6 +1185,42 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
         return 0
 
     print("error: unsupported cycle command", file=sys.stderr)
+    return 2
+
+
+def _journal(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
+    del sources
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    if command == "status":
+        entry = latest_journal_entry(store)
+        if entry is None:
+            print(f"journal_root={journal_root(store)}")
+            print("No journal entries found.")
+            return 0
+        print(entry.render(), end="")
+        return 0
+    if command == "history":
+        entries = list_journal_entries(store, limit=args.limit)
+        if not entries:
+            print(f"journal_root={journal_root(store)}")
+            print("No journal entries found.")
+            return 0
+        print(f"journal_root={journal_root(store)}")
+        for entry in entries:
+            print(
+                f"- {entry.entry_id} {entry.label}: duration={entry.duration_seconds:.0f}s "
+                f"checkpoints={entry.checkpoint_count} commits={sum(metric.commits for metric in entry.source_metrics)}"
+            )
+        return 0
+    if command == "report":
+        entries = list_journal_entries(store, limit=args.limit)
+        if not entries:
+            print("No journal entries found.")
+            return 0
+        print(entries[0].render(), end="")
+        return 0
+    print("error: unsupported journal command", file=sys.stderr)
     return 2
 
 

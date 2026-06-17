@@ -589,6 +589,14 @@ class CliTests(unittest.TestCase):
                 from contextlib import redirect_stdout
 
                 with redirect_stdout(buffer):
+                    journal_status_exit = main(["--config", str(config), "journal", "status"])
+                buffer.seek(0)
+                journal_status_rendered = buffer.read()
+
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(buffer):
                     next_exit = main(["--config", str(config), "cycle", "next"])
                 buffer.seek(0)
                 next_rendered = buffer.read()
@@ -628,6 +636,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, start_exit)
         self.assertEqual(0, run_exit)
         self.assertEqual(0, watch_exit)
+        self.assertEqual(0, journal_status_exit)
         self.assertEqual(0, next_exit)
         self.assertEqual(0, checkpoint_exit)
         self.assertEqual(0, status_exit)
@@ -640,6 +649,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("window_started_at=", watch_rendered)
         self.assertIn("window_ended_at=", watch_rendered)
         self.assertIn("iterations_completed=1", watch_rendered)
+        self.assertIn("journal_written=", watch_rendered)
+        self.assertIn("Journal entry:", journal_status_rendered)
         self.assertIn("Cycle next:", next_rendered)
         self.assertIn("workspace cycle run", next_rendered)
         self.assertIn("saved checkpoint", checkpoint_rendered)

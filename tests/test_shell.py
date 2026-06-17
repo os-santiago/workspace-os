@@ -311,6 +311,9 @@ class ShellTests(unittest.TestCase):
                 shell.do_cycle("watch --duration-minutes 0 --interval-minutes 1")
             watch_rendered = buffer.getvalue()
             with redirect_stdout(io.StringIO()) as buffer:
+                shell.do_journal("status")
+            journal_rendered = buffer.getvalue()
+            with redirect_stdout(io.StringIO()) as buffer:
                 shell.do_cycle("next")
             next_rendered = buffer.getvalue()
             with redirect_stdout(io.StringIO()) as buffer:
@@ -336,6 +339,8 @@ class ShellTests(unittest.TestCase):
         self.assertIn("window_started_at=", watch_rendered)
         self.assertIn("window_ended_at=", watch_rendered)
         self.assertIn("iterations_completed=1", watch_rendered)
+        self.assertIn("journal_written=", watch_rendered)
+        self.assertIn("Journal entry:", journal_rendered)
         self.assertIn("Cycle next:", next_rendered)
         self.assertIn("workspace cycle run", next_rendered)
         self.assertIn("saved checkpoint", checkpoint_rendered)

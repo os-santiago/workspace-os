@@ -20,6 +20,7 @@ from workspace_os.feedback import assess_feedback
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.habits import compute_habits
+from workspace_os.journal import journal_root, latest_journal_entry, list_journal_entries, write_cycle_journal
 from workspace_os.oce_extensions_report import build_oce_extensions_report, render_oce_extensions_report_text
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
@@ -113,6 +114,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
                     "/cycle ...          start, stop, run, watch, report, status, checkpoint, or list long-run cycles",
                     "/cycle next         recommend the next cycle action",
+                    "/journal ...        inspect productivity journals from long runs",
                     "/alias ...          save, list, or invoke shortcuts",
                     "/conscience ...     show decision metrics, history, recommendation, or extensions",
                     "/oce ...           alias for /conscience",
@@ -765,6 +767,7 @@ class WorkspaceShell(cmd.Cmd):
 
         if options.cycle_command == "run":
             try:
+                is_duration_mode = getattr(options, "duration_minutes", None) is not None
                 if getattr(options, "duration_minutes", None) is not None:
                     result = run_cycle_window(
                         self.memory_store,
@@ -801,6 +804,15 @@ class WorkspaceShell(cmd.Cmd):
                 self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
                 self._emit(render_cycle_evaluation(iteration.evaluation), end="")
             self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            if is_duration_mode:
+                journal = write_cycle_journal(
+                    self.memory_store,
+                    self._selected_sources(),
+                    result.report.cycle,
+                    self.memory_store.cycle_checkpoints(result.cycle_id, limit=1000),
+                    story_title=result.report.cycle["label"],
+                )
+                self._emit(f"journal_written={journal.entry_path}")
             return
 
         if options.cycle_command == "watch":
@@ -827,6 +839,14 @@ class WorkspaceShell(cmd.Cmd):
                 self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
                 self._emit(render_cycle_evaluation(iteration.evaluation), end="")
             self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            journal = write_cycle_journal(
+                self.memory_store,
+                self._selected_sources(),
+                result.report.cycle,
+                self.memory_store.cycle_checkpoints(result.cycle_id, limit=1000),
+                story_title=result.report.cycle["label"],
+            )
+            self._emit(f"journal_written={journal.entry_path}")
             return
 
         if options.cycle_command == "stop":
@@ -888,6 +908,49 @@ class WorkspaceShell(cmd.Cmd):
             return
 
         self._emit("error: unsupported cycle command")
+
+    def do_journal(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/journal", add_help=False)
+        subparsers = parser.add_subparsers(dest="journal_command", required=True)
+        subparsers.add_parser("status", add_help=False)
+        history_parser = subparsers.add_parser("history", add_help=False)
+        history_parser.add_argument("--limit", type=int, default=10)
+        report_parser = subparsers.add_parser("report", add_help=False)
+        report_parser.add_argument("--limit", type=int, default=1)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /journal status|history|report [--limit N]")
+            return
+        if options.journal_command == "status":
+            entry = latest_journal_entry(self.memory_store)
+            if entry is None:
+                self._emit(f"journal_root={journal_root(self.memory_store)}")
+                self._emit("No journal entries found.")
+                return
+            self._emit(entry.render(), end="")
+            return
+        if options.journal_command == "history":
+            entries = list_journal_entries(self.memory_store, limit=options.limit)
+            if not entries:
+                self._emit(f"journal_root={journal_root(self.memory_store)}")
+                self._emit("No journal entries found.")
+                return
+            self._emit(f"journal_root={journal_root(self.memory_store)}")
+            for entry in entries:
+                commits = sum(metric.commits for metric in entry.source_metrics)
+                self._emit(
+                    f"- {entry.entry_id} {entry.label}: duration={entry.duration_seconds:.0f}s checkpoints={entry.checkpoint_count} commits={commits}"
+                )
+            return
+        if options.journal_command == "report":
+            entries = list_journal_entries(self.memory_store, limit=options.limit)
+            if not entries:
+                self._emit("No journal entries found.")
+                return
+            self._emit(entries[0].render(), end="")
+            return
 
     def do_chat(self, arg: str) -> None:
         message = arg.strip()

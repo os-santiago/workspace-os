@@ -289,6 +289,9 @@ The product is healthy when it improves:
 
 - time to next action;
 - number of instructions per task;
+- commits per long run;
+- lines changed per long run;
+- tags and release markers per long run;
 - wrong-agent rate;
 - reroute frequency;
 - defect iterations per cycle;
@@ -374,6 +377,20 @@ For a one-hour run, WOS should behave as a supervised long-run controller:
 - keep agent choice stable enough to reduce noise but flexible enough to alternate roles;
 - avoid requiring the operator to reissue the same intent;
 - keep the user-facing output compact while the learning and trace layers retain the full context.
+
+### Execution Journal
+
+Long runs should leave a durable journal for later analysis.
+
+The journal should capture:
+
+- a narrative story of what happened during the run;
+- code metrics such as commits, lines changed, tags, and release markers;
+- functional metrics such as completed outcomes, defects, and regressions;
+- execution signals such as feedback, errors, and correction loops;
+- one file per checkpoint plus a summary for the whole window.
+
+The journal exists so WOS can compare long runs against short cycles over time without depending on chat transcripts.
 
 ### Success Criteria
 
