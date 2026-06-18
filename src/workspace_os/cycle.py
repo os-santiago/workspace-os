@@ -1130,15 +1130,19 @@ def run_cycle_work_window_continuous(
                 # This prevents agents from idling when they finish and pool is empty
                 if available_issues and enable_issue_assignment:
                     elapsed_since_refetch = time.perf_counter() - last_refetch_at
-                    unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                    # Use cached count if valid, otherwise recompute
+                    if not cache_valid:
+                        cached_unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                        cache_valid = True
+
                     refetch_threshold = max(max_workers * 2, len(available_issues) // 5)  # 20% threshold
                     high_utilization = len(pending_futures) >= max_workers * 0.7  # 70%+ busy
                     should_refetch = (
-                        (unassigned_count < refetch_threshold and high_utilization)
+                        (cached_unassigned_count < refetch_threshold and high_utilization)
                         or elapsed_since_refetch > refetch_interval_seconds
                     )
                     if should_refetch:
-                        print(f"[cycle] Proactive issue refetch (unassigned={unassigned_count}, util={len(pending_futures)}/{max_workers})")
+                        print(f"[cycle] Proactive issue refetch (unassigned={cached_unassigned_count}, util={len(pending_futures)}/{max_workers})")
                         fresh_issues = _fetch_available_issues(sources, limit=200)
                         if fresh_issues:
                             existing_numbers = {int(issue["number"]) for issue in available_issues}
@@ -1146,18 +1150,19 @@ def run_cycle_work_window_continuous(
                             if new_issues:
                                 available_issues.extend(new_issues)
                                 print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
+                                cached_unassigned_count += len(new_issues)  # Update cache
                             last_refetch_at = time.perf_counter()
 
                         # If refetch didn't solve the shortage, generate issues from backlog
-                        unassigned_after_refetch = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
-                        if unassigned_after_refetch < max_workers:
+                        if cached_unassigned_count < max_workers:
                             generated_count = _generate_issues_from_backlog_inline(
                                 sources,
                                 available_issues,
-                                max_workers - unassigned_after_refetch,
+                                max_workers - cached_unassigned_count,
                             )
                             if generated_count > 0:
                                 print(f"[cycle] Generated {generated_count} issues from backlog (pool now {len(available_issues)} total)")
+                                cached_unassigned_count += generated_count  # Update cache
 
                 continue
 
@@ -1205,6 +1210,8 @@ def run_cycle_work_window_continuous(
                     next_assigned_issue = None
                     if available_issues and enable_issue_assignment:
                         next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
+                        if next_assigned_issue:
+                            cached_unassigned_count -= 1  # Decrement cache after assignment
 
                     work_prompt = _build_cycle_work_prompt(
                         sources,
@@ -1260,18 +1267,24 @@ def run_cycle_work_window_continuous(
                 elapsed_since_checkpoint = time.perf_counter() - last_checkpoint_at
                 items_since_last = completed_work_items - ((checkpoint_counter - 1) * min_items_per_checkpoint)
                 current_utilization = len(pending_futures) / max_workers if max_workers > 0 else 0.0
+                # Reduce checkpoint frequency to avoid blocking 16-32 parallel agents
+                # Pytest validation takes 60-200s; only checkpoint when nearly idle (<10% util)
+                checkpoint_threshold = float(os.environ.get("WOS_CHECKPOINT_UTILIZATION_THRESHOLD", "0.1"))
                 should_checkpoint = (
                     items_since_last >= min_items_per_checkpoint
                     and elapsed_since_checkpoint >= checkpoint_interval_seconds
-                    and current_utilization < 0.5  # Only checkpoint when queue is less than half full
+                    and current_utilization < checkpoint_threshold
                 )
                 if should_checkpoint:
+                    print(f"[cycle] Checkpointing ({current_utilization:.1%} util < {checkpoint_threshold:.1%} threshold)")
                     evaluation_after = run_cycle_evaluation(sources, memory_store)
 
-                    # WSOS-101: Auto-healing loop in continuous mode
-                    max_attempts = int(os.environ.get("WOS_MAX_HEALING_ATTEMPTS", 2))
+                    # WSOS-101: Auto-healing disabled in high-throughput mode by default
+                    # Healing blocks all agents; enable via WOS_ENABLE_AUTO_HEALING=true if needed
+                    enable_healing = os.environ.get("WOS_ENABLE_AUTO_HEALING", "false").lower() in ("true", "1", "yes")
+                    max_attempts = int(os.environ.get("WOS_MAX_HEALING_ATTEMPTS", 2)) if enable_healing else 0
                     attempt = 0
-                    while not evaluation_after.overall_ok() and attempt < max_attempts:
+                    while enable_healing and not evaluation_after.overall_ok() and attempt < max_attempts:
                         attempt += 1
                         failing_details = []
                         for category in ("health", "stability", "security", "quality"):
@@ -1296,6 +1309,15 @@ def run_cycle_work_window_continuous(
                             memory_store,
                         )
                         evaluation_after = run_cycle_evaluation(sources, memory_store)
+
+                    # Log if healing was skipped to maintain throughput
+                    if not enable_healing and not evaluation_after.overall_ok():
+                        failing_count = sum(
+                            1 for cat in ("health", "stability", "security", "quality")
+                            for check in getattr(evaluation_after, cat)
+                            if not check.passed
+                        )
+                        print(f"[cycle] WARNING: Checkpoint {checkpoint_counter} has {failing_count} failing checks but auto-healing is disabled for throughput")
 
                     checkpoint_label = _iteration_label(note, checkpoint_counter)
                     checkpoint_id = record_cycle_checkpoint(
