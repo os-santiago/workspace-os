@@ -33,7 +33,6 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             "--dir",
             str(workspace_root),
             "--dangerously-skip-permissions",
-            "--prompt",
             *args,
             prompt,
         ]
