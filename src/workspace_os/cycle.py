@@ -1022,10 +1022,14 @@ def run_cycle_work_window_continuous(
     queue_log_interval_seconds = 30.0  # Log queue state every 30s
 
     # Pre-fetch available issues for assignment (optimizes throughput)
-    available_issues = _fetch_available_issues(sources)
+    available_issues = _fetch_available_issues(sources, limit=200)  # Larger initial pool
     assigned_issues: set[int] = set()  # Issues that have been assigned at least once
     in_progress_issues: set[int] = set()  # Issues currently being worked on
     enable_issue_assignment = bool(os.environ.get("WOS_ENABLE_ISSUE_ASSIGNMENT", "true").lower() in ("true", "1", "yes"))
+
+    # Track last refetch time to enable proactive background refilling
+    last_refetch_at = time.perf_counter()
+    refetch_interval_seconds = 60.0  # Refetch every 60s if pool is healthy
 
     if available_issues and enable_issue_assignment:
         print(f"[cycle] Pre-fetched {len(available_issues)} available issues for direct assignment")
@@ -1041,17 +1045,19 @@ def run_cycle_work_window_continuous(
             # Assign issue to this work item if available
             assigned_issue = None
             if available_issues and enable_issue_assignment:
-                # Check for issue pool depletion even during initial seeding
+                # Proactive refetch: if pool is running low AND we're at high utilization, refetch now
                 unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
-                refetch_threshold = max(5, len(available_issues) // 10)
-                if unassigned_count < refetch_threshold:
-                    print(f"[cycle] Issue pool depleted during seeding ({unassigned_count} remaining) - refetching...")
-                    fresh_issues = _fetch_available_issues(sources, limit=100)
+                refetch_threshold = max(max_workers, len(available_issues) // 5)  # 20% threshold, min = max_workers
+                should_refetch = unassigned_count < refetch_threshold
+                if should_refetch:
+                    print(f"[cycle] Issue pool running low during seeding ({unassigned_count} unassigned) - refetching...")
+                    fresh_issues = _fetch_available_issues(sources, limit=200)
                     if fresh_issues:
                         existing_numbers = {int(issue["number"]) for issue in available_issues}
                         new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
                         available_issues.extend(new_issues)
                         print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
+                        last_refetch_at = time.perf_counter()
                 assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
 
             work_prompt = _build_cycle_work_prompt(
@@ -1108,7 +1114,7 @@ def run_cycle_work_window_continuous(
                 completed_futures = list(as_completed(pending_futures.keys(), timeout=1.0))
             except TimeoutError:
                 # No futures completed within timeout, continue waiting
-                # Use timeout period to log queue state periodically
+                # Use timeout period to log queue state periodically AND proactively refetch issues
                 elapsed_since_queue_log = time.perf_counter() - last_queue_log_at
                 if elapsed_since_queue_log >= queue_log_interval_seconds:
                     snapshot = queue_tracker.snapshot()
@@ -1119,6 +1125,40 @@ def run_cycle_work_window_continuous(
                         f"{snapshot.completed_count} done, {snapshot.failed_count} failed"
                     )
                     last_queue_log_at = time.perf_counter()
+
+                # Proactive background refetch: if pool is getting low AND queue is busy, refetch now
+                # This prevents agents from idling when they finish and pool is empty
+                if available_issues and enable_issue_assignment:
+                    elapsed_since_refetch = time.perf_counter() - last_refetch_at
+                    unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                    refetch_threshold = max(max_workers * 2, len(available_issues) // 5)  # 20% threshold
+                    high_utilization = len(pending_futures) >= max_workers * 0.7  # 70%+ busy
+                    should_refetch = (
+                        (unassigned_count < refetch_threshold and high_utilization)
+                        or elapsed_since_refetch > refetch_interval_seconds
+                    )
+                    if should_refetch:
+                        print(f"[cycle] Proactive issue refetch (unassigned={unassigned_count}, util={len(pending_futures)}/{max_workers})")
+                        fresh_issues = _fetch_available_issues(sources, limit=200)
+                        if fresh_issues:
+                            existing_numbers = {int(issue["number"]) for issue in available_issues}
+                            new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
+                            if new_issues:
+                                available_issues.extend(new_issues)
+                                print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
+                            last_refetch_at = time.perf_counter()
+
+                        # If refetch didn't solve the shortage, generate issues from backlog
+                        unassigned_after_refetch = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                        if unassigned_after_refetch < max_workers:
+                            generated_count = _generate_issues_from_backlog_inline(
+                                sources,
+                                available_issues,
+                                max_workers - unassigned_after_refetch,
+                            )
+                            if generated_count > 0:
+                                print(f"[cycle] Generated {generated_count} issues from backlog (pool now {len(available_issues)} total)")
+
                 continue
 
             for future in completed_futures:
@@ -1161,22 +1201,9 @@ def run_cycle_work_window_continuous(
 
                 # Queue next work item immediately if time permits
                 if now_fn() < deadline:
-                    # Assign next issue if available
+                    # Assign next issue if available (pool should be healthy from proactive refetch)
                     next_assigned_issue = None
                     if available_issues and enable_issue_assignment:
-                        # Calculate unassigned issue count to detect depletion
-                        unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
-                        # Refetch when pool is depleted (< 10% remaining) to keep agents busy
-                        refetch_threshold = max(5, len(available_issues) // 10)
-                        if unassigned_count < refetch_threshold:
-                            print(f"[cycle] Issue pool depleted ({unassigned_count} unassigned remaining) - refetching...")
-                            fresh_issues = _fetch_available_issues(sources, limit=100)
-                            if fresh_issues:
-                                # Merge new issues, avoiding duplicates
-                                existing_numbers = {int(issue["number"]) for issue in available_issues}
-                                new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
-                                available_issues.extend(new_issues)
-                                print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
                         next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
 
                     work_prompt = _build_cycle_work_prompt(
