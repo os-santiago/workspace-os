@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 import configparser
+import json
 import os
 
 
@@ -215,3 +216,77 @@ def filter_workspaces_by_activity(workspaces: Iterator[DiscoveredWorkspace], day
                     yield ws
             except Exception:
                 continue
+
+
+def cache_workspace_discovery(root: Path, cache_path: Path, max_depth: int = 3) -> int:
+    """
+    Discover workspaces and cache the results for faster subsequent lookups.
+
+    Args:
+        root: Root directory to scan
+        cache_path: Path to write the cache file
+        max_depth: Maximum directory depth to scan
+
+    Returns:
+        Number of workspaces discovered and cached
+    """
+    workspaces = list(discover_workspaces_in_root(root, max_depth=max_depth))
+    cache_data = {
+        "root": str(root),
+        "scanned_at": _get_now_iso(),
+        "workspaces": [ws.to_dict() for ws in workspaces],
+    }
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f, indent=2)
+
+    return len(workspaces)
+
+
+def load_workspace_cache(cache_path: Path, max_age_hours: int = 24) -> list[DiscoveredWorkspace] | None:
+    """
+    Load workspace discovery results from cache if fresh enough.
+
+    Args:
+        cache_path: Path to the cache file
+        max_age_hours: Maximum age of cache in hours (default: 24)
+
+    Returns:
+        List of discovered workspaces if cache is valid, None otherwise
+    """
+    if not cache_path.exists():
+        return None
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cache_data = json.load(f)
+
+        scanned_at = datetime.fromisoformat(cache_data["scanned_at"])
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+
+        if scanned_at < cutoff:
+            return None
+
+        return [
+            DiscoveredWorkspace(
+                name=ws["name"],
+                path=Path(ws["path"]),
+                workspace_type=ws["type"],
+                remote_url=ws.get("remote_url"),
+                branch=ws.get("branch"),
+                is_dirty=ws.get("is_dirty", False),
+                last_modified=ws.get("last_modified"),
+                metadata=ws.get("metadata"),
+            )
+            for ws in cache_data["workspaces"]
+        ]
+    except Exception:
+        return None
+
+
+def _get_now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()

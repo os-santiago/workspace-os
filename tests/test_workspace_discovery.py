@@ -2,10 +2,14 @@ import pytest
 from pathlib import Path
 import tempfile
 import shutil
+import json
+from datetime import datetime, timedelta, timezone
 
 from workspace_os.workspace_discovery import (
     discover_workspaces_in_root,
     filter_workspaces_by_type,
+    cache_workspace_discovery,
+    load_workspace_cache,
     _is_workspace_directory,
     _detect_workspace_type,
 )
@@ -114,3 +118,70 @@ def test_detect_workspace_type(temp_workspace_root):
     (py_dir / "pyproject.toml").write_text("[project]\n")
 
     assert _detect_workspace_type(py_dir) == "python"
+
+
+def test_cache_workspace_discovery(temp_workspace_root):
+    # Create test workspaces
+    (temp_workspace_root / "repo1" / ".git").mkdir(parents=True)
+    (temp_workspace_root / "repo1" / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (temp_workspace_root / "repo2").mkdir(parents=True)
+    (temp_workspace_root / "repo2" / "package.json").write_text('{"name": "test"}\n')
+
+    cache_path = temp_workspace_root / "cache.json"
+    count = cache_workspace_discovery(temp_workspace_root, cache_path, max_depth=2)
+
+    assert count == 2
+    assert cache_path.exists()
+
+    # Verify cache structure
+    with open(cache_path, "r") as f:
+        cache_data = json.load(f)
+
+    assert cache_data["root"] == str(temp_workspace_root)
+    assert "scanned_at" in cache_data
+    assert len(cache_data["workspaces"]) == 2
+
+
+def test_load_workspace_cache_fresh(temp_workspace_root):
+    # Create and cache workspaces
+    (temp_workspace_root / "repo1" / ".git").mkdir(parents=True)
+    (temp_workspace_root / "repo1" / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+
+    cache_path = temp_workspace_root / "cache.json"
+    cache_workspace_discovery(temp_workspace_root, cache_path, max_depth=1)
+
+    # Load fresh cache
+    workspaces = load_workspace_cache(cache_path, max_age_hours=24)
+
+    assert workspaces is not None
+    assert len(workspaces) == 1
+    assert workspaces[0].name == "repo1"
+    assert workspaces[0].workspace_type == "git"
+
+
+def test_load_workspace_cache_stale(temp_workspace_root):
+    # Create cache with old timestamp
+    cache_path = temp_workspace_root / "cache.json"
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+
+    cache_data = {
+        "root": str(temp_workspace_root),
+        "scanned_at": old_timestamp,
+        "workspaces": [],
+    }
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_path, "w") as f:
+        json.dump(cache_data, f)
+
+    # Load stale cache
+    workspaces = load_workspace_cache(cache_path, max_age_hours=24)
+
+    assert workspaces is None
+
+
+def test_load_workspace_cache_missing(temp_workspace_root):
+    cache_path = temp_workspace_root / "nonexistent.json"
+    workspaces = load_workspace_cache(cache_path)
+
+    assert workspaces is None
