@@ -26,10 +26,11 @@ Default WOS cycle configuration generates 1-5 PRs per hour when resolving GitHub
   - Fresh issues are preferred
   - When issue count < worker count, allows multiple agents per issue
   - Prevents idle agents when work queue is dry
-  - **Dynamic refetch**: Automatically fetches more issues when pool depletes (<10% unassigned remaining)
-    - Initial fetch: 100 issues
-    - Refetch triggers at threshold: max(5, pool_size / 10)
-    - Prevents agent starvation during long-running cycles
+  - **Dynamic refetch with auto-scaling**: Automatically fetches more issues when pool depletes
+    - Initial fetch: `max(200, max_workers * 4)` issues (128 for 32 workers)
+    - Refetch size: `max(200, max_workers * 2)` issues (64 for 32 workers)
+    - Refetch triggers at threshold: `max_workers * 3` unassigned (96 for 32 workers)
+    - Scales to prevent agent starvation in high-throughput cycles (32+ parallel agents)
 
 ### 4. Auto-Healing Overhead
 - **Default**: Up to 2 healing attempts per checkpoint failure

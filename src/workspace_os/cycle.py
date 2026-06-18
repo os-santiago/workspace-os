@@ -1022,7 +1022,9 @@ def run_cycle_work_window_continuous(
     queue_log_interval_seconds = 30.0  # Log queue state every 30s
 
     # Pre-fetch available issues for assignment (optimizes throughput)
-    available_issues = _fetch_available_issues(sources, limit=200)  # Larger initial pool
+    # Scale initial pool to support max_workers * 4 to reduce early starvation
+    initial_pool_size = max(200, max_workers * 4)
+    available_issues = _fetch_available_issues(sources, limit=initial_pool_size)
     assigned_issues: set[int] = set()  # Issues that have been assigned at least once
     in_progress_issues: set[int] = set()  # Issues currently being worked on
     enable_issue_assignment = bool(os.environ.get("WOS_ENABLE_ISSUE_ASSIGNMENT", "true").lower() in ("true", "1", "yes"))
@@ -1056,11 +1058,15 @@ def run_cycle_work_window_continuous(
                     cached_unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
                     cache_valid = True
 
-                refetch_threshold = max(max_workers, len(available_issues) // 5)  # 20% threshold, min = max_workers
+                # Maintain at least 3x max_workers unassigned to prevent starvation
+                # At 32 workers, this triggers refetch when unassigned drops below 96
+                refetch_threshold = max_workers * 3
                 should_refetch = cached_unassigned_count < refetch_threshold
                 if should_refetch:
                     print(f"[cycle] Issue pool running low during seeding ({cached_unassigned_count} unassigned) - refetching...")
-                    fresh_issues = _fetch_available_issues(sources, limit=200)
+                    # Scale refetch to 2x max_workers to maintain healthy pool
+                    refetch_size = max(200, max_workers * 2)
+                    fresh_issues = _fetch_available_issues(sources, limit=refetch_size)
                     if fresh_issues:
                         existing_numbers = {int(issue["number"]) for issue in available_issues}
                         new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
@@ -1147,7 +1153,8 @@ def run_cycle_work_window_continuous(
                         cached_unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
                         cache_valid = True
 
-                    refetch_threshold = max(max_workers * 2, len(available_issues) // 5)  # 20% threshold
+                    # Maintain at least 3x max_workers unassigned to prevent starvation
+                    refetch_threshold = max_workers * 3
                     high_utilization = len(pending_futures) >= max_workers * 0.7  # 70%+ busy
                     should_refetch = (
                         (cached_unassigned_count < refetch_threshold and high_utilization)
@@ -1155,7 +1162,9 @@ def run_cycle_work_window_continuous(
                     )
                     if should_refetch:
                         print(f"[cycle] Proactive issue refetch (unassigned={cached_unassigned_count}, util={len(pending_futures)}/{max_workers})")
-                        fresh_issues = _fetch_available_issues(sources, limit=200)
+                        # Scale refetch to 2x max_workers to maintain healthy pool
+                        refetch_size = max(200, max_workers * 2)
+                        fresh_issues = _fetch_available_issues(sources, limit=refetch_size)
                         if fresh_issues:
                             existing_numbers = {int(issue["number"]) for issue in available_issues}
                             new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
