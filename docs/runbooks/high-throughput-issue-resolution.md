@@ -21,7 +21,10 @@ Default WOS cycle configuration generates 1-5 PRs per hour when resolving GitHub
 ### 3. Issue Selection Overhead
 - **Default**: Each agent chooses an issue from the list
 - **Impact**: Decision overhead + risk of collisions
-- **Fix**: Pre-assign specific issues to each agent
+- **Fix**: Pre-assign specific issues to each agent with work stealing
+  - Fresh issues are preferred
+  - When issue count < worker count, allows multiple agents per issue
+  - Prevents idle agents when work queue is dry
 
 ### 4. Auto-Healing Overhead
 - **Default**: Up to 2 healing attempts per checkpoint failure

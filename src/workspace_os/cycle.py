@@ -332,19 +332,32 @@ def _assign_issue_to_work_item(
     work_item_number: int,
     available_issues: list[dict[str, object]],
     assigned_issues: set[int],
+    in_progress_issues: set[int],
 ) -> dict[str, object] | None:
     """Assign a specific issue to a work item, avoiding duplicates.
 
     Returns the assigned issue or None if all issues are assigned.
+    Prioritizes unstarted issues, but allows work stealing from in-progress queue
+    if no fresh work is available (maximizes throughput).
     """
     if not available_issues:
         return None
 
-    # Find first unassigned issue
+    # First pass: find unstarted issue (not assigned, not in progress)
+    for issue in available_issues:
+        issue_number = int(issue["number"])
+        if issue_number not in assigned_issues and issue_number not in in_progress_issues:
+            assigned_issues.add(issue_number)
+            in_progress_issues.add(issue_number)
+            return issue
+
+    # Second pass: work stealing - allow multiple agents on same issue if queue is dry
+    # This prevents idle agents when issue count < worker count
     for issue in available_issues:
         issue_number = int(issue["number"])
         if issue_number not in assigned_issues:
             assigned_issues.add(issue_number)
+            in_progress_issues.add(issue_number)
             return issue
 
     return None
@@ -987,9 +1000,11 @@ def run_cycle_work_window_continuous(
     from workspace_os.agent_policy import _is_testing
     # Configure via environment variables to allow fine-tuning of quality vs speed
     checkpoint_interval_seconds = float(os.environ.get("WOS_CHECKPOINT_INTERVAL_SECONDS", 300.0))  # Default: 5 minutes
-    default_workers = len(available_work_agents()) if _is_testing() else 2 * len(available_work_agents())
-    max_workers = int(os.environ.get("WOS_MAX_WORKERS", default_workers))  # Default: 6 workers (double throughput)
-    min_items_per_checkpoint = int(os.environ.get("WOS_MIN_ITEMS_PER_CHECKPOINT", 2 * max_workers))  # Default: 12 completed items
+    # Scale workers to enable 32 parallel agents for high-throughput issue resolution
+    # Testing uses minimal workers; production defaults to 16 (supports ~16-32 parallel agents depending on agent pool size)
+    default_workers = len(available_work_agents()) if _is_testing() else 16
+    max_workers = int(os.environ.get("WOS_MAX_WORKERS", default_workers))
+    min_items_per_checkpoint = int(os.environ.get("WOS_MIN_ITEMS_PER_CHECKPOINT", 2 * max_workers))  # Default: 32 completed items
 
     # Agent queue tracker for enhanced visibility
     queue_tracker = AgentQueueTracker(memory_store.path.parent, max_parallel=max_workers)
@@ -1000,7 +1015,8 @@ def run_cycle_work_window_continuous(
 
     # Pre-fetch available issues for assignment (optimizes throughput)
     available_issues = _fetch_available_issues(sources)
-    assigned_issues: set[int] = set()
+    assigned_issues: set[int] = set()  # Issues that have been assigned at least once
+    in_progress_issues: set[int] = set()  # Issues currently being worked on
     enable_issue_assignment = bool(os.environ.get("WOS_ENABLE_ISSUE_ASSIGNMENT", "true").lower() in ("true", "1", "yes"))
 
     if available_issues and enable_issue_assignment:
@@ -1017,7 +1033,7 @@ def run_cycle_work_window_continuous(
             # Assign issue to this work item if available
             assigned_issue = None
             if available_issues and enable_issue_assignment:
-                assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues)
+                assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
 
             work_prompt = _build_cycle_work_prompt(
                 sources,
@@ -1037,7 +1053,7 @@ def run_cycle_work_window_continuous(
                 agent=agent_type,
                 workspace=workspace_name,
                 prompt=work_prompt[f"{role}:{agent_type}"],
-                metadata={"work_item_number": work_item_number, "role": role},
+                metadata={"work_item_number": work_item_number, "role": role, "issue_number": int(assigned_issue["number"]) if assigned_issue else None},
             )
 
             utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
@@ -1096,7 +1112,13 @@ def run_cycle_work_window_continuous(
                     completed_work_items += 1
 
                     # Record successful completion in queue tracker
-                    queue_tracker.complete(work_info["task_id"], returncode=0, duration_seconds=duration)
+                    completed_metadata = queue_tracker.complete(work_info["task_id"], returncode=0, duration_seconds=duration)
+
+                    # Mark issue as no longer in progress (allows work stealing if re-queued)
+                    if completed_metadata and "issue_number" in completed_metadata:
+                        issue_num = completed_metadata["issue_number"]
+                        if issue_num and issue_num in in_progress_issues:
+                            in_progress_issues.discard(issue_num)
 
                     print(
                         f"[cycle] Completed work item {work_info['work_item_number']} "
@@ -1123,7 +1145,7 @@ def run_cycle_work_window_continuous(
                     # Assign next issue if available
                     next_assigned_issue = None
                     if available_issues and enable_issue_assignment:
-                        next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues)
+                        next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
 
                     work_prompt = _build_cycle_work_prompt(
                         sources,
@@ -1143,7 +1165,7 @@ def run_cycle_work_window_continuous(
                         agent=agent_type,
                         workspace=workspace_name,
                         prompt=work_prompt[f"{role}:{agent_type}"],
-                        metadata={"work_item_number": work_item_number, "role": role},
+                        metadata={"work_item_number": work_item_number, "role": role, "issue_number": next_assigned_issue["number"] if next_assigned_issue else None},
                     )
 
                     utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0

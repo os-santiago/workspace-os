@@ -398,7 +398,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_work.add_argument("--objective", help="Optional cycle objective when no cycle is active.")
     cycle_work.add_argument("--note", default="", help="Optional checkpoint note prefix.")
     cycle_work.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
-    cycle_work.add_argument("--continuous", action="store_true", help="Use continuous agent utilization mode to minimize idle time.")
+    cycle_work.add_argument("--sequential", action="store_true", help="Use sequential mode (default is continuous for better throughput).")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
@@ -1180,7 +1180,9 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
 
     if command == "work":
         try:
-            work_fn = run_cycle_work_window_continuous if args.continuous else run_cycle_work_window
+            # Default to continuous mode for better throughput (unless explicitly disabled)
+            use_continuous = not getattr(args, 'sequential', False)
+            work_fn = run_cycle_work_window_continuous if use_continuous else run_cycle_work_window
             result = work_fn(
                 store,
                 sources,

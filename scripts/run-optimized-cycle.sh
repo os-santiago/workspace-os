@@ -25,13 +25,13 @@ else
     CORES=8  # Conservative default
 fi
 
-# Calculate optimal workers
+# Calculate optimal workers (default is now 16, scale up to 32 for high-core systems)
 OPTIMAL_WORKERS=$((CORES * 2))
 if [ $OPTIMAL_WORKERS -gt 32 ]; then
     OPTIMAL_WORKERS=32
 fi
-if [ $OPTIMAL_WORKERS -lt 8 ]; then
-    OPTIMAL_WORKERS=8
+if [ $OPTIMAL_WORKERS -lt 16 ]; then
+    OPTIMAL_WORKERS=16
 fi
 
 echo "=================================================="
@@ -124,9 +124,8 @@ echo ""
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 LABEL="optimized-${DURATION_MINUTES}m-${TIMESTAMP}"
 
-# Start the cycle
+# Start the cycle (continuous mode is now default)
 python -m workspace_os cycle work \
-  --continuous \
   --duration-minutes "$DURATION_MINUTES" \
   --label "$LABEL" \
   --objective "High-throughput issue resolution for $TARGET_WORKSPACE"
