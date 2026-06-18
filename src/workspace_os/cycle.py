@@ -1203,6 +1203,7 @@ def run_cycle_work_window_continuous(
 
                 continue
 
+            # Process all completed futures first
             for future in completed_futures:
                 work_info = pending_futures.pop(future)
                 try:
@@ -1241,14 +1242,26 @@ def run_cycle_work_window_continuous(
                         f"({work_info['role']}/{work_info['agent_type']}): {e}"
                     )
 
-                # Queue next work item immediately if time permits
-                if now_fn() < deadline:
-                    # Assign next issue if available (pool should be healthy from proactive refetch)
-                    next_assigned_issue = None
-                    if available_issues and enable_issue_assignment:
-                        next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
+
+            # Batch-assign issues and queue new work items for all completed futures
+            # This reduces idle time when multiple futures complete simultaneously
+            if now_fn() < deadline and completed_futures:
+                new_work_count = min(len(completed_futures), max_workers - len(pending_futures))
+                batch_assigned_issues = []
+
+                # Pre-assign all issues for this batch to avoid one-by-one assignment overhead
+                if available_issues and enable_issue_assignment:
+                    for _ in range(new_work_count):
+                        next_assigned_issue = _assign_issue_to_work_item(work_item_number + len(batch_assigned_issues), available_issues, assigned_issues, in_progress_issues)
+                        batch_assigned_issues.append(next_assigned_issue)
                         if next_assigned_issue:
-                            cached_unassigned_count -= 1  # Decrement cache after assignment
+                            cached_unassigned_count -= 1
+                else:
+                    batch_assigned_issues = [None] * new_work_count
+
+                # Queue all new work items in parallel
+                for i in range(new_work_count):
+                    assigned_issue = batch_assigned_issues[i] if i < len(batch_assigned_issues) else None
 
                     work_prompt = _build_cycle_work_prompt(
                         sources,
@@ -1257,7 +1270,7 @@ def run_cycle_work_window_continuous(
                         objective=objective or "Improve WOS with the active plan.",
                         note=note,
                         iteration_number=work_item_number,
-                        assigned_issue=next_assigned_issue,
+                        assigned_issue=assigned_issue,
                     )
                     agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
                     next_task_id = f"cycle-work-{work_item_number}-{role}"
@@ -1268,14 +1281,9 @@ def run_cycle_work_window_continuous(
                         agent=agent_type,
                         workspace=workspace_name,
                         prompt=work_prompt[f"{role}:{agent_type}"],
-                        metadata={"work_item_number": work_item_number, "role": role, "issue_number": next_assigned_issue["number"] if next_assigned_issue else None},
+                        metadata={"work_item_number": work_item_number, "role": role, "issue_number": assigned_issue["number"] if assigned_issue else None},
                     )
 
-                    utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
-                    print(
-                        f"[cycle] Starting work item {work_item_number} ({role}/{agent_type}) | "
-                        f"queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
-                    )
                     queue_tracker.start(next_task_id)
                     new_future = pool.submit(
                         executor,
@@ -1295,8 +1303,14 @@ def run_cycle_work_window_continuous(
                     }
                     total_delegations += 1
                     work_item_number += 1
-                    # Track queue depth
                     max_queue_depth = max(max_queue_depth, len(pending_futures))
+
+                # Log batch completion with updated utilization
+                utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
+                print(
+                    f"[cycle] Queued {new_work_count} work items (batch) | "
+                    f"queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
+                )
 
                 # Adaptive checkpointing: checkpoint based on elapsed time since last checkpoint
                 # AND minimum work items completed to avoid excessive overhead
