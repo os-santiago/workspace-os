@@ -337,6 +337,28 @@ def _build_cycle_work_prompt(
 
     # Get concrete backlog work to guide agents toward product plan advancement
     backlog_work_hint = ""
+    gh_issues_hint = ""
+    try:
+        import subprocess
+        workspace_root = _workspace_root_for_sources(sources)
+        res = subprocess.run(
+            ["gh", "issue", "list", "--json", "number,title", "-L", "10"],
+            cwd=workspace_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False
+        )
+        if res.returncode == 0:
+            issues = json.loads(res.stdout)
+            if issues:
+                lines = ["Open GitHub issues to resolve (choose one to fix, create a new branch, and open a PR linking it):"]
+                for issue in issues:
+                    lines.append(f"- #{issue['number']}: {issue['title']}")
+                gh_issues_hint = "\n".join(lines)
+    except Exception:
+        pass
+
     try:
         workspace_root = _workspace_root_for_sources(sources)
         backlog_path = workspace_root / "docs" / "product" / "backlog.md"
@@ -374,7 +396,17 @@ def _build_cycle_work_prompt(
     ]
     if note and note.strip():
         base_lines.append(f"Note: {note.strip()}")
-    if backlog_work_hint:
+    if gh_issues_hint:
+        base_lines.append("")
+        base_lines.append(gh_issues_hint)
+        base_lines.append("")
+        base_lines.append("CRITICAL INSTRUCTIONS FOR ISSUES:")
+        base_lines.append("- Choose one open issue from the list above that is not currently being worked on by another agent.")
+        base_lines.append("- Check out a new dedicated branch with the issue ID in the name, e.g., git checkout -b fix/issue-123 (NEVER write code or commit directly to main).")
+        base_lines.append("- Implement the fix/feature, write tests, and run local validations.")
+        base_lines.append("- Open a Pull Request on GitHub using non-interactive gh CLI, explicitly linking the issue in the body so it closes automatically: gh pr create --title \"fix: resolve issue #<id>\" --body \"Closes #<id>\" --fill (or specify title/body manually).")
+        base_lines.append("- After creating the PR, the WOS cycle checks will validate it. Do not attempt to merge it yourself unless all checks pass.")
+    elif backlog_work_hint:
         base_lines.append("")
         base_lines.append(backlog_work_hint)
     if plan_gap_hint:
