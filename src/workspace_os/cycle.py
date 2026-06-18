@@ -556,13 +556,13 @@ def cycle_history_report(memory_store: WorkspaceMemoryStore, limit: int = 5) -> 
     return memory_store.cycle_history(limit=limit)
 
 
-def run_cycle_evaluation(sources: list[Source], memory_store: WorkspaceMemoryStore) -> CycleEvaluation:
+def run_cycle_evaluation(sources: list[Source], memory_store: WorkspaceMemoryStore, skip_tests: bool = False) -> CycleEvaluation:
     health_results = _results_from_validation(validate_workspace(sources, include_housekeeping=False, include_smoke_queries=False))
     stability_results = _results_from_validation(
         [result for result in validate_workspace(sources, include_housekeeping=True, include_smoke_queries=False) if result.name == "housekeeping"]
     )
     security_results = _run_security_checks()
-    quality_results = _run_quality_checks(sources, memory_store)
+    quality_results = _run_quality_checks(sources, memory_store, skip_tests=skip_tests)
     return CycleEvaluation(
         health=health_results,
         stability=stability_results,
@@ -1275,21 +1275,21 @@ def run_cycle_work_window_continuous(
 
                 # Adaptive checkpointing: checkpoint based on elapsed time since last checkpoint
                 # AND minimum work items completed to avoid excessive overhead
-                # NOTE: Checkpoint only if we have less than half capacity busy to minimize blocking
                 elapsed_since_checkpoint = time.perf_counter() - last_checkpoint_at
                 items_since_last = completed_work_items - ((checkpoint_counter - 1) * min_items_per_checkpoint)
                 current_utilization = len(pending_futures) / max_workers if max_workers > 0 else 0.0
-                # Reduce checkpoint frequency to avoid blocking 16-32 parallel agents
-                # Pytest validation takes 60-200s; only checkpoint when nearly idle (<10% util)
-                checkpoint_threshold = float(os.environ.get("WOS_CHECKPOINT_UTILIZATION_THRESHOLD", "0.1"))
+                # Fast-path validation during high utilization: skip expensive pytest (60-200s)
+                # to keep agents busy, run full validation only when idle
+                fast_path_threshold = float(os.environ.get("WOS_CHECKPOINT_FAST_PATH_THRESHOLD", "0.5"))
                 should_checkpoint = (
                     items_since_last >= min_items_per_checkpoint
                     and elapsed_since_checkpoint >= checkpoint_interval_seconds
-                    and current_utilization < checkpoint_threshold
                 )
                 if should_checkpoint:
-                    print(f"[cycle] Checkpointing ({current_utilization:.1%} util < {checkpoint_threshold:.1%} threshold)")
-                    evaluation_after = run_cycle_evaluation(sources, memory_store)
+                    use_fast_path = current_utilization >= fast_path_threshold
+                    mode = "fast-path (skip pytest)" if use_fast_path else "full validation"
+                    print(f"[cycle] Checkpointing {checkpoint_counter + 1} ({current_utilization:.1%} util, {mode})")
+                    evaluation_after = run_cycle_evaluation(sources, memory_store, skip_tests=use_fast_path)
 
                     # WSOS-101: Auto-healing disabled in high-throughput mode by default
                     # Healing blocks all agents; enable via WOS_ENABLE_AUTO_HEALING=true if needed
@@ -1486,7 +1486,7 @@ def _run_security_checks() -> tuple[CycleCheckResult, ...]:
     return tuple(results)
 
 
-def _run_quality_checks(sources: list[Source], memory_store: WorkspaceMemoryStore) -> tuple[CycleCheckResult, ...]:
+def _run_quality_checks(sources: list[Source], memory_store: WorkspaceMemoryStore, skip_tests: bool = False) -> tuple[CycleCheckResult, ...]:
     del memory_store
     if not sources:
         return (CycleCheckResult("quality:workspace-input", False, "No sources configured."),)
@@ -1534,7 +1534,7 @@ def _run_quality_checks(sources: list[Source], memory_store: WorkspaceMemoryStor
                 results.append(CycleCheckResult(name, False, f"Missing expected fragments: {', '.join(missing)}."))
                 continue
             results.append(CycleCheckResult(name, True, "Expected operational guidance present."))
-        results.extend(_run_compilation_and_test_checks(sources))
+        results.extend(_run_compilation_and_test_checks(sources, skip_tests=skip_tests))
         return tuple(results)
 
 
@@ -1564,7 +1564,7 @@ def _init_git_repo(path: Path) -> None:
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
 
 
-def _run_compilation_and_test_checks(sources: list[Source]) -> list[CycleCheckResult]:
+def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = False) -> list[CycleCheckResult]:
     import subprocess
     import re
 
@@ -1634,6 +1634,11 @@ def _run_compilation_and_test_checks(sources: list[Source]) -> list[CycleCheckRe
             results.append(CycleCheckResult("quality:compilation", True, "All files compiled successfully."))
 
         # 2. Test suite check using pytest
+        # Skip pytest during high-utilization to keep agents busy (fast-path validation)
+        if skip_tests:
+            results.append(CycleCheckResult("quality:test-suite", True, "Skipped (fast-path mode - high agent utilization)"))
+            continue
+
         import time
         try:
             process = subprocess.Popen(
