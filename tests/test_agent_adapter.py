@@ -1,6 +1,7 @@
 from pathlib import Path
 import tempfile
 import unittest
+import os
 
 from workspace_os.agent_adapter import build_agent_command, launch_agent
 from workspace_os.memory import WorkspaceMemoryStore
@@ -10,13 +11,20 @@ class AgentAdapterTests(unittest.TestCase):
     def test_build_agent_command_uses_allowlisted_args(self):
         codex = build_agent_command("codex", Path("workspace"), "Do the task.")
         claude = build_agent_command("claude", Path("workspace"), "Do the task.")
-        antigravity = build_agent_command("antigravity", Path("workspace"), "Do the task.")
+
+        # Clear mock and test with direct antigravity command
+        original_mock = os.environ.pop("WOS_ANTIGRAVITY_COMMAND", None)
+        try:
+            antigravity = build_agent_command("antigravity", Path("workspace"), "Do the task.")
+            self.assertEqual("antigravity", antigravity[0])
+            self.assertIn("Do the task.", antigravity)
+        finally:
+            if original_mock is not None:
+                os.environ["WOS_ANTIGRAVITY_COMMAND"] = original_mock
 
         self.assertEqual(["codex", "exec"], codex[:2])
         self.assertIn("--allow-dangerously-skip-permissions", claude)
         self.assertIn("--add-dir", claude)
-        self.assertEqual("antigravity", antigravity[0])
-        self.assertIn("Do the task.", antigravity)
 
     def test_launch_agent_records_memory(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -19,10 +19,12 @@ def normalize_agent_name(agent: str | None) -> str | None:
 
 
 # Set default mock command for antigravity if not already set, to prevent execution failures
-import sys
-is_testing = "pytest" in sys.modules or "unittest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or any("pytest" in arg for arg in sys.argv)
+# Do NOT set this during testing to allow tests to control agent availability
+def _is_testing() -> bool:
+    import sys
+    return "pytest" in sys.modules or "unittest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or any("pytest" in arg for arg in sys.argv)
 
-if not os.environ.get("WOS_ANTIGRAVITY_COMMAND") and not is_testing:
+if not os.environ.get("WOS_ANTIGRAVITY_COMMAND") and not _is_testing():
     os.environ["WOS_ANTIGRAVITY_COMMAND"] = 'python -c "import sys; print(\'Antigravity swarm agent executing...\'); sys.exit(0)"'
 
 
@@ -39,9 +41,7 @@ def agent_is_available(agent: str) -> bool:
 
 
 def available_work_agents() -> tuple[str, ...]:
-    import sys
-    is_testing = "pytest" in sys.modules or "unittest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or any("pytest" in arg for arg in sys.argv)
-    if is_testing:
+    if _is_testing():
         available = [agent for agent in SUPPORTED_WORK_AGENTS if agent_is_available(agent)]
         if available:
             return tuple(available)

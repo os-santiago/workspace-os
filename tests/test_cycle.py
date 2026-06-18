@@ -137,15 +137,16 @@ class CycleTests(unittest.TestCase):
                     current[0] = current[0] + timedelta(seconds=30)
                 return SimpleNamespace(returncode=0, duration_seconds=30.0)
 
-            result = run_cycle_work_window(
-                store,
-                [Source("workspace-os", "product", "Workspace OS.", source_root)],
-                duration_minutes=1,
-                label="cycle-1",
-                objective="busy long run implementation",
-                now_fn=now_fn,
-                agent_runner=agent_runner,
-            )
+            with patch("workspace_os.cycle.available_work_agents", return_value=("opencode", "claude")):
+                result = run_cycle_work_window(
+                    store,
+                    [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                    duration_minutes=1,
+                    label="cycle-1",
+                    objective="busy long run implementation",
+                    now_fn=now_fn,
+                    agent_runner=agent_runner,
+                )
 
         self.assertTrue(result.started_cycle)
         self.assertEqual(1, result.iterations_completed)
@@ -424,15 +425,16 @@ class CycleTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0, duration_seconds=10.0)
 
             with patch("workspace_os.cycle.run_cycle_evaluation", side_effect=mock_eval):
-                result = run_cycle_work_window(
-                    store,
-                    [Source("workspace-os", "product", "Workspace OS.", source_root)],
-                    duration_minutes=1,
-                    label="cycle-healing",
-                    objective="test auto healing loop",
-                    now_fn=now_fn,
-                    agent_runner=agent_runner,
-                )
+                with patch("workspace_os.cycle.available_work_agents", return_value=("opencode", "claude")):
+                    result = run_cycle_work_window(
+                        store,
+                        [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                        duration_minutes=1,
+                        label="cycle-healing",
+                        objective="test auto healing loop",
+                        now_fn=now_fn,
+                        agent_runner=agent_runner,
+                    )
 
             self.assertEqual(3, len(executor_called)) # 2 initial (primary, secondary) + 1 healing
             self.assertIn("DEFECT CORRECTION BRIEF", executor_called[-1][1])
