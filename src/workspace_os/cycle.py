@@ -1031,6 +1031,11 @@ def run_cycle_work_window_continuous(
     last_refetch_at = time.perf_counter()
     refetch_interval_seconds = 60.0  # Refetch every 60s if pool is healthy
 
+    # Cache unassigned count to avoid expensive list scans on every check
+    # Invalidate cache when issues are assigned or pool is refetched
+    cached_unassigned_count = len(available_issues)  # Initial count (all unassigned)
+    cache_valid = True
+
     if available_issues and enable_issue_assignment:
         print(f"[cycle] Pre-fetched {len(available_issues)} available issues for direct assignment")
     else:
@@ -1046,11 +1051,15 @@ def run_cycle_work_window_continuous(
             assigned_issue = None
             if available_issues and enable_issue_assignment:
                 # Proactive refetch: if pool is running low AND we're at high utilization, refetch now
-                unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                # Use cached count if valid, otherwise recompute
+                if not cache_valid:
+                    cached_unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                    cache_valid = True
+
                 refetch_threshold = max(max_workers, len(available_issues) // 5)  # 20% threshold, min = max_workers
-                should_refetch = unassigned_count < refetch_threshold
+                should_refetch = cached_unassigned_count < refetch_threshold
                 if should_refetch:
-                    print(f"[cycle] Issue pool running low during seeding ({unassigned_count} unassigned) - refetching...")
+                    print(f"[cycle] Issue pool running low during seeding ({cached_unassigned_count} unassigned) - refetching...")
                     fresh_issues = _fetch_available_issues(sources, limit=200)
                     if fresh_issues:
                         existing_numbers = {int(issue["number"]) for issue in available_issues}
@@ -1058,7 +1067,10 @@ def run_cycle_work_window_continuous(
                         available_issues.extend(new_issues)
                         print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
                         last_refetch_at = time.perf_counter()
+                        cached_unassigned_count += len(new_issues)  # Update cache
                 assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
+                if assigned_issue:
+                    cached_unassigned_count -= 1  # Decrement cache after assignment
 
             work_prompt = _build_cycle_work_prompt(
                 sources,
