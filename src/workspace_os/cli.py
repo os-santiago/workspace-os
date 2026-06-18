@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "promote":
         return _promote(sources, args.target, args.rule, args.evidence, args.max_matches)
     if args.command == "chat":
-        return _chat(sources, memory_path, args.message, args.session_id, args.interactive, args.verbose)
+        return _chat(sources, memory_path, args.message, args.session_id, args.interactive, args.verbose, config_path=args.config)
     if args.command == "inspect":
         return _inspect(sources, memory_path, args.launch_limit, args.compact)
     if args.command == "analysis":
@@ -578,12 +578,23 @@ def _chat(
     session_id: str,
     interactive: bool,
     verbose: bool,
+    config_path: Path | None = None,
 ) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
     profile = load_profile(store)
 
     if message and not interactive:
+        from workspace_os.conversation import route_natural_language_intent
+        cmd = route_natural_language_intent(message)
+        if cmd:
+            print(f"[WOS] Auto-executing matched command: {cmd}")
+            import shlex
+            argv = shlex.split(cmd)
+            if config_path:
+                argv = ["--config", str(config_path)] + argv
+            return main(argv)
+
         reply = build_workspace_reply(
             sources,
             message,
@@ -606,6 +617,19 @@ def _chat(
             continue
         if prompt.casefold() in {"exit", "quit"}:
             break
+
+        from workspace_os.conversation import route_natural_language_intent
+        cmd = route_natural_language_intent(prompt)
+        if cmd:
+            print(f"[WOS] Auto-executing matched command: {cmd}")
+            import shlex
+            argv = shlex.split(cmd)
+            if config_path:
+                argv = ["--config", str(config_path)] + argv
+            main(argv)
+            print("")
+            continue
+
         reply = build_workspace_reply(
             sources,
             prompt,

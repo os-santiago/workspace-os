@@ -249,6 +249,44 @@ class CycleTests(unittest.TestCase):
         self.assertGreater(result.delegation_count or 0, 4)
         self.assertGreater(len(completed_items), 2)
 
+    def test_cycle_work_continuous_parallelizes_three_agents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            current = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+            import threading
+            lock = threading.Lock()
+            completed_items = []
+
+            def now_fn() -> datetime:
+                return current[0]
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                del agent, workspace_name, workspace_root, memory_store, prompt
+                with lock:
+                    current[0] = current[0] + timedelta(seconds=10)
+                    completed_items.append(task)
+                return SimpleNamespace(returncode=0, duration_seconds=10.0)
+
+            with patch("workspace_os.cycle.available_work_agents", return_value=("opencode", "claude", "antigravity")):
+                result = run_cycle_work_window_continuous(
+                    store,
+                    [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                    duration_minutes=1,
+                    label="cycle-continuous-three",
+                    objective="test three parallel agents",
+                    now_fn=now_fn,
+                    agent_runner=agent_runner,
+                )
+
+        self.assertTrue(result.started_cycle)
+        self.assertEqual(3, result.max_queue_depth)
+        self.assertGreater(len(completed_items), 2)
+
     def test_cycle_work_continuous_stop_on_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -316,6 +354,108 @@ class CycleTests(unittest.TestCase):
 
             self.assertIn("Previous iteration summary:", primary_prompt)
             self.assertIn("stayed alive", primary_prompt)
+
+    def test_compilation_and_test_checks_parses_failures(self):
+        from workspace_os.cycle import _parse_pytest_failures
+        output = """
+        tests/test_something.py:42: in test_something
+            assert False
+        E   assert False
+        """
+        failures = _parse_pytest_failures(output)
+        self.assertEqual(1, len(failures))
+        self.assertEqual("tests/test_something.py", failures[0]["file"])
+        self.assertEqual(42, failures[0]["line"])
+        self.assertEqual("test_something", failures[0]["function"])
+
+    def test_compilation_and_test_checks_uses_mock_output(self):
+        import os
+        from workspace_os.cycle import _run_compilation_and_test_checks
+        os.environ["WOS_TEST_SUITE_MOCK_OUTPUT"] = "tests/test_foo.py:10: in test_foo\nassert False"
+        os.environ["WOS_TEST_SUITE_MOCK_RETURNCODE"] = "1"
+        try:
+            results = _run_compilation_and_test_checks([])
+            self.assertEqual(1, len(results))
+            self.assertFalse(results[0].passed)
+            self.assertIn("Assertion failures found:", results[0].detail)
+            self.assertIn("File: tests/test_foo.py, Line: 10", results[0].detail)
+        finally:
+            del os.environ["WOS_TEST_SUITE_MOCK_OUTPUT"]
+            del os.environ["WOS_TEST_SUITE_MOCK_RETURNCODE"]
+
+    def test_cycle_work_auto_healing_retries_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+
+            from workspace_os.cycle import CycleCheckResult, CycleEvaluation
+
+            call_count = [0]
+            current_time = [datetime(2026, 6, 14, 10, 0, tzinfo=timezone.utc)]
+
+            def now_fn() -> datetime:
+                return current_time[0]
+
+            def mock_eval(*args, **kwargs):
+                call_count[0] += 1
+                if call_count[0] == 2:
+                    return CycleEvaluation(
+                        health=(CycleCheckResult("health:test", True, "ok"),),
+                        stability=(),
+                        security=(),
+                        quality=(CycleCheckResult("quality:test-suite", False, "Assertion error at tests/test_foo.py:10"),)
+                    )
+                return CycleEvaluation(
+                    health=(CycleCheckResult("health:test", True, "ok"),),
+                    stability=(),
+                    security=(),
+                    quality=(CycleCheckResult("quality:test-suite", True, "Healed"),)
+                )
+
+            executor_called = []
+
+            def agent_runner(agent, workspace_name, task, prompt, workspace_root, memory_store):
+                executor_called.append((agent, prompt))
+                current_time[0] = current_time[0] + timedelta(minutes=2)
+                return SimpleNamespace(returncode=0, duration_seconds=10.0)
+
+            with patch("workspace_os.cycle.run_cycle_evaluation", side_effect=mock_eval):
+                result = run_cycle_work_window(
+                    store,
+                    [Source("workspace-os", "product", "Workspace OS.", source_root)],
+                    duration_minutes=1,
+                    label="cycle-healing",
+                    objective="test auto healing loop",
+                    now_fn=now_fn,
+                    agent_runner=agent_runner,
+                )
+
+            self.assertEqual(3, len(executor_called)) # 2 initial (primary, secondary) + 1 healing
+            self.assertIn("DEFECT CORRECTION BRIEF", executor_called[-1][1])
+            self.assertIn("Assertion error at tests/test_foo.py:10", executor_called[-1][1])
+            self.assertTrue(result.report.latest_checkpoint["quality_ok"])
+
+    def test_get_dynamic_interval_with_dirty_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            import subprocess
+            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+            (root / "dirty-file.txt").write_text("edit", encoding="utf-8")
+            source = Source("example", "product", "Example.", root)
+
+            from workspace_os.cycle import _get_dynamic_interval
+            import os
+            os.environ["WOS_TEST_DYNAMIC_INTERVAL"] = "1"
+            try:
+                interval = _get_dynamic_interval([source], 120.0)
+            finally:
+                del os.environ["WOS_TEST_DYNAMIC_INTERVAL"]
+
+            self.assertEqual(60.0, interval) # 120.0 * 0.5 = 60.0
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

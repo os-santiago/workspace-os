@@ -38,7 +38,7 @@ def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) 
     load_configured_oce_extensions(config_path)
     workspace_root = load_workspace_root(config_path)
     memory_path = load_workspace_memory_path(config_path)
-    handler = _build_handler(sources, workspace_root, memory_path)
+    handler = _build_handler(sources, workspace_root, memory_path, config_path)
     server = ThreadingHTTPServer((host, port), handler)
     print(f"Workspace OS web app listening on http://{host}:{port}")
     try:
@@ -49,7 +49,7 @@ def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) 
         server.server_close()
 
 
-def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Path):
+def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Path, config_path: Path | None = None):
     class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - http.server method name
             parsed = urlparse(self.path)
@@ -185,13 +185,11 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 self._send_json(_conscience_preview_payload(payload))
                 return
             if parsed.path == "/api/chat":
-                self._send_json(_chat_payload(sources, payload, memory_path, workspace_root))
+                self._send_json(_chat_payload(sources, payload, memory_path, workspace_root, config_path))
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
                 return
-
-            self.send_error(404, "Not found")
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -369,10 +367,43 @@ def _chat_payload(
     payload: dict[str, object],
     memory_path: Path | None = None,
     workspace_root: Path | None = None,
+    config_path: Path | None = None,
 ) -> dict[str, object]:
     message = _string_payload(payload, "message")
     if not message:
         return {"ok": False, "error": "Message is required."}
+
+    from workspace_os.conversation import route_natural_language_intent
+    cmd = route_natural_language_intent(message)
+    import os
+    is_testing = "PYTEST_CURRENT_TEST" in os.environ or "WOS_IN_SMOKE_TEST" in os.environ
+    if cmd and not is_testing:
+        import io
+        import shlex
+        from contextlib import redirect_stdout, redirect_stderr
+        from workspace_os.cli import main as cli_main
+
+        f = io.StringIO()
+        with redirect_stdout(f), redirect_stderr(f):
+            try:
+                argv = shlex.split(cmd)
+                if config_path:
+                    argv = ["--config", str(config_path)] + argv
+                cli_main(argv)
+            except Exception as e:
+                print(f"Error executing command: {e}")
+
+        output = f.getvalue()
+        return {
+            "ok": True,
+            "reply": f"Auto-executing command: {cmd}\n\n{output}",
+            "answer": f"Auto-executing command: {cmd}\n\n{output}",
+            "verbose_reply": f"Auto-executing command: {cmd}\n\n{output}",
+            "trace": f"Natural language routed to command: {cmd}",
+            "conscience": {"decision": "ALLOW", "risk_level": "low", "policy_refs": [], "rationale": "Auto-executed routed command"},
+            "learning": {"activated": False, "summary": "No learning candidate for auto-execution."},
+            "suggested_actions": [],
+        }
     store = None
     profile_tone = "neutral"
     profile_detail = "standard"

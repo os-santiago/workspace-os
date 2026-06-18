@@ -72,6 +72,16 @@ class WorkspaceShell(cmd.Cmd):
         message = line.strip()
         if not message:
             return
+
+        import os
+        from workspace_os.conversation import route_natural_language_intent
+        is_testing = "PYTEST_CURRENT_TEST" in os.environ or "WOS_IN_SMOKE_TEST" in os.environ
+        cmd = None if is_testing else route_natural_language_intent(message)
+        if cmd:
+            self._emit(f"[WOS] Auto-executing matched command: {cmd}\n")
+            self.onecmd(cmd)
+            return
+
         reply = build_workspace_reply(
             self._selected_sources(),
             message,

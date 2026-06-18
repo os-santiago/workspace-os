@@ -195,6 +195,60 @@ class JournalTests(unittest.TestCase):
             self.assertIn("Plan gaps:", rendered)
             self.assertGreater(len(journal.functional_metrics.plan_gaps), 0)
 
+    def test_detect_plan_gaps_with_backlog_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+
+            # Create docs/product/backlog.md structure
+            backlog_dir = source_root / "docs" / "product"
+            backlog_dir.mkdir(parents=True)
+            backlog_file = backlog_dir / "backlog.md"
+            backlog_file.write_text(
+                """
+# Product Backlog
+
+## Done
+
+### WSOS-001: Finished Task
+Acceptance criteria:
+- Verified finished
+
+## Next
+
+### WSOS-998: Task Next
+Acceptance criteria:
+- Verified next
+
+## Later
+
+### WSOS-999: Task Later
+Acceptance criteria:
+- Verified later
+""".strip() + "\n",
+                encoding="utf-8"
+            )
+
+            # Record a commit containing the ID of the next task
+            self._git_commit(source_root, "Implement WSOS-998 plan item improvements")
+
+            sources = [Source("workspace-os", "product", "Workspace OS.", source_root)]
+
+            # Detect coverage and gaps since the commit was made
+            # We use timestamps or just the last commit since window
+            since = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+            until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+            coverage = detect_plan_coverage_from_commits(sources, since, until)
+            gaps = detect_plan_gaps(sources, since, until)
+
+            self.assertIn("WSOS-998: Task Next", coverage)
+            self.assertNotIn("WSOS-998: Task Next", gaps)
+            self.assertIn("WSOS-999: Task Later", gaps)
+            self.assertNotIn("WSOS-999: Task Later", coverage)
+
     def _init_git_repo(self, path: Path) -> None:
         import subprocess
 

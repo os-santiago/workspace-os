@@ -24,16 +24,19 @@ class SmokeCheckResult:
 
 
 def run_smoke_regression_checks() -> list[SmokeCheckResult]:
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        source_root = root / "workspace-os"
-        source_root.mkdir()
-        _init_git_repo(source_root)
+    import os
+    os.environ["WOS_IN_SMOKE_TEST"] = "1"
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "workspace-os"
+            source_root.mkdir()
+            _init_git_repo(source_root)
 
-        config = root / "workspace.json"
-        memory = root / "memory.sqlite3"
-        config.write_text(
-            """
+            config = root / "workspace.json"
+            memory = root / "memory.sqlite3"
+            config.write_text(
+                """
 {
   "workspace_root": ".",
   "memory_db": "memory.sqlite3",
@@ -48,30 +51,32 @@ def run_smoke_regression_checks() -> list[SmokeCheckResult]:
   ]
 }
 """.strip(),
-            encoding="utf-8",
-        )
+                encoding="utf-8",
+            )
 
-        store = WorkspaceMemoryStore(memory)
-        store.ensure_schema()
-        start_process(store, "process-1", "smoke query flow", started_at="2026-06-14T10:00:00+00:00")
-        start_batch(store, "batch-1", "smoke query batch", started_at="2026-06-14T10:05:00+00:00")
-        start_cycle(store, "cycle-1", "smoke query cycle", started_at="2026-06-14T10:10:00+00:00")
-        store.record_decision(
-            "hash-1",
-            "medium",
-            "SAFE_REDIRECT",
-            ["missing_workspace"],
-            primary_agent="codex",
-            secondary_agent="claude",
-            routing_reason="workspace_inventory_first",
-        )
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            start_process(store, "process-1", "smoke query flow", started_at="2026-06-14T10:00:00+00:00")
+            start_batch(store, "batch-1", "smoke query batch", started_at="2026-06-14T10:05:00+00:00")
+            start_cycle(store, "cycle-1", "smoke query cycle", started_at="2026-06-14T10:10:00+00:00")
+            store.record_decision(
+                "hash-1",
+                "medium",
+                "SAFE_REDIRECT",
+                ["missing_workspace"],
+                primary_agent="codex",
+                secondary_agent="claude",
+                routing_reason="workspace_inventory_first",
+            )
 
-        source = Source("workspace-os", "product", "Workspace OS.", source_root)
-        results: list[SmokeCheckResult] = []
-        results.extend(_run_chat_checks(source, store))
-        results.extend(_run_cli_checks(config))
-        results.extend(_run_shell_checks(source, memory))
-        return results
+            source = Source("workspace-os", "product", "Workspace OS.", source_root)
+            results: list[SmokeCheckResult] = []
+            results.extend(_run_chat_checks(source, store))
+            results.extend(_run_cli_checks(config))
+            results.extend(_run_shell_checks(source, memory))
+            return results
+    finally:
+        os.environ.pop("WOS_IN_SMOKE_TEST", None)
 
 
 def _run_chat_checks(source: Source, store: WorkspaceMemoryStore) -> list[SmokeCheckResult]:

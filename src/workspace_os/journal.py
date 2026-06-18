@@ -579,41 +579,102 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _find_backlog_path(sources: Iterable[Source]) -> Path | None:
+    for source in sources:
+        if source.path.exists():
+            candidate = source.path / "docs" / "product" / "backlog.md"
+            if candidate.exists() and candidate.is_file():
+                return candidate
+            candidate_direct = source.path / "backlog.md"
+            if candidate_direct.exists() and candidate_direct.is_file():
+                return candidate_direct
+    return None
+
+
+def _extract_title_keywords(title: str) -> list[str]:
+    # Extract lowercase alphanumeric words of length >= 4
+    words = re.findall(r"\b[a-z]{4,}\b", title.lower())
+    stop_words = {"with", "that", "this", "from", "into", "their", "will", "have", "more", "user", "agent", "system", "your", "only"}
+    return [word for word in words if word not in stop_words]
+
+
 def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, until: str) -> tuple[str, ...]:
     """Detect which product plan items might have been addressed based on commits.
 
     Analyzes both commit messages and file changes to detect coverage of product plan
     competencies and gaps. Returns hints about potentially addressed plan items.
     """
-    plan_keywords = {
-        "workspace discovery": ["workspace", "repo", "resolution", "discovery"],
-        "agent orchestration": ["agent", "routing", "delegation", "orchestration"],
-        "context compaction": ["context", "memory", "compaction", "snapshot"],
-        "parallel execution": ["parallel", "concurrent", "cross-check"],
-        "learning": ["learning", "feedback", "mastery", "preference"],
-        "cycle orchestration": ["cycle", "checkpoint", "long-run", "iteration"],
-        "traceability": ["trace", "handoff", "recovery", "journal"],
-    }
+    backlog_path = _find_backlog_path(sources)
+    active_backlog_items = []
+    if backlog_path is not None:
+        try:
+            from workspace_os.plan_gap import extract_backlog_items
+            all_items = extract_backlog_items(backlog_path)
+            active_backlog_items = [item for item in all_items if item.status != "done"]
+        except Exception:
+            pass
 
-    # Structural indicators: file patterns that signal specific plan areas
-    file_patterns = {
-        "workspace discovery": ["config.py", "git_status.py", "resolution"],
-        "agent orchestration": ["agent_adapter.py", "delegation.py", "routing"],
-        "context compaction": ["context_pack.py", "memory.py", "snapshot"],
-        "parallel execution": ["batch.py", "concurrent", "pool"],
-        "learning": ["habits.py", "feedback.py", "preference"],
-        "cycle orchestration": ["cycle.py", "checkpoint"],
-        "traceability": ["journal.py", "handoff", "trace"],
-    }
+    if not active_backlog_items:
+        # Fallback to static plan keywords if backlog file not found or empty
+        plan_keywords = {
+            "workspace discovery": ["workspace", "repo", "resolution", "discovery"],
+            "agent orchestration": ["agent", "routing", "delegation", "orchestration"],
+            "context compaction": ["context", "memory", "compaction", "snapshot"],
+            "parallel execution": ["parallel", "concurrent", "cross-check"],
+            "learning": ["learning", "feedback", "mastery", "preference"],
+            "cycle orchestration": ["cycle", "checkpoint", "long-run", "iteration"],
+            "traceability": ["trace", "handoff", "recovery", "journal"],
+        }
+        file_patterns = {
+            "workspace discovery": ["config.py", "git_status.py", "resolution"],
+            "agent orchestration": ["agent_adapter.py", "delegation.py", "routing"],
+            "context compaction": ["context_pack.py", "memory.py", "snapshot"],
+            "parallel execution": ["batch.py", "concurrent", "pool"],
+            "learning": ["habits.py", "feedback.py", "preference"],
+            "cycle orchestration": ["cycle.py", "checkpoint"],
+            "traceability": ["journal.py", "handoff", "trace"],
+        }
 
+        coverage_hints = set()
+        for source in sources:
+            if not source.path.exists():
+                continue
+            try:
+                result = subprocess.run(
+                    ["git", "log", "--all", f"--since={since}", f"--until={until}", "--pretty=format:%s"],
+                    cwd=source.path,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                )
+                if result.returncode == 0:
+                    commits = result.stdout.lower()
+                    for plan_item, keywords in plan_keywords.items():
+                        if any(kw in commits for kw in keywords):
+                            coverage_hints.add(plan_item)
+
+                file_result = subprocess.run(
+                    ["git", "log", "--all", f"--since={since}", f"--until={until}", "--name-only", "--pretty=format:"],
+                    cwd=source.path,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                )
+                if file_result.returncode == 0:
+                    changed_files = file_result.stdout.lower()
+                    for plan_item, patterns in file_patterns.items():
+                        if any(pattern in changed_files for pattern in patterns):
+                            coverage_hints.add(plan_item)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+        return tuple(sorted(coverage_hints))
+
+    # Dynamic backlog-based coverage detection
     coverage_hints = set()
     for source in sources:
-        # Skip if path doesn't exist or isn't a git repo
         if not source.path.exists():
             continue
         try:
-            # Use git log with --all to catch recent commits regardless of branch timing
-            # Then filter by timestamp in the output
             result = subprocess.run(
                 ["git", "log", "--all", f"--since={since}", f"--until={until}", "--pretty=format:%s"],
                 cwd=source.path,
@@ -621,13 +682,8 @@ def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, unt
                 text=True,
                 timeout=5.0,
             )
-            if result.returncode == 0:
-                commits = result.stdout.lower()
-                for plan_item, keywords in plan_keywords.items():
-                    if any(kw in commits for kw in keywords):
-                        coverage_hints.add(plan_item)
+            commits = result.stdout.lower() if result.returncode == 0 else ""
 
-            # Check changed files for structural indicators
             file_result = subprocess.run(
                 ["git", "log", "--all", f"--since={since}", f"--until={until}", "--name-only", "--pretty=format:"],
                 cwd=source.path,
@@ -635,11 +691,18 @@ def detect_plan_coverage_from_commits(sources: Iterable[Source], since: str, unt
                 text=True,
                 timeout=5.0,
             )
-            if file_result.returncode == 0:
-                changed_files = file_result.stdout.lower()
-                for plan_item, patterns in file_patterns.items():
-                    if any(pattern in changed_files for pattern in patterns):
-                        coverage_hints.add(plan_item)
+            changed_files = file_result.stdout.lower() if file_result.returncode == 0 else ""
+
+            for item in active_backlog_items:
+                item_label = f"{item.item_id}: {item.title}"
+                # Check for direct ID mention
+                if item.item_id.lower() in commits:
+                    coverage_hints.add(item_label)
+                    continue
+                # Check for title keywords
+                keywords = _extract_title_keywords(item.title)
+                if keywords and any(kw in commits or kw in changed_files for kw in keywords):
+                    coverage_hints.add(item_label)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
@@ -651,17 +714,34 @@ def detect_plan_gaps(sources: Iterable[Source], since: str, until: str) -> tuple
 
     Returns a list of plan competencies and gaps that were not addressed by any commits.
     """
-    all_plan_items = {
-        "workspace discovery",
-        "agent orchestration",
-        "context compaction",
-        "parallel execution",
-        "learning",
-        "cycle orchestration",
-        "traceability",
-    }
+    backlog_path = _find_backlog_path(sources)
+    active_backlog_items = []
+    if backlog_path is not None:
+        try:
+            from workspace_os.plan_gap import extract_backlog_items
+            all_items = extract_backlog_items(backlog_path)
+            active_backlog_items = [item for item in all_items if item.status != "done"]
+        except Exception:
+            pass
+
+    if not active_backlog_items:
+        # Fallback to static plan items
+        all_plan_items = {
+            "workspace discovery",
+            "agent orchestration",
+            "context compaction",
+            "parallel execution",
+            "learning",
+            "cycle orchestration",
+            "traceability",
+        }
+        covered = set(detect_plan_coverage_from_commits(sources, since, until))
+        gaps = all_plan_items - covered
+        return tuple(sorted(gaps))
+
+    all_plan_labels = {f"{item.item_id}: {item.title}" for item in active_backlog_items}
     covered = set(detect_plan_coverage_from_commits(sources, since, until))
-    gaps = all_plan_items - covered
+    gaps = all_plan_labels - covered
     return tuple(sorted(gaps))
 
 

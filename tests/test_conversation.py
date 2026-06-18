@@ -4,7 +4,7 @@ import unittest
 
 from workspace_os.batch import start_batch, start_process
 from workspace_os.config import Source
-from workspace_os.conversation import build_workspace_reply
+from workspace_os.conversation import build_workspace_reply, route_natural_language_intent
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -446,6 +446,25 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual("opencode", reply.suggested_actions[1]["agent"])
         self.assertIn("Primary route: /claude", reply.reply)
         self.assertIn("Optional cross-check: /opencode", reply.reply)
+
+    def test_route_natural_language_intent(self):
+        self.assertEqual(route_natural_language_intent("iniciar ciclo"), "cycle run --iterations 1")
+        self.assertEqual(route_natural_language_intent("Stop the cycle now"), "cycle stop")
+        self.assertEqual(route_natural_language_intent("Siguiente ciclo por favor"), "cycle next")
+        self.assertEqual(route_natural_language_intent("Estado de ciclo"), "cycle status")
+        self.assertEqual(route_natural_language_intent("validar todo"), "validate")
+        self.assertEqual(route_natural_language_intent("siguiente accion"), "next")
+        self.assertEqual(route_natural_language_intent("qué proyectos tenemos activos?"), "status")
+        self.assertEqual(route_natural_language_intent("analizar el workspace"), "analysis")
+        self.assertEqual(route_natural_language_intent("estado de la conciencia"), "conscience status")
+        self.assertEqual(route_natural_language_intent("ver habitos"), "habits")
+        self.assertEqual(route_natural_language_intent("recuerda esta leccion"), "memory status")
+        self.assertEqual(route_natural_language_intent("promover cambios"), "promote")
+        self.assertEqual(route_natural_language_intent("entregar el reporte"), "handoff")
+        self.assertEqual(route_natural_language_intent("capturar pantalla"), "capture")
+        self.assertEqual(route_natural_language_intent("lote de ejecucion"), "batch status")
+        self.assertEqual(route_natural_language_intent("proceso de desarrollo"), "process status")
+        self.assertIsNone(route_natural_language_intent("esto no es un comando"))
 
 
 if __name__ == "__main__":

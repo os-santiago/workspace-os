@@ -12,6 +12,8 @@ from workspace_os.conscience import (
     analyze_request_context,
     evaluate_request,
     render_decision_for_prompt,
+    clear_connectors,
+    register_connector,
 )
 from workspace_os.oce_extensions import (
     OceExtension,
@@ -26,9 +28,11 @@ from workspace_os.oce_extensions_report import build_oce_extensions_report, rend
 class ConscienceTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_oce_extensions()
+        clear_connectors()
 
     def tearDown(self) -> None:
         clear_oce_extensions()
+        clear_connectors()
 
     def test_allows_low_risk_software_work(self):
         decision = evaluate_request("Add a unit test for the search command.")
@@ -191,6 +195,10 @@ register_oce_extension(
         self.assertTrue(loaded)
         self.assertIn("sample-path-layer", rendered := render_oce_extensions_report_text(report))
         self.assertIn("workspace.policy.extension.sample-path", rendered)
+    def test_allows_google_destination_when_connector_registered(self):
+        register_connector("google_drive", {"client_id": "test_id"})
+        decision = evaluate_request("Add a unit test for the search command.", destination="documents")
+        self.assertEqual(ALLOW_WITH_LIMITS, decision.decision)
 
 
 if __name__ == "__main__":

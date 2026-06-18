@@ -24,8 +24,11 @@ class MemoryHit:
 
 
 class WorkspaceMemoryStore:
+    _active_path: Path | None = None
+
     def __init__(self, path: Path):
         self.path = path
+        WorkspaceMemoryStore._active_path = path
 
     def ensure_schema(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

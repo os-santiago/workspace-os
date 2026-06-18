@@ -797,3 +797,70 @@ def _next_step(process, batch) -> str:
     if batch is not None:
         return "start or close the process window around the active batch work"
     return "start a new process window before the next batch"
+
+
+def route_natural_language_intent(text: str) -> str | None:
+    t = text.casefold().strip(" ?!.,¿¡")
+    words = set(t.split())
+
+    # 1. Cycle-related actions (need cycle/ciclo + keyword)
+    has_cycle = "cycle" in t or "ciclo" in t
+    if has_cycle:
+        if any(k in t for k in ("iniciar", "comenzar", "start", "run")):
+            return "cycle run --iterations 1"
+        if any(k in t for k in ("detener", "cancelar", "stop")):
+            return "cycle stop"
+        if any(k in t for k in ("siguiente", "proximo", "next")):
+            return "cycle next"
+        if any(k in t for k in ("estado", "status", "reporte", "report")):
+            return "cycle status"
+
+    # 2. Conscience / OCE
+    if any(k in t for k in ("conciencia", "conscience", "decision", "seguridad", "policy", "politica")) or "oce" in words:
+        return "conscience status"
+
+    # 3. Habits
+    if any(k in t for k in ("habitos", "habito", "habit", "habits", "comportamiento")):
+        return "habits"
+
+    # 4. Memory
+    if any(k in t for k in ("memoria", "memory", "recuerda", "recordar", "remember")):
+        return "memory status"
+
+    # 5. Capture
+    if any(k in t for k in ("capturar", "capture", "preview capture")):
+        return "capture"
+
+    # 6. Batch status
+    if any(k in t for k in ("lote", "batch")):
+        return "batch status"
+
+    # 7. Process status
+    if any(k in t for k in ("proceso", "process")):
+        return "process status"
+
+    # 8. Handoff
+    if any(k in t for k in ("handoff", "entregar", "transferir", "resumen de entrega")):
+        return "handoff"
+
+    # 9. Promotion / Promote
+    if any(k in t for k in ("promover", "promote", "promocion", "subir")):
+        return "promote"
+
+    # 10. Validation
+    if any(k in t for k in ("valida", "validate", "validar", "verify", "verificar", "chequear", "check")):
+        return "validate"
+
+    # 11. Workspace Status (generic)
+    if any(k in t for k in ("que proyectos", "proyectos en curso", "projects in flight", "current projects", "working on", "work in progress", "en curso", "estado", "status", "qué proyectos")) or "wip" in words:
+        return "status"
+
+    # 12. Next action (generic)
+    if any(k in t for k in ("siguiente", "next", "continuar", "continue", "resume", "retomar", "keep going", "proximo paso")):
+        return "next"
+
+    # 13. Analysis / overview (generic)
+    if any(k in t for k in ("analiza", "analysis", "roots", "raices", "directorios", "repositorios", "overview", "analizar")):
+        return "analysis"
+
+    return None

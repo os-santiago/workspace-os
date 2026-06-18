@@ -2,7 +2,9 @@
   "workspace_root": "../..",
   "knowledge_base_root": "../../../kb",
   "memory_db": ".workspace-os/workspace-memory.sqlite3",
-  "oce_extensions": [],
+  "oce_extensions": [
+    "../src/workspace_os/oce_extension_adaptive_learning.py"
+  ],
   "sources": [
     {
       "name": "adev",

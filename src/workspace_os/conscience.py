@@ -16,6 +16,22 @@ from workspace_os.sanitization import sanitize_text
 from workspace_os.oce_extensions import extension_policy_documents, registered_oce_extensions
 
 
+# Connector registry
+_REGISTERED_CONNECTORS: dict[str, dict[str, str]] = {}
+
+
+def register_connector(name: str, details: dict[str, str]) -> None:
+    _REGISTERED_CONNECTORS[name] = details
+
+
+def get_registered_connector(name: str) -> dict[str, str] | None:
+    return _REGISTERED_CONNECTORS.get(name)
+
+
+def clear_connectors() -> None:
+    _REGISTERED_CONNECTORS.clear()
+
+
 ALLOW = "ALLOW"
 ALLOW_WITH_LIMITS = "ALLOW_WITH_LIMITS"
 ASK_CLARIFICATION = "ASK_CLARIFICATION"
@@ -198,7 +214,7 @@ def analyze_request_context(task: str, brief: str = "", destination: str = "soft
     requires_authority = _contains_any(text, _AUTHORITY_PATTERNS)
     missing_context: list[str] = []
 
-    if destination != "software":
+    if destination != "software" and "google_drive" not in _REGISTERED_CONNECTORS:
         missing_context.append("google_drive_connector")
     if requires_authority:
         missing_context.append("authorization_and_rollback_plan")
@@ -248,7 +264,7 @@ def resolve_normative_analysis(context: RequestContext, destination: str = "soft
         conflicts.append("helpfulness_vs_defensive_completeness")
         priority = "malicious_agentic_defense"
 
-    if destination != "software":
+    if destination != "software" and "google_drive" not in _REGISTERED_CONNECTORS:
         applicable_norms.append("Workspace OS: Google Workspace writes require a real connector.")
         policy_refs.append("workspace.connector.google")
         conflicts.append("deliverable_routing_without_connector")
@@ -327,7 +343,7 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
     context = analyze_request_context(task, brief=brief, destination=destination)
     normative = resolve_normative_analysis(context, destination=destination)
 
-    if destination != "software":
+    if destination != "software" and "google_drive" not in _REGISTERED_CONNECTORS:
         return _apply_decision_hooks(
             task,
             brief,
@@ -335,19 +351,19 @@ def evaluate_request(task: str, brief: str = "", destination: str = "software") 
             context,
             normative,
             ConscienceDecision(
-            risk_level=context.risk_level,
-            moral_categories=["connector_boundary", "deliverable_routing"],
-            applicable_norms=normative.applicable_norms,
-            decision=ASK_CLARIFICATION,
-            response_strategy="block_until_connector_exists",
-            rationale="The destination requires a Google Workspace connector before safe execution is possible.",
-            human_review_required=True,
-            missing_context=_unique([*context.missing_context, "google_drive_connector"]),
-            policy_refs=normative.policy_refs,
-            context=context.to_dict(),
-            primary_agent=None,
-            secondary_agent=None,
-            routing_reason="destination_requires_connector",
+                risk_level=context.risk_level,
+                moral_categories=["connector_boundary", "deliverable_routing"],
+                applicable_norms=normative.applicable_norms,
+                decision=ASK_CLARIFICATION,
+                response_strategy="block_until_connector_exists",
+                rationale="The destination requires a Google Workspace connector before safe execution is possible.",
+                human_review_required=True,
+                missing_context=_unique([*context.missing_context, "google_drive_connector"]),
+                policy_refs=normative.policy_refs,
+                context=context.to_dict(),
+                primary_agent=None,
+                secondary_agent=None,
+                routing_reason="destination_requires_connector",
             ),
         )
 
