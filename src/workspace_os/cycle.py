@@ -21,6 +21,7 @@ from workspace_os.batch import start_batch, start_process
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.validation import ValidationResult, validate_workspace
+import subprocess
 
 
 @dataclass(frozen=True)
@@ -308,6 +309,47 @@ def _work_workspace_name(sources: list[Source]) -> str:
     return "workspace root"
 
 
+def _fetch_available_issues(sources: list[Source]) -> list[dict[str, object]]:
+    """Fetch available GitHub issues for pre-assignment to work items."""
+    try:
+        workspace_root = _workspace_root_for_sources(sources)
+        res = subprocess.run(
+            ["gh", "issue", "list", "--limit", "50", "--json", "number,title,state,labels"],
+            cwd=workspace_root,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if res.returncode == 0:
+            issues = json.loads(res.stdout)
+            return [issue for issue in issues if issue.get("state") == "OPEN"]
+    except Exception:
+        pass
+    return []
+
+
+def _assign_issue_to_work_item(
+    work_item_number: int,
+    available_issues: list[dict[str, object]],
+    assigned_issues: set[int],
+) -> dict[str, object] | None:
+    """Assign a specific issue to a work item, avoiding duplicates.
+
+    Returns the assigned issue or None if all issues are assigned.
+    """
+    if not available_issues:
+        return None
+
+    # Find first unassigned issue
+    for issue in available_issues:
+        issue_number = int(issue["number"])
+        if issue_number not in assigned_issues:
+            assigned_issues.add(issue_number)
+            return issue
+
+    return None
+
+
 def _build_cycle_work_prompt(
     sources: list[Source],
     memory_store: WorkspaceMemoryStore,
@@ -315,6 +357,7 @@ def _build_cycle_work_prompt(
     objective: str,
     note: str | None,
     iteration_number: int,
+    assigned_issue: dict[str, object] | None = None,
 ) -> dict[str, str]:
     try:
         from workspace_os.overview import render_workspace_analysis_text, render_workspace_next_action_text
@@ -339,26 +382,33 @@ def _build_cycle_work_prompt(
     # Get concrete backlog work to guide agents toward product plan advancement
     backlog_work_hint = ""
     gh_issues_hint = ""
-    try:
-        import subprocess
-        workspace_root = _workspace_root_for_sources(sources)
-        res = subprocess.run(
-            ["gh", "issue", "list", "--json", "number,title", "-L", "10"],
-            cwd=workspace_root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False
-        )
-        if res.returncode == 0:
-            issues = json.loads(res.stdout)
-            if issues:
-                lines = ["Open GitHub issues to resolve (choose one to fix, create a new branch, and open a PR linking it):"]
-                for issue in issues:
-                    lines.append(f"- #{issue['number']}: {issue['title']}")
-                gh_issues_hint = "\n".join(lines)
-    except Exception:
-        pass
+
+    # If a specific issue is assigned, build direct assignment instruction
+    if assigned_issue:
+        issue_number = assigned_issue["number"]
+        issue_title = assigned_issue["title"]
+        gh_issues_hint = f"ASSIGNED ISSUE: #{issue_number}: {issue_title}\n\nYou MUST work on this specific issue. Do not choose a different one."
+    else:
+        # Fallback: fetch issues and let agent choose (original behavior for backward compatibility)
+        try:
+            workspace_root = _workspace_root_for_sources(sources)
+            res = subprocess.run(
+                ["gh", "issue", "list", "--json", "number,title", "-L", "10"],
+                cwd=workspace_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False
+            )
+            if res.returncode == 0:
+                issues = json.loads(res.stdout)
+                if issues:
+                    lines = ["Open GitHub issues to resolve (choose one to fix, create a new branch, and open a PR linking it):"]
+                    for issue in issues:
+                        lines.append(f"- #{issue['number']}: {issue['title']}")
+                    gh_issues_hint = "\n".join(lines)
+        except Exception:
+            pass
 
     try:
         workspace_root = _workspace_root_for_sources(sources)
@@ -402,11 +452,21 @@ def _build_cycle_work_prompt(
         base_lines.append(gh_issues_hint)
         base_lines.append("")
         base_lines.append("CRITICAL INSTRUCTIONS FOR ISSUES:")
-        base_lines.append("- Choose one open issue from the list above that is not currently being worked on by another agent.")
-        base_lines.append("- Check out a new dedicated branch with the issue ID in the name, e.g., git checkout -b fix/issue-123 (NEVER write code or commit directly to main).")
-        base_lines.append("- Implement the fix/feature, write tests, and run local validations.")
-        base_lines.append("- Open a Pull Request on GitHub using non-interactive gh CLI, explicitly linking the issue in the body so it closes automatically: gh pr create --title \"fix: resolve issue #<id>\" --body \"Closes #<id>\" --fill (or specify title/body manually).")
-        base_lines.append("- After creating the PR, the WOS cycle checks will validate it. Do not attempt to merge it yourself unless all checks pass.")
+        if assigned_issue:
+            # Direct assignment - no choice needed
+            issue_num = assigned_issue["number"]
+            base_lines.append(f"- Work ONLY on issue #{issue_num}. This issue has been pre-assigned to you to avoid conflicts with other agents.")
+            base_lines.append(f"- Check out a new dedicated branch: git checkout -b fix/issue-{issue_num} (NEVER write code or commit directly to main).")
+            base_lines.append("- Implement the fix/feature, write tests, and run local validations.")
+            base_lines.append(f"- Open a Pull Request: gh pr create --title \"fix: resolve issue #{issue_num}\" --body \"Closes #{issue_num}\" --fill")
+            base_lines.append("- After creating the PR, the WOS cycle checks will validate it. Do not attempt to merge it yourself unless all checks pass.")
+        else:
+            # Original behavior: let agent choose
+            base_lines.append("- Choose one open issue from the list above that is not currently being worked on by another agent.")
+            base_lines.append("- Check out a new dedicated branch with the issue ID in the name, e.g., git checkout -b fix/issue-123 (NEVER write code or commit directly to main).")
+            base_lines.append("- Implement the fix/feature, write tests, and run local validations.")
+            base_lines.append("- Open a Pull Request on GitHub using non-interactive gh CLI, explicitly linking the issue in the body so it closes automatically: gh pr create --title \"fix: resolve issue #<id>\" --body \"Closes #<id>\" --fill (or specify title/body manually).")
+            base_lines.append("- After creating the PR, the WOS cycle checks will validate it. Do not attempt to merge it yourself unless all checks pass.")
     elif backlog_work_hint:
         base_lines.append("")
         base_lines.append(backlog_work_hint)
@@ -924,9 +984,12 @@ def run_cycle_work_window_continuous(
 
     # Adaptive checkpoint tracking
     last_checkpoint_at = time.perf_counter()
-    checkpoint_interval_seconds = 120.0  # Default: checkpoint every 2 minutes
-    max_workers = max(1, len(available_work_agents()))
-    min_items_per_checkpoint = max_workers
+    from workspace_os.agent_policy import _is_testing
+    # Configure via environment variables to allow fine-tuning of quality vs speed
+    checkpoint_interval_seconds = float(os.environ.get("WOS_CHECKPOINT_INTERVAL_SECONDS", 300.0))  # Default: 5 minutes
+    default_workers = len(available_work_agents()) if _is_testing() else 2 * len(available_work_agents())
+    max_workers = int(os.environ.get("WOS_MAX_WORKERS", default_workers))  # Default: 6 workers (double throughput)
+    min_items_per_checkpoint = int(os.environ.get("WOS_MIN_ITEMS_PER_CHECKPOINT", 2 * max_workers))  # Default: 12 completed items
 
     # Agent queue tracker for enhanced visibility
     queue_tracker = AgentQueueTracker(memory_store.path.parent, max_parallel=max_workers)
@@ -935,11 +998,26 @@ def run_cycle_work_window_continuous(
     last_queue_log_at = time.perf_counter()
     queue_log_interval_seconds = 30.0  # Log queue state every 30s
 
+    # Pre-fetch available issues for assignment (optimizes throughput)
+    available_issues = _fetch_available_issues(sources)
+    assigned_issues: set[int] = set()
+    enable_issue_assignment = bool(os.environ.get("WOS_ENABLE_ISSUE_ASSIGNMENT", "true").lower() in ("true", "1", "yes"))
+
+    if available_issues and enable_issue_assignment:
+        print(f"[cycle] Pre-fetched {len(available_issues)} available issues for direct assignment")
+    else:
+        print("[cycle] Issue pre-assignment disabled - agents will choose issues themselves")
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         # Start initial work items
         for _ in range(max_workers):
             if now_fn() >= deadline:
                 break
+
+            # Assign issue to this work item if available
+            assigned_issue = None
+            if available_issues and enable_issue_assignment:
+                assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues)
 
             work_prompt = _build_cycle_work_prompt(
                 sources,
@@ -948,6 +1026,7 @@ def run_cycle_work_window_continuous(
                 objective=objective or "Improve WOS with the active plan.",
                 note=note,
                 iteration_number=work_item_number,
+                assigned_issue=assigned_issue,
             )
             agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
             task_id = f"cycle-work-{work_item_number}-{role}"
@@ -1041,6 +1120,11 @@ def run_cycle_work_window_continuous(
 
                 # Queue next work item immediately if time permits
                 if now_fn() < deadline:
+                    # Assign next issue if available
+                    next_assigned_issue = None
+                    if available_issues and enable_issue_assignment:
+                        next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues)
+
                     work_prompt = _build_cycle_work_prompt(
                         sources,
                         memory_store,
@@ -1048,6 +1132,7 @@ def run_cycle_work_window_continuous(
                         objective=objective or "Improve WOS with the active plan.",
                         note=note,
                         iteration_number=work_item_number,
+                        assigned_issue=next_assigned_issue,
                     )
                     agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
                     next_task_id = f"cycle-work-{work_item_number}-{role}"
@@ -1100,7 +1185,7 @@ def run_cycle_work_window_continuous(
                     evaluation_after = run_cycle_evaluation(sources, memory_store)
 
                     # WSOS-101: Auto-healing loop in continuous mode
-                    max_attempts = 3
+                    max_attempts = int(os.environ.get("WOS_MAX_HEALING_ATTEMPTS", 2))
                     attempt = 0
                     while not evaluation_after.overall_ok() and attempt < max_attempts:
                         attempt += 1
