@@ -23,6 +23,7 @@ def build_hardened_delegate_prompt(
         "- Treat ADEV as mandatory doctrine for this task.",
         "- Read ADEV.md in the active workspace or canonical ADEV source before editing.",
         "- Keep one objective, atomic changes, and preserve unrelated local changes.",
+        "- NEVER write code, commit, or push changes directly to main. If the repository is on main, you MUST switch to a dedicated feature branch first.",
         "- Do not mix unrelated refactor, feature, docs, and infrastructure work.",
         "- Validate the narrowest meaningful surface that proves the change.",
         "- Report scope, changed files, validation, and rollback notes.",
