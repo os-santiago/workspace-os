@@ -1042,11 +1042,8 @@ def run_cycle_work_window_continuous(
         print("[cycle] Issue pre-assignment disabled - agents will choose issues themselves")
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        # Aggressive pre-seeding: start 2x max_workers to ensure queue stays saturated
-        # This reduces idle time when agents finish at staggered intervals
-        initial_seed_count = min(max_workers * 2, max_workers + 16)
-
-        for _ in range(initial_seed_count):
+        # Start initial work items
+        for _ in range(max_workers):
             if now_fn() >= deadline:
                 break
 
