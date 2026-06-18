@@ -211,3 +211,92 @@ class AgentQueueTracker:
         keep_tasks.extend(completed_or_failed[-keep_recent:])
         self._save_all_tasks(keep_tasks)
         return to_remove
+
+    def get_issue_outcomes(self) -> dict[int, list[dict[str, Any]]]:
+        """Get all work items grouped by GitHub issue number.
+
+        Returns a dictionary mapping issue numbers to lists of work items that
+        addressed that issue. Each work item includes task_id, agent, state,
+        duration, and outcome metadata.
+
+        This enables traceability: which agents worked on which issues, how long
+        they took, and what the outcomes were.
+        """
+        tasks = self._load_all_tasks()
+        outcomes: dict[int, list[dict[str, Any]]] = {}
+
+        for task in tasks:
+            issue_number = task.metadata.get("issue_number")
+            if issue_number is not None:
+                issue_num = int(issue_number)
+                if issue_num not in outcomes:
+                    outcomes[issue_num] = []
+
+                outcome = {
+                    "task_id": task.task_id,
+                    "agent": task.agent,
+                    "state": task.state.value,
+                    "duration_seconds": task.duration_seconds,
+                    "returncode": task.returncode,
+                    "queued_at": task.queued_at,
+                    "completed_at": task.completed_at,
+                    "work_item_number": task.metadata.get("work_item_number"),
+                    "role": task.metadata.get("role"),
+                }
+                outcomes[issue_num].append(outcome)
+
+        return outcomes
+
+    def render_issue_outcomes(self, limit: int = 20) -> str:
+        """Render a summary of issue outcomes for recent work.
+
+        Shows which issues were worked on, by which agents, with what outcomes.
+        Useful for understanding agent productivity and identifying stalled issues.
+        """
+        outcomes = self.get_issue_outcomes()
+        if not outcomes:
+            return "No issue outcomes tracked yet.\n"
+
+        lines = ["Issue Outcomes Summary:", ""]
+        # Sort by most recent activity (latest completed_at among work items)
+        sorted_issues = sorted(
+            outcomes.items(),
+            key=lambda x: max(
+                (item["completed_at"] or item["queued_at"]) for item in x[1]
+            ),
+            reverse=True
+        )[:limit]
+
+        for issue_num, work_items in sorted_issues:
+            completed = [w for w in work_items if w["state"] == "completed"]
+            failed = [w for w in work_items if w["state"] == "failed"]
+            running = [w for w in work_items if w["state"] == "running"]
+
+            total_duration = sum(w["duration_seconds"] or 0 for w in work_items)
+            agents_used = {w["agent"] for w in work_items}
+
+            status_parts = []
+            if completed:
+                status_parts.append(f"{len(completed)} completed")
+            if running:
+                status_parts.append(f"{len(running)} running")
+            if failed:
+                status_parts.append(f"{len(failed)} failed")
+
+            status = ", ".join(status_parts)
+            agents_str = ", ".join(sorted(agents_used))
+
+            lines.append(
+                f"Issue #{issue_num}: {len(work_items)} work items ({status}) | "
+                f"agents: {agents_str} | total time: {total_duration:.1f}s"
+            )
+
+            # Show individual work items for this issue
+            for item in sorted(work_items, key=lambda w: w["queued_at"]):
+                duration_str = f"{item['duration_seconds']:.1f}s" if item["duration_seconds"] else "n/a"
+                lines.append(
+                    f"  - {item['task_id']}: {item['agent']} {item['state']} "
+                    f"(duration={duration_str}, role={item['role']})"
+                )
+
+        return "\n".join(lines) + "\n"
