@@ -723,10 +723,10 @@ class CliTests(unittest.TestCase):
                 avg_work_item_duration_seconds=30.0,
             )
 
-            with patch("workspace_os.cli.run_cycle_work_window", return_value=fake_result), patch(
-                "workspace_os.cli.write_cycle_journal",
-                return_value=SimpleNamespace(entry_path=root / "journal"),
-            ):
+            # Patch both work functions since default is now continuous
+            with patch("workspace_os.cli.run_cycle_work_window_continuous", return_value=fake_result), \
+                 patch("workspace_os.cli.run_cycle_work_window", return_value=fake_result), \
+                 patch("workspace_os.cli.write_cycle_journal", return_value=SimpleNamespace(entry_path=root / "journal")):
                 with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
                     from contextlib import redirect_stdout
 
