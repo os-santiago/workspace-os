@@ -26,17 +26,19 @@ def test_agent_queue_enqueue(temp_memory):
 
 def test_agent_queue_start_complete(temp_memory):
     tracker = AgentQueueTracker(temp_memory)
-    tracker.enqueue("task-1", "opencode", "homedir", "Fix the bug")
+    tracker.enqueue("task-1", "opencode", "homedir", "Fix the bug", metadata={"issue_number": 123})
 
     tracker.start("task-1")
     snapshot = tracker.snapshot()
     assert snapshot.running_count == 1
     assert snapshot.queued_count == 0
 
-    tracker.complete("task-1", returncode=0, duration_seconds=10.5)
+    completed_metadata = tracker.complete("task-1", returncode=0, duration_seconds=10.5)
     snapshot = tracker.snapshot()
     assert snapshot.completed_count == 1
     assert snapshot.running_count == 0
+    assert completed_metadata is not None
+    assert completed_metadata["issue_number"] == 123
 
 
 def test_agent_queue_fail(temp_memory):

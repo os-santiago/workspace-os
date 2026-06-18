@@ -1064,8 +1064,9 @@ def run_cycle_work_window_continuous(
                 should_refetch = cached_unassigned_count < refetch_threshold
                 if should_refetch:
                     print(f"[cycle] Issue pool running low during seeding ({cached_unassigned_count} unassigned) - refetching...")
-                    # Scale refetch to 2x max_workers to maintain healthy pool
-                    refetch_size = max(200, max_workers * 2)
+                    # Scale refetch to at least 4x max_workers to replenish above threshold
+                    # At 32 workers: refetch_threshold=96, refetch_size=128 → healthy margin
+                    refetch_size = max(200, max_workers * 4)
                     fresh_issues = _fetch_available_issues(sources, limit=refetch_size)
                     if fresh_issues:
                         existing_numbers = {int(issue["number"]) for issue in available_issues}
@@ -1074,6 +1075,18 @@ def run_cycle_work_window_continuous(
                         print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
                         last_refetch_at = time.perf_counter()
                         cached_unassigned_count += len(new_issues)  # Update cache
+
+                    # If refetch didn't restore pool to threshold, generate from backlog proactively
+                    if cached_unassigned_count < refetch_threshold:
+                        target_backlog_gen = min(max_workers * 2, refetch_threshold - cached_unassigned_count)
+                        generated_count = _generate_issues_from_backlog_inline(
+                            sources,
+                            available_issues,
+                            target_backlog_gen,
+                        )
+                        if generated_count > 0:
+                            print(f"[cycle] Seeding: generated {generated_count} issues from backlog (pool now {len(available_issues)} total)")
+                            cached_unassigned_count += generated_count
                 assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
                 if assigned_issue:
                     cached_unassigned_count -= 1  # Decrement cache after assignment
@@ -1162,8 +1175,9 @@ def run_cycle_work_window_continuous(
                     )
                     if should_refetch:
                         print(f"[cycle] Proactive issue refetch (unassigned={cached_unassigned_count}, util={len(pending_futures)}/{max_workers})")
-                        # Scale refetch to 2x max_workers to maintain healthy pool
-                        refetch_size = max(200, max_workers * 2)
+                        # Scale refetch to at least 4x max_workers to replenish above threshold
+                        # At 32 workers: refetch_threshold=96, refetch_size=128 → healthy margin
+                        refetch_size = max(200, max_workers * 4)
                         fresh_issues = _fetch_available_issues(sources, limit=refetch_size)
                         if fresh_issues:
                             existing_numbers = {int(issue["number"]) for issue in available_issues}
@@ -1174,15 +1188,17 @@ def run_cycle_work_window_continuous(
                                 cached_unassigned_count += len(new_issues)  # Update cache
                             last_refetch_at = time.perf_counter()
 
-                        # If refetch didn't solve the shortage, generate issues from backlog
-                        if cached_unassigned_count < max_workers:
+                        # Proactive issue generation: try backlog BEFORE waiting for refetch
+                        # This prevents idle agents when GitHub issues are exhausted
+                        if cached_unassigned_count < refetch_threshold:
+                            target_backlog_gen = min(max_workers * 2, refetch_threshold - cached_unassigned_count)
                             generated_count = _generate_issues_from_backlog_inline(
                                 sources,
                                 available_issues,
-                                max_workers - cached_unassigned_count,
+                                target_backlog_gen,
                             )
                             if generated_count > 0:
-                                print(f"[cycle] Generated {generated_count} issues from backlog (pool now {len(available_issues)} total)")
+                                print(f"[cycle] Proactively generated {generated_count} issues from backlog (pool now {len(available_issues)} total)")
                                 cached_unassigned_count += generated_count  # Update cache
 
                 continue

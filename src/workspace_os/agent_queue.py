@@ -126,16 +126,19 @@ class AgentQueueTracker:
                 break
         self._save_all_tasks(tasks)
 
-    def complete(self, task_id: str, returncode: int, duration_seconds: float) -> None:
+    def complete(self, task_id: str, returncode: int, duration_seconds: float) -> dict[str, Any] | None:
         tasks = self._load_all_tasks()
+        completed_metadata = None
         for task in tasks:
             if task.task_id == task_id:
                 task.state = AgentTaskState.COMPLETED if returncode == 0 else AgentTaskState.FAILED
                 task.completed_at = self._now_iso()
                 task.returncode = returncode
                 task.duration_seconds = duration_seconds
+                completed_metadata = task.metadata.copy()
                 break
         self._save_all_tasks(tasks)
+        return completed_metadata
 
     def fail(self, task_id: str, error: str) -> None:
         tasks = self._load_all_tasks()
