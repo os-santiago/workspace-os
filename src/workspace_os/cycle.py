@@ -309,12 +309,20 @@ def _work_workspace_name(sources: list[Source]) -> str:
     return "workspace root"
 
 
-def _fetch_available_issues(sources: list[Source]) -> list[dict[str, object]]:
-    """Fetch available GitHub issues for pre-assignment to work items."""
+def _fetch_available_issues(sources: list[Source], limit: int = 100) -> list[dict[str, object]]:
+    """Fetch available GitHub issues for pre-assignment to work items.
+
+    Args:
+        sources: List of Source objects defining the workspace
+        limit: Maximum number of issues to fetch (default 100 for high-throughput cycles)
+
+    Returns:
+        List of open issue dicts with number, title, state, and labels
+    """
     try:
         workspace_root = _workspace_root_for_sources(sources)
         res = subprocess.run(
-            ["gh", "issue", "list", "--limit", "50", "--json", "number,title,state,labels"],
+            ["gh", "issue", "list", "--limit", str(limit), "--json", "number,title,state,labels"],
             cwd=workspace_root,
             capture_output=True,
             text=True,
@@ -1033,6 +1041,17 @@ def run_cycle_work_window_continuous(
             # Assign issue to this work item if available
             assigned_issue = None
             if available_issues and enable_issue_assignment:
+                # Check for issue pool depletion even during initial seeding
+                unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                refetch_threshold = max(5, len(available_issues) // 10)
+                if unassigned_count < refetch_threshold:
+                    print(f"[cycle] Issue pool depleted during seeding ({unassigned_count} remaining) - refetching...")
+                    fresh_issues = _fetch_available_issues(sources, limit=100)
+                    if fresh_issues:
+                        existing_numbers = {int(issue["number"]) for issue in available_issues}
+                        new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
+                        available_issues.extend(new_issues)
+                        print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
                 assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
 
             work_prompt = _build_cycle_work_prompt(
@@ -1145,6 +1164,19 @@ def run_cycle_work_window_continuous(
                     # Assign next issue if available
                     next_assigned_issue = None
                     if available_issues and enable_issue_assignment:
+                        # Calculate unassigned issue count to detect depletion
+                        unassigned_count = sum(1 for issue in available_issues if int(issue["number"]) not in assigned_issues)
+                        # Refetch when pool is depleted (< 10% remaining) to keep agents busy
+                        refetch_threshold = max(5, len(available_issues) // 10)
+                        if unassigned_count < refetch_threshold:
+                            print(f"[cycle] Issue pool depleted ({unassigned_count} unassigned remaining) - refetching...")
+                            fresh_issues = _fetch_available_issues(sources, limit=100)
+                            if fresh_issues:
+                                # Merge new issues, avoiding duplicates
+                                existing_numbers = {int(issue["number"]) for issue in available_issues}
+                                new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
+                                available_issues.extend(new_issues)
+                                print(f"[cycle] Added {len(new_issues)} new issues (pool now {len(available_issues)} total)")
                         next_assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
 
                     work_prompt = _build_cycle_work_prompt(
@@ -1197,11 +1229,14 @@ def run_cycle_work_window_continuous(
 
                 # Adaptive checkpointing: checkpoint based on elapsed time since last checkpoint
                 # AND minimum work items completed to avoid excessive overhead
+                # NOTE: Checkpoint only if we have less than half capacity busy to minimize blocking
                 elapsed_since_checkpoint = time.perf_counter() - last_checkpoint_at
                 items_since_last = completed_work_items - ((checkpoint_counter - 1) * min_items_per_checkpoint)
+                current_utilization = len(pending_futures) / max_workers if max_workers > 0 else 0.0
                 should_checkpoint = (
                     items_since_last >= min_items_per_checkpoint
                     and elapsed_since_checkpoint >= checkpoint_interval_seconds
+                    and current_utilization < 0.5  # Only checkpoint when queue is less than half full
                 )
                 if should_checkpoint:
                     evaluation_after = run_cycle_evaluation(sources, memory_store)

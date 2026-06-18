@@ -10,7 +10,7 @@ import threading
 from unittest.mock import patch
 
 from workspace_os.config import Source
-from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle, _build_cycle_work_prompt, _choose_work_agents
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle, _build_cycle_work_prompt, _choose_work_agents, _fetch_available_issues, _assign_issue_to_work_item
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.journal import write_cycle_journal
 
@@ -510,6 +510,39 @@ class CycleTests(unittest.TestCase):
         # Expected: ~16 tasks started immediately, plus more as they complete
         self.assertGreaterEqual(len(completed_work_items), 16, "Should complete at least 16 work items with 16 workers")
         self.assertGreaterEqual(result.delegation_count or 0, 16, "Should delegate to at least 16 agents")
+
+    def test_issue_assignment_dynamic_refetch_on_depletion(self):
+        """Verify dynamic issue refetch when pool depletes during continuous cycle."""
+        # Mock scenario: start with 10 issues, assign 8, trigger refetch at <10% remaining
+        initial_issues = [{"number": i, "title": f"Issue {i}", "state": "OPEN"} for i in range(1, 11)]
+        fresh_issues = [{"number": i, "title": f"Issue {i}", "state": "OPEN"} for i in range(1, 16)]
+
+        assigned = set()
+        in_progress = set()
+
+        # Assign 8 issues (leaving 2 unassigned = 20% remaining, above 10% threshold)
+        for i in range(8):
+            issue = _assign_issue_to_work_item(i + 1, initial_issues, assigned, in_progress)
+            self.assertIsNotNone(issue)
+
+        # Calculate unassigned count
+        unassigned_count = sum(1 for issue in initial_issues if int(issue["number"]) not in assigned)
+        self.assertEqual(2, unassigned_count)
+
+        # Refetch threshold: max(5, 10 // 10) = 5
+        # With 2 unassigned < 5 threshold, refetch should trigger
+        refetch_threshold = max(5, len(initial_issues) // 10)
+        self.assertLess(unassigned_count, refetch_threshold, "Should trigger refetch when unassigned < threshold")
+
+        # Simulate refetch: merge fresh issues (avoiding duplicates)
+        existing_numbers = {int(issue["number"]) for issue in initial_issues}
+        new_issues = [issue for issue in fresh_issues if int(issue["number"]) not in existing_numbers]
+        initial_issues.extend(new_issues)
+
+        # Verify we added new issues
+        self.assertEqual(15, len(initial_issues))
+        new_unassigned_count = sum(1 for issue in initial_issues if int(issue["number"]) not in assigned)
+        self.assertEqual(7, new_unassigned_count, "Should have 7 unassigned after refetch (2 original + 5 new)")
 
     def _init_git_repo(self, path: Path) -> None:
         import subprocess

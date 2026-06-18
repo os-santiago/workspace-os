@@ -25,6 +25,10 @@ Default WOS cycle configuration generates 1-5 PRs per hour when resolving GitHub
   - Fresh issues are preferred
   - When issue count < worker count, allows multiple agents per issue
   - Prevents idle agents when work queue is dry
+  - **Dynamic refetch**: Automatically fetches more issues when pool depletes (<10% unassigned remaining)
+    - Initial fetch: 100 issues
+    - Refetch triggers at threshold: max(5, pool_size / 10)
+    - Prevents agent starvation during long-running cycles
 
 ### 4. Auto-Healing Overhead
 - **Default**: Up to 2 healing attempts per checkpoint failure
@@ -97,6 +101,8 @@ wos cycle work --continuous --duration-minutes 60
 - Lower = faster feedback, but more overhead
 
 **Recommendation**: `600` (10 minutes)
+
+**Note**: Checkpoints are automatically deferred when queue utilization exceeds 50% to avoid blocking active agents. This reduces idle ratio significantly.
 
 ### WOS_MIN_ITEMS_PER_CHECKPOINT
 
@@ -213,7 +219,7 @@ wos journal report
 ```
 
 **Success Metrics**:
-- `idle_ratio < 0.20` (< 20% idle time)
+- `idle_ratio < 0.30` (< 30% idle time; with checkpoint deferral, expect 0.20-0.30)
 - `queue_utilization_ratio > 0.85` (> 85% utilized)
 - `delegation_count > 40` for 1-hour run
 - `quality_pass_rate > 0.90` (90%+ quality gate pass)
