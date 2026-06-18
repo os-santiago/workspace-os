@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import Callable
 
 from workspace_os.agent_policy import choose_work_agent_pair, available_work_agents
+from workspace_os.agent_queue import AgentQueueTracker
 from workspace_os.config import Source
 from workspace_os.agent_adapter import run_agent
 from workspace_os.delegation import build_agent_route_command
@@ -927,6 +928,9 @@ def run_cycle_work_window_continuous(
     max_workers = max(1, len(available_work_agents()))
     min_items_per_checkpoint = max_workers
 
+    # Agent queue tracker for enhanced visibility
+    queue_tracker = AgentQueueTracker(memory_store.path.parent, max_parallel=max_workers)
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         # Start initial work items
         for _ in range(max_workers):
@@ -942,13 +946,24 @@ def run_cycle_work_window_continuous(
                 iteration_number=work_item_number,
             )
             agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
+            task_id = f"cycle-work-{work_item_number}-{role}"
+
+            # Enqueue in agent tracker
+            queue_tracker.enqueue(
+                task_id=task_id,
+                agent=agent_type,
+                workspace=workspace_name,
+                prompt=work_prompt[f"{role}:{agent_type}"],
+                metadata={"work_item_number": work_item_number, "role": role},
+            )
 
             print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
+            queue_tracker.start(task_id)
             future = pool.submit(
                 executor,
                 agent_type,
                 workspace_name,
-                f"cycle-work-{work_item_number}-{role}",
+                task_id,
                 work_prompt[f"{role}:{agent_type}"],
                 _workspace_root_for_sources(sources),
                 memory_store,
@@ -957,6 +972,7 @@ def run_cycle_work_window_continuous(
                 "work_item_number": work_item_number,
                 "agent_type": agent_type,
                 "role": role,
+                "task_id": task_id,
                 "started_at": time.perf_counter(),
             }
             total_delegations += 1
@@ -980,6 +996,10 @@ def run_cycle_work_window_continuous(
                     work_item_durations.append(duration)
                     total_agent_active += float(getattr(result, "duration_seconds", duration))
                     completed_work_items += 1
+
+                    # Record successful completion in queue tracker
+                    queue_tracker.complete(work_info["task_id"], returncode=0, duration_seconds=duration)
+
                     print(
                         f"[cycle] Completed work item {work_info['work_item_number']} "
                         f"({work_info['role']}/{work_info['agent_type']}) "
@@ -991,7 +1011,10 @@ def run_cycle_work_window_continuous(
                     # to reduce checkpoint overhead while maintaining visibility
 
                 except Exception as e:
-                    # Agent failed - record but continue
+                    # Agent failed - record in queue tracker
+                    queue_tracker.fail(work_info["task_id"], error=str(e))
+
+                    # Log failure but continue
                     print(
                         f"[cycle] Failed work item {work_info['work_item_number']} "
                         f"({work_info['role']}/{work_info['agent_type']}): {e}"
@@ -1008,13 +1031,24 @@ def run_cycle_work_window_continuous(
                         iteration_number=work_item_number,
                     )
                     agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
+                    next_task_id = f"cycle-work-{work_item_number}-{role}"
+
+                    # Enqueue in agent tracker
+                    queue_tracker.enqueue(
+                        task_id=next_task_id,
+                        agent=agent_type,
+                        workspace=workspace_name,
+                        prompt=work_prompt[f"{role}:{agent_type}"],
+                        metadata={"work_item_number": work_item_number, "role": role},
+                    )
 
                     print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
+                    queue_tracker.start(next_task_id)
                     new_future = pool.submit(
                         executor,
                         agent_type,
                         workspace_name,
-                        f"cycle-work-{work_item_number}-{role}",
+                        next_task_id,
                         work_prompt[f"{role}:{agent_type}"],
                         _workspace_root_for_sources(sources),
                         memory_store,
@@ -1023,6 +1057,7 @@ def run_cycle_work_window_continuous(
                         "work_item_number": work_item_number,
                         "agent_type": agent_type,
                         "role": role,
+                        "task_id": next_task_id,
                         "started_at": time.perf_counter(),
                     }
                     total_delegations += 1
@@ -1084,6 +1119,11 @@ def run_cycle_work_window_continuous(
                         cycle_id=cycle_id,
                         created_at=now_fn().isoformat(),
                     )
+                    # Log agent queue snapshot for visibility
+                    snapshot = queue_tracker.snapshot()
+                    print(f"[cycle] Queue snapshot at checkpoint {checkpoint_counter}:")
+                    print(f"[cycle]   Running: {snapshot.running_count}, Completed: {snapshot.completed_count}, Failed: {snapshot.failed_count}")
+
                     iteration_results.append(
                         CycleIterationResult(
                             iteration_number=checkpoint_counter,
@@ -1108,6 +1148,11 @@ def run_cycle_work_window_continuous(
     wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    # Clean up old queue entries to prevent unbounded growth
+    removed_count = queue_tracker.clear_completed(keep_recent=100)
+    if removed_count > 0:
+        print(f"[cycle] Cleaned up {removed_count} completed queue entries")
 
     report = memory_store.cycle_report(cycle_id)
     if report is None:
