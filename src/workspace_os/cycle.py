@@ -1009,10 +1009,10 @@ def run_cycle_work_window_continuous(
     # Configure via environment variables to allow fine-tuning of quality vs speed
     checkpoint_interval_seconds = float(os.environ.get("WOS_CHECKPOINT_INTERVAL_SECONDS", 300.0))  # Default: 5 minutes
     # Scale workers to enable 32 parallel agents for high-throughput issue resolution
-    # Testing uses minimal workers; production defaults to 16 (supports ~16-32 parallel agents depending on agent pool size)
-    default_workers = len(available_work_agents()) if _is_testing() else 16
+    # Testing uses minimal workers; production defaults to 32 for maximum throughput
+    default_workers = len(available_work_agents()) if _is_testing() else 32
     max_workers = int(os.environ.get("WOS_MAX_WORKERS", default_workers))
-    min_items_per_checkpoint = int(os.environ.get("WOS_MIN_ITEMS_PER_CHECKPOINT", 2 * max_workers))  # Default: 32 completed items
+    min_items_per_checkpoint = int(os.environ.get("WOS_MIN_ITEMS_PER_CHECKPOINT", 2 * max_workers))  # Default: 64 completed items
 
     # Agent queue tracker for enhanced visibility
     queue_tracker = AgentQueueTracker(memory_store.path.parent, max_parallel=max_workers)

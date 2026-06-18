@@ -9,9 +9,10 @@ Default WOS cycle configuration generates 1-5 PRs per hour when resolving GitHub
 ## Root Causes of Low Throughput
 
 ### 1. Limited Parallelism
-- **Default**: `max_workers = 2 * num_agents` (~6 workers)
-- **Impact**: Only 6 tasks can run simultaneously
-- **Fix**: Increase to 16-32 workers based on CPU cores
+- **Default (Production)**: `max_workers = 32` for high-throughput
+- **Legacy**: Earlier versions defaulted to `2 * num_agents` (~6 workers)
+- **Impact**: With default 32 workers, up to 32 tasks can run simultaneously
+- **Tuning**: Adjust WOS_MAX_WORKERS based on CPU cores and memory
 
 ### 2. Frequent Checkpoints
 - **Default**: Checkpoint every 5 minutes + 12 items
@@ -77,9 +78,9 @@ wos cycle work --continuous --duration-minutes 60
 **Controls**: Maximum parallel agent tasks
 
 **Values**:
-- `6` - Default (2x number of agents)
-- `8-16` - Recommended for high throughput
-- `24-32` - Maximum (requires powerful machine)
+- `32` - Default (production high-throughput)
+- `16` - Medium throughput
+- `6-8` - Low throughput / testing
 
 **Trade-offs**:
 - Higher = more PRs/hour but higher CPU/memory usage
@@ -149,18 +150,20 @@ wos cycle work --continuous --duration-minutes 60
 
 ## Performance Expectations
 
-### Baseline (Default Configuration)
+### Default (Production Configuration)
 ```
-WOS_MAX_WORKERS=6
+WOS_MAX_WORKERS=32
 WOS_CHECKPOINT_INTERVAL_SECONDS=300
-WOS_MIN_ITEMS_PER_CHECKPOINT=12
-WOS_MAX_HEALING_ATTEMPTS=2
-WOS_ENABLE_ISSUE_ASSIGNMENT=false
+WOS_MIN_ITEMS_PER_CHECKPOINT=64
+WOS_MAX_HEALING_ATTEMPTS=1
+WOS_ENABLE_ISSUE_ASSIGNMENT=true
 ```
 
-**Expected**: 1-5 PRs/hour (6 PRs/hour theoretical max)
+**Expected**: 30-60 PRs/hour (64 PRs/hour theoretical max)
 
-### Optimized (Recommended Configuration)
+**Use case**: High-throughput issue resolution with 32 parallel agents
+
+### Medium (Balanced Configuration)
 ```
 WOS_MAX_WORKERS=16
 WOS_CHECKPOINT_INTERVAL_SECONDS=600
@@ -171,16 +174,20 @@ WOS_ENABLE_ISSUE_ASSIGNMENT=true
 
 **Expected**: 15-25 PRs/hour (30 PRs/hour theoretical max)
 
-**Improvement**: 3-5x throughput increase
+**Use case**: Moderate throughput with lower resource consumption
 
-### Aggressive (Maximum Configuration)
+### Conservative (Low-Resource Configuration)
 ```
-WOS_MAX_WORKERS=32
-WOS_CHECKPOINT_INTERVAL_SECONDS=900
-WOS_MIN_ITEMS_PER_CHECKPOINT=48
-WOS_MAX_HEALING_ATTEMPTS=1
-WOS_ENABLE_ISSUE_ASSIGNMENT=true
+WOS_MAX_WORKERS=6
+WOS_CHECKPOINT_INTERVAL_SECONDS=300
+WOS_MIN_ITEMS_PER_CHECKPOINT=12
+WOS_MAX_HEALING_ATTEMPTS=2
+WOS_ENABLE_ISSUE_ASSIGNMENT=false
 ```
+
+**Expected**: 1-5 PRs/hour (6 PRs/hour theoretical max)
+
+**Use case**: Testing or resource-constrained environments
 
 **Expected**: 25-40 PRs/hour (50+ PRs/hour theoretical max)
 
