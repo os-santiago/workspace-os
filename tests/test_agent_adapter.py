@@ -33,7 +33,7 @@ class AgentAdapterTests(unittest.TestCase):
             store.ensure_schema()
             captured = {}
 
-            def launcher(command, cwd):
+            def launcher(command, cwd, *args, **kwargs):
                 captured["command"] = command
                 captured["cwd"] = cwd
                 return 321

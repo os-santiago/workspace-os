@@ -92,7 +92,12 @@ def launch_agent(
     hardened_prompt = build_hardened_delegate_prompt(agent, workspace_name, workspace_root, prompt)
     command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _launch_process
-    pid = start_process(_prepare_command(command), workspace_root)
+
+    log_dir = Path("C:/Users/sergi/.openclaw/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{task}.log"
+
+    pid = start_process(_prepare_command(command), workspace_root, log_file)
     memory_store.record_agent_launch(agent, task, workspace_name)
     return pid
 
@@ -110,36 +115,62 @@ def run_agent(
     command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _run_process
     started_at = time.perf_counter()
-    completed = start_process(_prepare_command(command), workspace_root)
+
+    log_dir = Path("C:/Users/sergi/.openclaw/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{task}.log"
+
+    completed = start_process(_prepare_command(command), workspace_root, log_file)
     duration_seconds = max(0.0, time.perf_counter() - started_at)
     memory_store.record_agent_launch(agent, task, workspace_name)
     return AgentExecutionResult(agent=agent, command=tuple(command), returncode=int(completed), duration_seconds=duration_seconds)
 
 
-def _launch_process(command: list[str], cwd: Path) -> int:
+def _launch_process(command: list[str], cwd: Path, log_file: Path | None = None) -> int:
     command = _prepare_command(command)
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    stdout = stderr = subprocess.DEVNULL
+    if log_file:
+        try:
+            f = open(log_file, "w", encoding="utf-8")
+            stdout = stderr = f
+        except Exception:
+            pass
+
     process = subprocess.Popen(
         command,
         cwd=cwd,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
         creationflags=creationflags,
     )
     return process.pid
 
 
-def _run_process(command: list[str], cwd: Path) -> int:
+def _run_process(command: list[str], cwd: Path, log_file: Path | None = None) -> int:
     command = _prepare_command(command)
+
+    stdout = stderr = subprocess.DEVNULL
+    f = None
+    if log_file:
+        try:
+            f = open(log_file, "w", encoding="utf-8")
+            stdout = stderr = f
+        except Exception:
+            pass
+
     completed = subprocess.run(
         command,
         cwd=cwd,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
         check=False,
     )
+    if f:
+        f.close()
     return completed.returncode
 
 
