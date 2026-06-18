@@ -931,6 +931,10 @@ def run_cycle_work_window_continuous(
     # Agent queue tracker for enhanced visibility
     queue_tracker = AgentQueueTracker(memory_store.path.parent, max_parallel=max_workers)
 
+    # Periodic queue logging for traceability
+    last_queue_log_at = time.perf_counter()
+    queue_log_interval_seconds = 30.0  # Log queue state every 30s
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         # Start initial work items
         for _ in range(max_workers):
@@ -957,7 +961,11 @@ def run_cycle_work_window_continuous(
                 metadata={"work_item_number": work_item_number, "role": role},
             )
 
-            print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
+            utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
+            print(
+                f"[cycle] Starting work item {work_item_number} ({role}/{agent_type}) | "
+                f"queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
+            )
             queue_tracker.start(task_id)
             future = pool.submit(
                 executor,
@@ -986,6 +994,17 @@ def run_cycle_work_window_continuous(
                 completed_futures = list(as_completed(pending_futures.keys(), timeout=1.0))
             except TimeoutError:
                 # No futures completed within timeout, continue waiting
+                # Use timeout period to log queue state periodically
+                elapsed_since_queue_log = time.perf_counter() - last_queue_log_at
+                if elapsed_since_queue_log >= queue_log_interval_seconds:
+                    snapshot = queue_tracker.snapshot()
+                    utilization_pct = (snapshot.running_count / max_workers * 100) if max_workers > 0 else 0
+                    print(
+                        f"[cycle] Queue health check @ {time.perf_counter() - wall_started_at:.0f}s: "
+                        f"{snapshot.running_count}/{max_workers} agents busy ({utilization_pct:.0f}% util), "
+                        f"{snapshot.completed_count} done, {snapshot.failed_count} failed"
+                    )
+                    last_queue_log_at = time.perf_counter()
                 continue
 
             for future in completed_futures:
@@ -1042,7 +1061,11 @@ def run_cycle_work_window_continuous(
                         metadata={"work_item_number": work_item_number, "role": role},
                     )
 
-                    print(f"[cycle] Starting work item {work_item_number} ({role}/{agent_type})")
+                    utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
+                    print(
+                        f"[cycle] Starting work item {work_item_number} ({role}/{agent_type}) | "
+                        f"queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
+                    )
                     queue_tracker.start(next_task_id)
                     new_future = pool.submit(
                         executor,
@@ -1148,6 +1171,17 @@ def run_cycle_work_window_continuous(
     wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    # Final queue utilization report
+    final_snapshot = queue_tracker.snapshot()
+    print(f"\n[cycle] Final queue summary:")
+    print(f"[cycle]   Total work items: {completed_work_items}")
+    print(f"[cycle]   Completed: {final_snapshot.completed_count}, Failed: {final_snapshot.failed_count}")
+    if work_item_durations:
+        avg_duration = sum(work_item_durations) / len(work_item_durations)
+        min_duration = min(work_item_durations)
+        max_duration = max(work_item_durations)
+        print(f"[cycle]   Work item duration: avg={avg_duration:.1f}s, min={min_duration:.1f}s, max={max_duration:.1f}s")
 
     # Clean up old queue entries to prevent unbounded growth
     removed_count = queue_tracker.clear_completed(keep_recent=100)
