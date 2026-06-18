@@ -744,7 +744,7 @@ def run_cycle_work_window(
         with ThreadPoolExecutor(max_workers=len(available_agents)) as pool:
             futures = []
             for agent in available_agents:
-                role = "primary" if agent == "opencode" else "secondary"
+                role = "primary"
                 futures.append(
                     (
                         agent,
@@ -752,7 +752,7 @@ def run_cycle_work_window(
                             executor,
                             agent,
                             workspace_name,
-                            f"cycle-work-{iteration_number}-{role}",
+                            f"cycle-work-{iteration_number}-{agent}",
                             work_prompt[f"{role}:{agent}"],
                             _workspace_root_for_sources(sources),
                             memory_store,
@@ -1207,7 +1207,7 @@ def _choose_continuous_work_item(
 ) -> tuple[str, str]:
     agents = ["opencode", "claude", "antigravity"]
     agent = agents[(work_item_number - 1) % len(agents)]
-    role = "primary" if agent == "opencode" else "secondary"
+    role = "primary"
     return agent, role
 
 
