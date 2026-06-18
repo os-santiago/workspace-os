@@ -1670,6 +1670,83 @@ def _parse_pytest_failures(output: str) -> list[dict[str, str | int]]:
     return failures
 
 
+def _generate_issues_from_backlog_inline(
+    sources: list[Source],
+    available_issues: list[dict[str, object]],
+    target_count: int,
+) -> int:
+    """Generate GitHub issues from backlog to maintain agent throughput.
+
+    Inlined version to avoid additional module dependency. Creates issues directly
+    in GitHub and appends to available_issues list (mutates in-place).
+
+    Returns count of successfully generated issues.
+    """
+    if target_count <= 0:
+        return 0
+
+    try:
+        from workspace_os.plan_gap import get_next_backlog_items
+        workspace_root = _workspace_root_for_sources(sources)
+        backlog_path = workspace_root / "docs" / "product" / "backlog.md"
+
+        if not backlog_path.exists():
+            return 0
+
+        next_items = get_next_backlog_items(backlog_path, limit=target_count)
+        if not next_items:
+            return 0
+
+        generated_count = 0
+        for item in next_items:
+            try:
+                title = f"{item.item_id}: {item.title}"
+                body_lines = [
+                    f"**Backlog ID:** {item.item_id}",
+                    "",
+                    "**Acceptance Criteria:**",
+                ]
+                if item.acceptance_criteria:
+                    for criterion in item.acceptance_criteria:
+                        body_lines.append(f"- {criterion}")
+                else:
+                    body_lines.append("- (See backlog for details)")
+                if item.implementation_notes:
+                    body_lines.append("")
+                    body_lines.append("**Implementation Notes:**")
+                    for note in item.implementation_notes:
+                        body_lines.append(f"- {note}")
+                body_lines.extend(["", "Generated from product backlog to maintain cycle throughput."])
+                body = "\n".join(body_lines)
+
+                result = subprocess.run(
+                    ["gh", "issue", "create", "--title", title, "--body", body, "--json", "number"],
+                    cwd=workspace_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    issue_number = int(data["number"])
+                    available_issues.append({
+                        "number": issue_number,
+                        "title": title,
+                        "state": "OPEN",
+                        "labels": [],
+                    })
+                    generated_count += 1
+                    print(f"[cycle] Created issue #{issue_number} from {item.item_id}")
+            except Exception as e:
+                print(f"[cycle] Failed to create issue for {item.item_id}: {e}")
+                continue
+
+        return generated_count
+    except Exception as e:
+        print(f"[cycle] Backlog issue generation failed: {e}")
+        return 0
+
+
 def _get_dynamic_interval(sources: list[Source], base_interval_seconds: float) -> float:
     import os
     if "PYTEST_CURRENT_TEST" in os.environ and "WOS_TEST_DYNAMIC_INTERVAL" not in os.environ:
