@@ -27,6 +27,20 @@ def build_hardened_delegate_prompt(
         "- Do not mix unrelated refactor, feature, docs, and infrastructure work.",
         "- Validate the narrowest meaningful surface that proves the change.",
         "- Report scope, changed files, validation, and rollback notes.",
+        "",
+        "Quality Gates (MANDATORY before committing):",
+        "- Run ALL tests: pytest tests/ -v (or equivalent test suite)",
+        "- Run linting: ruff check . (or project linter)",
+        "- Run type checking: mypy src/ (if mypy configured)",
+        "- Verify no regressions in related functionality",
+        "- Review diff carefully before commit",
+        "",
+        "First-Time Right Standard:",
+        "- Understand existing code thoroughly before changing",
+        "- Follow existing test patterns",
+        "- Add comprehensive error handling",
+        "- Test edge cases manually",
+        "- Never skip validation steps to save time",
     ]
     if tone:
         lines.append(f"Tone: {tone}")
