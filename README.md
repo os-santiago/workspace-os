@@ -4,6 +4,23 @@ Workspace OS is a local-first, cloud-compatible operating system for AI-assisted
 
 It coordinates doctrine, evidence, execution, deliverables, and AI agents through a single governed workspace model.
 
+## Quick Start
+
+**New to Workspace OS?** See the [Getting Started Guide](docs/GETTING_STARTED.md) for a 5-minute quickstart.
+
+```bash
+# Install
+pip install -e .
+
+# Try the demo
+./examples/quickstart_demo.sh
+# or on Windows:
+# .\examples\quickstart_demo.ps1
+
+# Get started
+workspace --help
+```
+
 ## Purpose
 
 The system exists to reduce scattered knowledge and make work reusable as context, guardrails, product assets, software, proposals, estimates, delivery artifacts, and non-interactive agent handshakes.
@@ -69,9 +86,45 @@ It should connect the core repositories, expose workspace status, support librar
 Progress toward the UI is tracked in `docs/product/roadmap.md`.
 The canonical product plan lives in `docs/product/product-plan.md`.
 
+## Documentation
+
+- [Getting Started Guide](docs/GETTING_STARTED.md) - 5-minute quickstart for new users
+- [Product Vision](docs/product/vision.md) - Goals, outcomes, and success criteria
+- [Roadmap](docs/product/roadmap.md) - Implementation stages and current progress
+- [Architecture Overview](docs/architecture/overview.md) - System design and boundaries
+- [Examples](examples/README.md) - Usage patterns and demo scripts
+
 ## Local Usage
 
-Run from the repository root:
+After installation, use the `workspace` command:
+
+# Check repository status
+workspace --config config/workspace.sources.local.json status
+
+# Search across sources
+workspace --config config/workspace.sources.local.json search "query"
+
+# Build context for agent work
+workspace --config config/workspace.sources.local.json context "topic"
+
+# Classify content
+workspace --config config/workspace.sources.local.json classify "text"
+
+# Capture session notes
+workspace --config config/workspace.sources.local.json capture --type session --title "Title" --text "Content" --write
+
+# Validate workspace
+workspace --config config/workspace.sources.local.json validate
+
+# Launch web interface
+workspace --config config/workspace.sources.local.json web
+```
+
+The example source registry uses relative paths and should be copied to `config/workspace.sources.local.json` before machine-specific customization. See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed setup instructions.
+
+### Advanced Usage
+
+For advanced usage and all available commands:
 
 ```bash
 python -m pip install -e .
