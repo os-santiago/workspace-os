@@ -50,5 +50,9 @@ htmlcov/
 coverage.xml
 *.cover
 
-# Security scan reports
+# Security scanning reports
+.security-reports/
+pip-audit-report.json
+safety-report.json
 bandit-report.json
+sbom.json

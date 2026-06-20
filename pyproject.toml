@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
     "rich>=13.0.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +18,13 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "bandit>=1.7.0",
+]
+
+security = [
+    "pip-audit>=2.6.0",
+    "safety>=2.3.0",
+    "bandit[toml]>=1.7.5",
+    "cyclonedx-bom>=3.11.0",
 ]
 
 [project.scripts]
@@ -75,3 +83,7 @@ backup = false
 runner = "python -m pytest -x --tb=line -q"
 tests_dir = "tests/"
 dict_synonyms = "Struct, NamedStruct"
+
+[tool.bandit]
+exclude_dirs = ["tests/", ".venv/", "build/", ".claude/"]
+skips = ["B101"]
