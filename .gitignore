@@ -13,6 +13,7 @@ __pycache__/
 tmp/
 temp/
 .cache/
+.tmp/
 
 # Mutation testing
 .mutmut-cache
@@ -34,3 +35,20 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# WOS ephemeral files
+.observer-summary-*.txt
+PROGRESS-*.md
+check-progress.sh
+.claude/
+.workspace/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Security scan reports
+bandit-report.json

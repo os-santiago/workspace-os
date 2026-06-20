@@ -21,6 +21,11 @@ from workspace_os.batch import start_batch, start_process
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.validation import ValidationResult, validate_workspace
+from workspace_os.collaborative_learning import (
+    create_shared_knowledge_base,
+    get_learning_context_for_agent,
+    PatternExtractor,
+)
 import subprocess
 
 
@@ -389,7 +394,7 @@ def _build_cycle_work_prompt(
         next_action_text = "Workspace next action unavailable."
     else:
         analysis_text = render_workspace_analysis_text(sources, memory_store, workspace=workspace_name, limit=5, compact=True).rstrip()
-        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name).rstrip()
+        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name, compact=True).rstrip()
 
     # Get recent plan gaps from latest journal to guide prioritization
     plan_gap_hint = ""
@@ -453,14 +458,15 @@ def _build_cycle_work_prompt(
     except Exception:
         pass
 
-    # Get latest journal entry to show previous iteration context
+    # Get latest journal entry to show previous iteration context (compact: 2 lines max)
     journal_context_lines: list[str] = []
     try:
         from workspace_os.journal import latest_journal_entry
         latest_entry = latest_journal_entry(memory_store)
         if latest_entry and latest_entry.story_lines:
             journal_context_lines.append("Previous iteration summary:")
-            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:5])
+            # Compact: show only first 2 lines (saves 3 lines)
+            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:2])
     except Exception:
         pass
 
@@ -498,10 +504,8 @@ def _build_cycle_work_prompt(
     base_lines.extend(
         [
             "Focus on concrete repository changes that reduce agent overhead, keep agents busy, and improve the long-run operating model.",
-            "Prefer code, tests, and docs over prose-only output.",
-            "Keep unrelated local changes intact.",
-            "Return a concise summary of changed files, validations, and any remaining gaps.",
-            f"Supported work agents: {', '.join(available_work_agents())}.",
+            "Prefer code, tests, and docs over prose-only output. Keep unrelated local changes intact.",
+            f"Return a concise summary of changed files, validations, and any remaining gaps. Supported work agents: {', '.join(available_work_agents())}.",
         ]
     )
     if recent_work_lines:
@@ -511,10 +515,24 @@ def _build_cycle_work_prompt(
         base_lines.append("")
         base_lines.extend(journal_context_lines)
 
+    # Add collaborative learning context
+    learning_context = ""
+    try:
+        knowledge_base = create_shared_knowledge_base(memory_store.path.parent)
+        learning_context = get_learning_context_for_agent(knowledge_base, "agent", role, limit=3)
+    except Exception:
+        pass
+
     # Add recent work context from other agents (squad awareness)
     if recent_work:
         base_lines.append("")
         base_lines.append("Recent team activity:")
+    if learning_context:
+        base_lines.append("")
+        base_lines.append("Team Learning:")
+        base_lines.append(learning_context)
+
+
         base_lines.extend(f"- {work}" for work in recent_work)
 
     base_lines.extend(
@@ -543,9 +561,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: primary executor.",
-                "Lead implementation. Focus on getting it done correctly and efficiently.",
-                role_guidance,
+                f"Role: primary executor. {role_guidance}",
             ]
         )
     elif role == "cross-check":
@@ -553,9 +569,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: cross-check reviewer.",
-                "Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort.",
-                "Focus on catching issues before they reach checkpoints.",
+                "Role: cross-check reviewer. Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort. Focus on catching issues before they reach checkpoints.",
             ]
         )
     elif role == "observer":
@@ -563,9 +577,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: learning observer.",
-                "Review recent work and provide feedback. Identify patterns, suggest process improvements.",
-                "Your feedback helps the squad learn and adapt.",
+                "Role: learning observer. Review recent work and provide feedback. Identify patterns, suggest process improvements. Your feedback helps the squad learn and adapt.",
             ]
         )
     else:
@@ -579,8 +591,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: executor.",
-                executor_guidance,
+                f"Role: executor. {executor_guidance}",
             ]
         )
 
@@ -589,8 +600,7 @@ def _build_cycle_work_prompt(
         [
             *base_lines,
             "",
-            "Role: cross-check.",
-            "Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
+            "Role: cross-check. Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
         ]
     )
 
@@ -1326,33 +1336,6 @@ def run_cycle_work_window_continuous(
                     # Record successful completion in queue tracker
                     completed_metadata = queue_tracker.complete(work_info["task_id"], returncode=0, duration_seconds=duration)
 
-                    # Verify PR links to issue (continuous mode only)
-                    pr_validation_result = None
-                    if completed_metadata and "issue_number" in completed_metadata:
-                        issue_num = completed_metadata["issue_number"]
-                        if issue_num:
-                            pr_validation_result = _verify_pr_links_to_issue(sources, issue_num)
-
-                            # Store PR info in completed_metadata for tracking
-                            if pr_validation_result.get("pr_number"):
-                                completed_metadata["pr_number"] = pr_validation_result["pr_number"]
-                            if pr_validation_result.get("pr_url"):
-                                completed_metadata["pr_url"] = pr_validation_result["pr_url"]
-
-                            # Log validation result
-                            if pr_validation_result.get("validated"):
-                                if pr_validation_result.get("passed"):
-                                    if pr_validation_result.get("pr_number"):
-                                        print(
-                                            f"[cycle] PR validation passed: Issue #{issue_num} linked in PR #{pr_validation_result['pr_number']}"
-                                        )
-                                else:
-                                    print(
-                                        f"[cycle] PR validation FAILED: {pr_validation_result.get('error', 'Unknown error')}"
-                                    )
-                            elif pr_validation_result.get("error"):
-                                print(f"[cycle] PR validation skipped: {pr_validation_result['error']}")
-
                     # Mark issue as no longer in progress (allows work stealing if re-queued)
                     if completed_metadata and "issue_number" in completed_metadata:
                         issue_num = completed_metadata["issue_number"]
@@ -1552,6 +1535,24 @@ def run_cycle_work_window_continuous(
                             update_agent_performance_from_queue(memory_store, queue_tracker)
                         except Exception as e:
                             print(f"[squad] Warning: Failed to update performance metrics: {e}")
+
+                        # Extract patterns and update shared knowledge base
+                        try:
+                            knowledge_base = create_shared_knowledge_base(memory_store.path.parent)
+                            pattern_extractor = PatternExtractor(knowledge_base)
+                            
+                            # Extract patterns from recent tasks
+                            recent_tasks = queue_tracker.recent_tasks(limit=50)
+                            patterns = pattern_extractor.extract_from_task_history(list(recent_tasks))
+                            for pattern in patterns:
+                                knowledge_base.add_pattern(pattern)
+                            
+                            # Extract patterns from operator feedback
+                            feedback_patterns = pattern_extractor.extract_from_feedback(memory_store)
+                            for pattern in feedback_patterns:
+                                knowledge_base.add_pattern(pattern)
+                        except Exception as e:
+                            print(f"[squad] Warning: Failed to update knowledge base: {e}")
 
                     # Log agent queue snapshot for visibility
                     snapshot = queue_tracker.snapshot()
@@ -1872,6 +1873,127 @@ def _init_git_repo(path: Path) -> None:
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
 
 
+
+def _run_coverage_check(source_path: Path) -> CycleCheckResult:
+    """Run coverage analysis with pytest-cov and enforce minimum thresholds."""
+    import subprocess
+    import json
+    
+    config_path = source_path / "config" / "quality.json"
+    min_coverage = 80.0
+    
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+                min_coverage = config.get("coverage", {}).get("fail_under", 80.0)
+        except Exception:
+            pass
+    
+    try:
+        result = subprocess.run(
+            [
+                "pytest",
+                "--cov=src/workspace_os",
+                "--cov-report=term-missing",
+                "--cov-report=html",
+                "--cov-report=xml",
+                f"--cov-fail-under={min_coverage}",
+                "-q"
+            ],
+            cwd=source_path,
+            capture_output=True,
+            text=True,
+            timeout=300.0
+        )
+        
+        coverage_pct = None
+        for line in result.stdout.splitlines():
+            if 'TOTAL' in line:
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part == 'TOTAL' and i + 1 < len(parts):
+                        try:
+                            coverage_pct = float(parts[-1].rstrip('%'))
+                        except (ValueError, IndexError):
+                            pass
+        
+        if result.returncode != 0:
+            detail = "Coverage check failed. "
+            if coverage_pct is not None:
+                detail += f"Coverage: {coverage_pct:.2f}% (minimum: {min_coverage}%)"
+            else:
+                detail += f"Required minimum: {min_coverage}%"
+            return CycleCheckResult("quality:coverage", False, detail)
+        
+        detail = f"Coverage: {coverage_pct:.2f}% (minimum: {min_coverage}%)" if coverage_pct else "Coverage check passed"
+        return CycleCheckResult("quality:coverage", True, detail)
+        
+    except subprocess.TimeoutExpired:
+        return CycleCheckResult("quality:coverage", False, "Coverage check timed out after 300s")
+    except Exception as e:
+        return CycleCheckResult("quality:coverage", True, f"Skipped coverage check: {e}")
+
+
+def _run_bandit_security_check(source_path: Path) -> CycleCheckResult:
+    """Run bandit security scanner on source code."""
+    import subprocess
+    import json
+    
+    # Load quality config
+    config_path = source_path / "config" / "quality.json"
+    severity = "medium"
+    
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+                severity = config.get("security", {}).get("severity_threshold", "medium")
+        except Exception:
+            pass
+    
+    try:
+        # Run bandit on src directory
+        src_dir = source_path / "src"
+        if not src_dir.exists():
+            return CycleCheckResult("quality:bandit", True, "No src directory found, skipped")
+        
+        result = subprocess.run(
+            [
+                "bandit",
+                "-r", str(src_dir),
+                "-f", "json",
+                "-ll"  # Only report medium and high severity
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60.0
+        )
+        
+        # Parse bandit JSON output
+        try:
+            output = json.loads(result.stdout)
+            issues_count = len(output.get("results", []))
+            
+            if issues_count > 0:
+                detail = f"Bandit found {issues_count} security issues (severity >= {severity})"
+                return CycleCheckResult("quality:bandit", False, detail)
+            
+            return CycleCheckResult("quality:bandit", True, "No security issues found")
+        except json.JSONDecodeError:
+            # Bandit returns 0 if no issues, 1 if issues found
+            if result.returncode == 0:
+                return CycleCheckResult("quality:bandit", True, "No security issues found")
+            return CycleCheckResult("quality:bandit", False, "Bandit found security issues")
+            
+    except subprocess.TimeoutExpired:
+        return CycleCheckResult("quality:bandit", False, "Bandit check timed out after 60s")
+    except FileNotFoundError:
+        return CycleCheckResult("quality:bandit", True, "Bandit not installed, skipped")
+    except Exception as e:
+        return CycleCheckResult("quality:bandit", True, f"Skipped bandit check: {e}")
+
+
 def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = False) -> list[CycleCheckResult]:
     import subprocess
     import re
@@ -1990,6 +2112,27 @@ def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = F
         except Exception as e:
             results.append(CycleCheckResult("quality:test-suite", True, f"Skipped pytest check: {e}"))
 
+    # 3. Coverage check using pytest-cov
+    # Skip coverage during fast-path validation
+    if not skip_tests:
+        for source in sources:
+            if getattr(source, 'group', 'workspace') != 'workspace':
+                continue
+            if source.path.exists() and source.path.is_dir():
+                coverage_result = _run_coverage_check(source.path)
+                results.append(coverage_result)
+                break  # Only check first workspace source
+
+    # 4. Security check using bandit
+    if not skip_tests:
+        for source in sources:
+            if getattr(source, 'group', 'workspace') != 'workspace':
+                continue
+            if source.path.exists() and source.path.is_dir():
+                bandit_result = _run_bandit_security_check(source.path)
+                results.append(bandit_result)
+                break  # Only check first workspace source
+
     return results
 
 
@@ -2015,152 +2158,6 @@ def _parse_pytest_failures(output: str) -> list[dict[str, str | int]]:
             })
 
     return failures
-
-
-def _verify_pr_links_to_issue(
-    sources: list[Source],
-    issue_number: int | None,
-    timeout_seconds: float = 10.0,
-) -> dict[str, object]:
-    """Verify that recent PRs properly link to the assigned issue.
-
-    Args:
-        sources: List of Source objects defining the workspace
-        issue_number: The issue number that should be linked in the PR
-        timeout_seconds: Maximum time to wait for gh command
-
-    Returns:
-        Dictionary with validation results:
-        - validated: bool - whether validation was performed
-        - passed: bool - whether PR properly links to issue
-        - pr_number: int | None - PR number if found
-        - pr_url: str | None - PR URL if found
-        - error: str | None - error message if validation failed
-    """
-    # Check environment variables
-    skip_validation = os.environ.get("WOS_SKIP_PR_VALIDATION", "").lower() in ("true", "1", "yes")
-    if skip_validation:
-        return {
-            "validated": False,
-            "passed": True,
-            "pr_number": None,
-            "pr_url": None,
-            "error": "Validation skipped via WOS_SKIP_PR_VALIDATION",
-        }
-
-    validation_mode = os.environ.get("WOS_PR_VALIDATION_MODE", "soft").lower()
-    if validation_mode not in ("soft", "hard"):
-        validation_mode = "soft"
-
-    if not issue_number:
-        return {
-            "validated": False,
-            "passed": True,
-            "pr_number": None,
-            "pr_url": None,
-            "error": "No issue assigned to this work item",
-        }
-
-    try:
-        workspace_root = _workspace_root_for_sources(sources)
-
-        # Fetch recent PRs (last 10) with metadata
-        result = subprocess.run(
-            ["gh", "pr", "list", "--limit", "10", "--json", "number,title,body,url,createdAt"],
-            cwd=workspace_root,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or "Unknown error"
-
-            # Handle rate limiting
-            if "rate limit" in error_msg.lower() or "API rate limit" in error_msg.lower():
-                return {
-                    "validated": False,
-                    "passed": True if validation_mode == "soft" else False,
-                    "pr_number": None,
-                    "pr_url": None,
-                    "error": f"GitHub API rate limit exceeded (mode={validation_mode})",
-                }
-
-            # Handle other errors
-            return {
-                "validated": False,
-                "passed": True if validation_mode == "soft" else False,
-                "pr_number": None,
-                "pr_url": None,
-                "error": f"gh pr list failed: {error_msg} (mode={validation_mode})",
-            }
-
-        prs = json.loads(result.stdout)
-
-        # Check for closing keywords: Closes/Fixes/Resolves #N
-        closing_keywords = ["closes", "fixes", "resolves", "close", "fix", "resolve"]
-        issue_ref = f"#{issue_number}"
-
-        for pr in prs:
-            pr_body = (pr.get("body") or "").lower()
-            pr_title = (pr.get("title") or "").lower()
-            combined_text = f"{pr_title} {pr_body}"
-
-            # Check if PR mentions the issue with a closing keyword
-            for keyword in closing_keywords:
-                if f"{keyword} {issue_ref}".lower() in combined_text or f"{keyword}:{issue_ref}".lower() in combined_text:
-                    return {
-                        "validated": True,
-                        "passed": True,
-                        "pr_number": int(pr["number"]),
-                        "pr_url": pr.get("url"),
-                        "error": None,
-                    }
-
-        # No PR found linking to the issue
-        if validation_mode == "hard":
-            return {
-                "validated": True,
-                "passed": False,
-                "pr_number": None,
-                "pr_url": None,
-                "error": f"No PR found with closing keyword for issue #{issue_number}",
-            }
-        else:
-            # Soft mode: warn but don't fail
-            return {
-                "validated": True,
-                "passed": True,
-                "pr_number": None,
-                "pr_url": None,
-                "error": f"Warning: No PR found with closing keyword for issue #{issue_number} (soft mode)",
-            }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "validated": False,
-            "passed": True if validation_mode == "soft" else False,
-            "pr_number": None,
-            "pr_url": None,
-            "error": f"gh pr list timed out after {timeout_seconds}s (mode={validation_mode})",
-        }
-    except json.JSONDecodeError as e:
-        return {
-            "validated": False,
-            "passed": True if validation_mode == "soft" else False,
-            "pr_number": None,
-            "pr_url": None,
-            "error": f"Failed to parse gh pr list output: {e} (mode={validation_mode})",
-        }
-    except Exception as e:
-        return {
-            "validated": False,
-            "passed": True if validation_mode == "soft" else False,
-            "pr_number": None,
-            "pr_url": None,
-            "error": f"Unexpected error during PR validation: {e} (mode={validation_mode})",
-        }
 
 
 def _generate_issues_from_backlog_inline(

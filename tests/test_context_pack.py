@@ -4,6 +4,7 @@ import unittest
 
 from workspace_os.config import Source
 from workspace_os.context_pack import build_context_pack
+from workspace_os.memory import WorkspaceMemoryStore
 
 
 class ContextPackTests(unittest.TestCase):
@@ -41,6 +42,23 @@ class ContextPackTests(unittest.TestCase):
 
         self.assertIn("token=[REDACTED]", rendered)
         self.assertNotIn("example-value", rendered)
+
+    def test_context_pack_includes_recent_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doctrine = root / "doctrine"
+            doctrine.mkdir()
+            (doctrine / "ADEV.md").write_text("# ADEV\n", encoding="utf-8")
+            memory_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(memory_path)
+            store.ensure_schema()
+            store.record_preference("tone", "concise")
+            source = Source("adev", "doctrine", "Doctrine.", doctrine)
+
+            rendered = build_context_pack([source], "concise", max_matches=5, memory_path=memory_path).render_markdown()
+
+        self.assertIn("## Recent Memory", rendered)
+        self.assertIn("[preference] tone: concise", rendered)
 
 
 if __name__ == "__main__":

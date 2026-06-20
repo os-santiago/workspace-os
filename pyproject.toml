@@ -8,6 +8,16 @@ version = "0.1.0"
 description = "Local-first controller for an AI-assisted workspace."
 requires-python = ">=3.11"
 readme = "README.md"
+dependencies = [
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "bandit>=1.7.0",
+]
 
 [project.scripts]
 workspace = "workspace_os.cli:main"
@@ -23,7 +33,41 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = [
+    "--tb=short",
+    "--strict-markers",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/workspace_os"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*Protocol:",
+    "@abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 [tool.mutmut]
 paths_to_mutate = "src/workspace_os/"

@@ -4,6 +4,17 @@
 
 Workspace OS is a local-first orchestration layer for AI-assisted work. It coordinates repositories, cloud deliverables, and agents without becoming the owner of all content.
 
+The canonical stack is:
+
+```text
+ADEV -> OCE -> WOS
+principle -> model -> implementation
+```
+
+- **ADEV** is the upstream principle layer.
+- **OCE** is the Operational Conscience Engine model layer.
+- **WOS** is the Workspace OS implementation surface.
+
 ## Core Components
 
 ```text
@@ -42,19 +53,27 @@ Initial commands:
 
 Interprets requests before routing them to execution.
 
-Workspace OS implements this concept as the Operational Conscience Layer defined in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
+Workspace OS implements this concept as the Operational Conscience Engine model defined in `docs/architecture/decisions/0005-adev-oce-wos-stack.md`.
+The operational decision pipeline is further specified in `docs/architecture/decisions/0004-request-bridge-pipeline.md`.
+The original Operational Conscience Layer framing remains valid as the functional predecessor recorded in `docs/architecture/decisions/0003-operational-conscience-layer.md`.
+The layered extension model is specified in `docs/architecture/decisions/0006-oce-layered-extension-model.md`.
+The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 
 Initial scope:
-- Convert raw operator requests into explicit intent, outcome, risk, and checkpoint expectations.
-- Decide whether the request should be clarified, answered, converted to an agent brief, or executed.
-- Block or downgrade requests that conflict with privacy, safety, or repository rules.
+- Convert raw operator requests into explicit intent, context, domain, risk, and checkpoint expectations.
+- Evaluate context, norms, consequences, and decision tradeoffs before answering or delegating.
+- Decide whether the request should be clarified, safely redirected, converted to an agent brief, or executed.
+- Block or downgrade requests that conflict with privacy, safety, authority, or repository rules.
 - Preserve operator preferences and decision style as explicit context rather than implicit chat memory.
 
 Initial implementation:
 - Uses deterministic rules for low, medium, high, and critical software delegation risk.
-- Allows `ALLOW` and `ALLOW_WITH_LIMITS` decisions to proceed to approved agent launch.
+- Emits `ALLOW`, `ALLOW_WITH_LIMITS`, `SAFE_REDIRECT`, `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions.
+- Allows `ALLOW`, `ALLOW_WITH_LIMITS`, and `SAFE_REDIRECT` decisions to proceed to response generation or allowed redirection.
 - Blocks `ASK_CLARIFICATION`, `REFUSE`, and `ESCALATE_TO_HUMAN` decisions before agent launch.
-- Returns the decision to the web UI so the operator can inspect the bridge state.
+- Applies malicious-agentic hardening implicitly to every request: refuse routines that enable scams, evasion, or abuse, and allow bounded defensive guidance for detection, blocking, and recovery.
+- Accepts layered extension modules that can add policy documents, context hooks, and decision hooks without replacing the core engine.
+- Returns the decision, policy references, and compact context to the web UI so the operator can inspect the bridge state.
 
 ### Learning Engine
 
