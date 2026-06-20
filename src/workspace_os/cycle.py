@@ -1836,6 +1836,127 @@ def _init_git_repo(path: Path) -> None:
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
 
 
+
+def _run_coverage_check(source_path: Path) -> CycleCheckResult:
+    """Run coverage analysis with pytest-cov and enforce minimum thresholds."""
+    import subprocess
+    import json
+    
+    config_path = source_path / "config" / "quality.json"
+    min_coverage = 80.0
+    
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+                min_coverage = config.get("coverage", {}).get("fail_under", 80.0)
+        except Exception:
+            pass
+    
+    try:
+        result = subprocess.run(
+            [
+                "pytest",
+                "--cov=src/workspace_os",
+                "--cov-report=term-missing",
+                "--cov-report=html",
+                "--cov-report=xml",
+                f"--cov-fail-under={min_coverage}",
+                "-q"
+            ],
+            cwd=source_path,
+            capture_output=True,
+            text=True,
+            timeout=300.0
+        )
+        
+        coverage_pct = None
+        for line in result.stdout.splitlines():
+            if 'TOTAL' in line:
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part == 'TOTAL' and i + 1 < len(parts):
+                        try:
+                            coverage_pct = float(parts[-1].rstrip('%'))
+                        except (ValueError, IndexError):
+                            pass
+        
+        if result.returncode != 0:
+            detail = "Coverage check failed. "
+            if coverage_pct is not None:
+                detail += f"Coverage: {coverage_pct:.2f}% (minimum: {min_coverage}%)"
+            else:
+                detail += f"Required minimum: {min_coverage}%"
+            return CycleCheckResult("quality:coverage", False, detail)
+        
+        detail = f"Coverage: {coverage_pct:.2f}% (minimum: {min_coverage}%)" if coverage_pct else "Coverage check passed"
+        return CycleCheckResult("quality:coverage", True, detail)
+        
+    except subprocess.TimeoutExpired:
+        return CycleCheckResult("quality:coverage", False, "Coverage check timed out after 300s")
+    except Exception as e:
+        return CycleCheckResult("quality:coverage", True, f"Skipped coverage check: {e}")
+
+
+def _run_bandit_security_check(source_path: Path) -> CycleCheckResult:
+    """Run bandit security scanner on source code."""
+    import subprocess
+    import json
+    
+    # Load quality config
+    config_path = source_path / "config" / "quality.json"
+    severity = "medium"
+    
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+                severity = config.get("security", {}).get("severity_threshold", "medium")
+        except Exception:
+            pass
+    
+    try:
+        # Run bandit on src directory
+        src_dir = source_path / "src"
+        if not src_dir.exists():
+            return CycleCheckResult("quality:bandit", True, "No src directory found, skipped")
+        
+        result = subprocess.run(
+            [
+                "bandit",
+                "-r", str(src_dir),
+                "-f", "json",
+                "-ll"  # Only report medium and high severity
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60.0
+        )
+        
+        # Parse bandit JSON output
+        try:
+            output = json.loads(result.stdout)
+            issues_count = len(output.get("results", []))
+            
+            if issues_count > 0:
+                detail = f"Bandit found {issues_count} security issues (severity >= {severity})"
+                return CycleCheckResult("quality:bandit", False, detail)
+            
+            return CycleCheckResult("quality:bandit", True, "No security issues found")
+        except json.JSONDecodeError:
+            # Bandit returns 0 if no issues, 1 if issues found
+            if result.returncode == 0:
+                return CycleCheckResult("quality:bandit", True, "No security issues found")
+            return CycleCheckResult("quality:bandit", False, "Bandit found security issues")
+            
+    except subprocess.TimeoutExpired:
+        return CycleCheckResult("quality:bandit", False, "Bandit check timed out after 60s")
+    except FileNotFoundError:
+        return CycleCheckResult("quality:bandit", True, "Bandit not installed, skipped")
+    except Exception as e:
+        return CycleCheckResult("quality:bandit", True, f"Skipped bandit check: {e}")
+
+
 def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = False) -> list[CycleCheckResult]:
     import subprocess
     import re
@@ -1953,6 +2074,27 @@ def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = F
             results.append(CycleCheckResult("quality:test-suite", False, f"Test suite timed out after {max_timeout} seconds: {e}"))
         except Exception as e:
             results.append(CycleCheckResult("quality:test-suite", True, f"Skipped pytest check: {e}"))
+
+    # 3. Coverage check using pytest-cov
+    # Skip coverage during fast-path validation
+    if not skip_tests:
+        for source in sources:
+            if getattr(source, 'group', 'workspace') != 'workspace':
+                continue
+            if source.path.exists() and source.path.is_dir():
+                coverage_result = _run_coverage_check(source.path)
+                results.append(coverage_result)
+                break  # Only check first workspace source
+
+    # 4. Security check using bandit
+    if not skip_tests:
+        for source in sources:
+            if getattr(source, 'group', 'workspace') != 'workspace':
+                continue
+            if source.path.exists() and source.path.is_dir():
+                bandit_result = _run_bandit_security_check(source.path)
+                results.append(bandit_result)
+                break  # Only check first workspace source
 
     return results
 

@@ -1,0 +1,17 @@
+{
+  "coverage": {
+    "minimum_total": 80.0,
+    "minimum_new_code": 80.0,
+    "fail_under": 80.0,
+    "enabled": true
+  },
+  "security": {
+    "bandit_enabled": true,
+    "severity_threshold": "medium"
+  },
+  "quality_gates": {
+    "enforce_coverage": true,
+    "enforce_security": true,
+    "block_on_failure": true
+  }
+}
