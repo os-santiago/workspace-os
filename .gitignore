@@ -37,3 +37,13 @@ PROGRESS-*.md
 check-progress.sh
 .claude/
 .workspace/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Security scan reports
+bandit-report.json
