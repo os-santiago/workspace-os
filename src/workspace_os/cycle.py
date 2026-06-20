@@ -550,8 +550,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: cross-check reviewer.",
-                "Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort. Focus on catching issues before they reach checkpoints.",
+                "Role: cross-check reviewer. Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort. Focus on catching issues before they reach checkpoints.",
             ]
         )
     elif role == "observer":
@@ -559,8 +558,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: learning observer.",
-                "Review recent work and provide feedback. Identify patterns, suggest process improvements. Your feedback helps the squad learn and adapt.",
+                "Role: learning observer. Review recent work and provide feedback. Identify patterns, suggest process improvements. Your feedback helps the squad learn and adapt.",
             ]
         )
     else:
