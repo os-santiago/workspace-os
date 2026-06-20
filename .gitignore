@@ -37,3 +37,10 @@ PROGRESS-*.md
 check-progress.sh
 .claude/
 .workspace/
+
+# Security scanning reports
+.security-reports/
+pip-audit-report.json
+safety-report.json
+bandit-report.json
+sbom.json

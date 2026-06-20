@@ -10,6 +10,15 @@ requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
     "rich>=13.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+security = [
+    "pip-audit>=2.6.0",
+    "safety>=2.3.0",
+    "bandit[toml]>=1.7.5",
+    "cyclonedx-bom>=3.11.0",
 ]
 
 [project.scripts]
@@ -20,3 +29,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 workspace_os = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
+
+[tool.bandit]
+exclude_dirs = ["tests/", ".venv/", "build/", ".claude/"]
+skips = ["B101"]

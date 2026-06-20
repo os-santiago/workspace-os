@@ -1,0 +1,22 @@
+# Security Vulnerability Exceptions
+# Document approved exceptions for vulnerabilities that cannot be immediately remediated
+
+exceptions: []
+
+# Example exception format:
+#
+# - cve: CVE-2024-12345
+#   package: example-package
+#   version: "1.2.3"
+#   severity: medium
+#   reason: "No patch available; vulnerability requires specific configuration not used in our deployment"
+#   mitigations:
+#     - "Input validation at application layer"
+#     - "Network segmentation prevents external access"
+#     - "Monitoring in place for suspicious activity"
+#   approved_by: "Security Team / Tech Lead"
+#   approved_date: "2026-06-20"
+#   expiry_date: "2026-09-20"
+#   review_frequency: "monthly"
+#   tracking_issue: "https://github.com/org/repo/issues/123"
+#   notes: "Vendor notified, patch expected Q3 2026"

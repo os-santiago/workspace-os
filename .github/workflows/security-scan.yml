@@ -1,0 +1,120 @@
+name: Security Vulnerability Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pip-audit safety
+
+      - name: Run pip-audit
+        id: pip-audit
+        continue-on-error: true
+        run: |
+          echo "## Pip-Audit Scan Results" >> $GITHUB_STEP_SUMMARY
+          pip-audit --format json --output pip-audit-report.json || true
+          pip-audit --format markdown >> $GITHUB_STEP_SUMMARY || true
+          VULN_COUNT=$(jq '.dependencies | length' pip-audit-report.json 2>/dev/null || echo 0)
+          echo "vulnerabilities=$VULN_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Run Safety check
+        continue-on-error: true
+        run: |
+          echo "## Safety Check Results" >> $GITHUB_STEP_SUMMARY
+          safety check --json --output safety-report.json || true
+          safety check || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulnerability-reports
+          path: |
+            pip-audit-report.json
+            safety-report.json
+          retention-days: 30
+
+      - name: Fail on vulnerabilities
+        if: steps.pip-audit.outputs.vulnerabilities != '0'
+        run: |
+          echo "::error::Vulnerabilities detected"
+          exit 1
+
+  code-scan:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Bandit
+        run: |
+          pip install bandit[toml]
+          bandit -r src/ -f json -o bandit-report.json || true
+          bandit -r src/ -ll -ii
+
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate SBOM
+        run: |
+          pip install cyclonedx-bom
+          pip install -e .
+          cyclonedx-py requirements pyproject.toml -o sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 90
