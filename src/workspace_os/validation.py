@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from workspace_os.config import Source
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.progress import progress
 
 
 @dataclass(frozen=True)
@@ -15,9 +16,23 @@ class ValidationResult:
 
 
 def validate_workspace(sources: list[Source], include_housekeeping: bool = True) -> list[ValidationResult]:
-    results = [_validate_sources_exist(sources), *_validate_source_states(sources)]
-    if include_housekeeping:
-        results.append(_validate_housekeeping(sources))
+    total_steps = len(sources) + (1 if include_housekeeping else 0) + 1  # sources + housekeeping + registry check
+
+    with progress("Validating workspace", total=total_steps) as tracker:
+        tracker.update(description="Checking source registry")
+        results = [_validate_sources_exist(sources)]
+        tracker.update()
+
+        tracker.update(description="Validating source states")
+        results.extend(_validate_source_states(sources))
+
+        if include_housekeeping:
+            tracker.update(description="Checking for temporary artifacts")
+            results.append(_validate_housekeeping(sources))
+            tracker.update()
+
+        tracker.complete()
+
     return results
 
 

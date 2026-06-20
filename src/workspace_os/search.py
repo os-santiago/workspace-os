@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from workspace_os.config import Source
+from workspace_os.progress import progress
 
 
 EXCLUDED_DIRS = {
@@ -62,26 +63,33 @@ def search_sources(
     needle = query.casefold()
     matches: list[SearchMatch] = []
 
-    for source in sources:
-        if not source.search:
-            continue
-        if source_type and source.type != source_type:
-            continue
-        if not source.path.exists():
-            continue
+    # Count searchable sources for progress tracking
+    searchable_sources = [
+        s for s in sources
+        if s.search and (not source_type or s.type == source_type) and s.path.exists()
+    ]
 
-        for path in _iter_text_files(source.path):
-            for line_number, line in _matching_lines(path, needle):
-                matches.append(
-                    SearchMatch(
-                        source_name=source.name,
-                        path=path.relative_to(source.path),
-                        line_number=line_number,
-                        line=line.strip(),
+    with progress(f"Searching for '{query}'", total=len(searchable_sources)) as tracker:
+        for source in searchable_sources:
+            tracker.update(description=f"Searching {source.name}")
+
+            for path in _iter_text_files(source.path):
+                for line_number, line in _matching_lines(path, needle):
+                    matches.append(
+                        SearchMatch(
+                            source_name=source.name,
+                            path=path.relative_to(source.path),
+                            line_number=line_number,
+                            line=line.strip(),
+                        )
                     )
-                )
-                if len(matches) >= max_results:
-                    return matches
+                    if len(matches) >= max_results:
+                        tracker.complete()
+                        return matches
+
+            tracker.update()
+
+        tracker.complete()
 
     return matches
 

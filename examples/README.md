@@ -28,6 +28,36 @@ The quickstart demo walks through the basic workflow:
 5. **Validate** - Run validation checks across sources
 6. **Housekeeping** - Find temporary artifacts
 
+## Available Examples
+
+### progress_demo.py
+
+Demonstrates the progress bar and ETA functionality added for long-running commands.
+
+**Usage:**
+```bash
+python examples/progress_demo.py
+```
+
+**Features demonstrated:**
+- Simple progress bar with percentage and ETA
+- Indeterminate progress (spinner for unknown totals)
+- Batch progress tracking (multiple concurrent operations)
+- Dynamic total (discovered during execution)
+- Custom configuration options
+- Real-world validation scenario
+
+**Requirements:**
+- `rich` library (installed automatically with workspace-os)
+
+**Expected output:**
+The script runs 6 different demo scenarios showing various progress tracking patterns. Each demo includes:
+- Visual progress bars
+- Percentage complete
+- Estimated time remaining
+- Time elapsed
+- Spinner animations for indeterminate operations
+
 ## Configuration Examples
 
 ### Minimal Configuration
@@ -200,6 +230,18 @@ for match in matches:
     print(f"{match.source_name}:{match.path}:{match.line_number}")
 ```
 
+## Running Examples
+
+All examples can be run directly from the repository root:
+
+```bash
+# Install workspace-os in development mode
+pip install -e .
+
+# Run an example
+python examples/progress_demo.py
+```
+
 ## Next Steps
 
 After running the quickstart demo:
@@ -210,6 +252,22 @@ After running the quickstart demo:
 4. Read the [Product Vision](../docs/product/vision.md)
 5. Check the [Roadmap](../docs/product/roadmap.md)
 
+## Adding New Examples
+
+When adding new example scripts:
+
+1. Create the script in this directory
+2. Add appropriate documentation header
+3. Include usage instructions
+4. Update this README
+5. Test the example in a clean environment
+
 ## Troubleshooting
 
 See the [Troubleshooting section](../docs/GETTING_STARTED.md#troubleshooting) in the Getting Started guide.
+
+## See Also
+
+- [Progress Tracking Documentation](../docs/features/progress-tracking.md)
+- [Progress Module Source](../src/workspace_os/progress.py)
+- [Progress Tests](../tests/test_progress.py)
