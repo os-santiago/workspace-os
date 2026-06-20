@@ -21,6 +21,11 @@ from workspace_os.batch import start_batch, start_process
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.validation import ValidationResult, validate_workspace
+from workspace_os.collaborative_learning import (
+    create_shared_knowledge_base,
+    get_learning_context_for_agent,
+    PatternExtractor,
+)
 import subprocess
 
 
@@ -510,10 +515,24 @@ def _build_cycle_work_prompt(
         base_lines.append("")
         base_lines.extend(journal_context_lines)
 
+    # Add collaborative learning context
+    learning_context = ""
+    try:
+        knowledge_base = create_shared_knowledge_base(memory_store.path.parent)
+        learning_context = get_learning_context_for_agent(knowledge_base, "agent", role, limit=3)
+    except Exception:
+        pass
+
     # Add recent work context from other agents (squad awareness)
     if recent_work:
         base_lines.append("")
         base_lines.append("Recent team activity:")
+    if learning_context:
+        base_lines.append("")
+        base_lines.append("Team Learning:")
+        base_lines.append(learning_context)
+
+
         base_lines.extend(f"- {work}" for work in recent_work)
 
     base_lines.extend(
@@ -1516,6 +1535,24 @@ def run_cycle_work_window_continuous(
                             update_agent_performance_from_queue(memory_store, queue_tracker)
                         except Exception as e:
                             print(f"[squad] Warning: Failed to update performance metrics: {e}")
+
+                        # Extract patterns and update shared knowledge base
+                        try:
+                            knowledge_base = create_shared_knowledge_base(memory_store.path.parent)
+                            pattern_extractor = PatternExtractor(knowledge_base)
+                            
+                            # Extract patterns from recent tasks
+                            recent_tasks = queue_tracker.recent_tasks(limit=50)
+                            patterns = pattern_extractor.extract_from_task_history(list(recent_tasks))
+                            for pattern in patterns:
+                                knowledge_base.add_pattern(pattern)
+                            
+                            # Extract patterns from operator feedback
+                            feedback_patterns = pattern_extractor.extract_from_feedback(memory_store)
+                            for pattern in feedback_patterns:
+                                knowledge_base.add_pattern(pattern)
+                        except Exception as e:
+                            print(f"[squad] Warning: Failed to update knowledge base: {e}")
 
                     # Log agent queue snapshot for visibility
                     snapshot = queue_tracker.snapshot()
