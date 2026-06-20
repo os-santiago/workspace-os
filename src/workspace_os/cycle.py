@@ -499,10 +499,8 @@ def _build_cycle_work_prompt(
     base_lines.extend(
         [
             "Focus on concrete repository changes that reduce agent overhead, keep agents busy, and improve the long-run operating model.",
-            "Prefer code, tests, and docs over prose-only output.",
-            "Keep unrelated local changes intact.",
-            "Return a concise summary of changed files, validations, and any remaining gaps.",
-            f"Supported work agents: {', '.join(available_work_agents())}.",
+            "Prefer code, tests, and docs over prose-only output. Keep unrelated local changes intact.",
+            f"Return a concise summary of changed files, validations, and any remaining gaps. Supported work agents: {', '.join(available_work_agents())}.",
         ]
     )
     if recent_work_lines:
@@ -544,9 +542,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: primary executor.",
-                "Lead implementation. Focus on getting it done correctly and efficiently.",
-                role_guidance,
+                f"Role: primary executor. {role_guidance}",
             ]
         )
     elif role == "cross-check":
@@ -555,8 +551,7 @@ def _build_cycle_work_prompt(
                 *base_lines,
                 "",
                 "Role: cross-check reviewer.",
-                "Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort.",
-                "Focus on catching issues before they reach checkpoints.",
+                "Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort. Focus on catching issues before they reach checkpoints.",
             ]
         )
     elif role == "observer":
