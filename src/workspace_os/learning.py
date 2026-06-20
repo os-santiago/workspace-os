@@ -211,3 +211,43 @@ def recommend_agent_for_task(task_type: str, memory_store: WorkspaceMemoryStore)
 
     # Return agent with highest success rate for this task type
     return max(relevant_agents, key=lambda m: m.success_rate).agent
+
+
+def update_agent_performance_from_queue(
+    memory_store: WorkspaceMemoryStore,
+    queue_tracker: object,  # AgentQueueTracker - avoid circular import
+) -> None:
+    """
+    Update agent performance metrics from queue tracker.
+    Called at checkpoints to learn from recent work.
+
+    Args:
+        memory_store: Memory store to record feedback
+        queue_tracker: AgentQueueTracker with recent task history
+    """
+    from workspace_os.agent_queue import AgentTaskState
+
+    recent = queue_tracker.recent_tasks(limit=50)
+
+    for task in recent:
+        if task.state in (AgentTaskState.COMPLETED, AgentTaskState.FAILED):
+            # Record feedback based on task outcome
+            success = (task.state == AgentTaskState.COMPLETED and task.returncode == 0)
+
+            if not success:
+                # Record negative feedback for failed tasks
+                error_tags = set()
+                if task.error:
+                    error_tags.add("wrong_agent")
+
+                try:
+                    memory_store.record_feedback(
+                        request=f"cycle work item {task.task_id}",
+                        result=f"{task.agent} failed with returncode {task.returncode}",
+                        feedback=f"Agent {task.agent} had issues completing task",
+                        classification="questionable",
+                        error_tags=error_tags
+                    )
+                except Exception:
+                    # Gracefully handle feedback recording errors
+                    pass

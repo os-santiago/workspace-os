@@ -379,6 +379,8 @@ def _build_cycle_work_prompt(
     note: str | None,
     iteration_number: int,
     assigned_issue: dict[str, object] | None = None,
+    role: str = "primary",
+    recent_work: list[str] | None = None,
 ) -> dict[str, str]:
     try:
         from workspace_os.overview import render_workspace_analysis_text, render_workspace_next_action_text
@@ -508,6 +510,13 @@ def _build_cycle_work_prompt(
     if journal_context_lines:
         base_lines.append("")
         base_lines.extend(journal_context_lines)
+
+    # Add recent work context from other agents (squad awareness)
+    if recent_work:
+        base_lines.append("")
+        base_lines.append("Recent team activity:")
+        base_lines.extend(f"- {work}" for work in recent_work)
+
     base_lines.extend(
         [
             "",
@@ -523,19 +532,59 @@ def _build_cycle_work_prompt(
             "- Validate the narrowest meaningful surface.",
         ]
     )
-    executor_guidance = (
-        "Pick one concrete improvement from the next backlog work, the plan gap hints, or the next action recommendation."
-        if backlog_work_hint or plan_gap_hint
-        else "Implement the highest-value WOS improvement that is visible from the current plan and repo state."
-    )
-    primary_prompt = "\n".join(
-        [
-            *base_lines,
-            "",
-            "Role: executor.",
-            executor_guidance,
-        ]
-    )
+    # Role-specific instructions
+    if role == "primary":
+        role_guidance = (
+            "Pick one concrete improvement from the next backlog work, the plan gap hints, or the next action recommendation."
+            if backlog_work_hint or plan_gap_hint
+            else "Implement the highest-value WOS improvement that is visible from the current plan and repo state."
+        )
+        role_prompt = "\n".join(
+            [
+                *base_lines,
+                "",
+                "Role: primary executor.",
+                "Lead implementation. Focus on getting it done correctly and efficiently.",
+                role_guidance,
+            ]
+        )
+    elif role == "cross-check":
+        role_prompt = "\n".join(
+            [
+                *base_lines,
+                "",
+                "Role: cross-check reviewer.",
+                "Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort.",
+                "Focus on catching issues before they reach checkpoints.",
+            ]
+        )
+    elif role == "observer":
+        role_prompt = "\n".join(
+            [
+                *base_lines,
+                "",
+                "Role: learning observer.",
+                "Review recent work and provide feedback. Identify patterns, suggest process improvements.",
+                "Your feedback helps the squad learn and adapt.",
+            ]
+        )
+    else:
+        # Fallback for backward compatibility
+        executor_guidance = (
+            "Pick one concrete improvement from the next backlog work, the plan gap hints, or the next action recommendation."
+            if backlog_work_hint or plan_gap_hint
+            else "Implement the highest-value WOS improvement that is visible from the current plan and repo state."
+        )
+        role_prompt = "\n".join(
+            [
+                *base_lines,
+                "",
+                "Role: executor.",
+                executor_guidance,
+            ]
+        )
+
+    # For backward compatibility: also build secondary_prompt
     secondary_prompt = "\n".join(
         [
             *base_lines,
@@ -544,11 +593,13 @@ def _build_cycle_work_prompt(
             "Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
         ]
     )
+
     prompts = {}
     from workspace_os.agent_policy import SUPPORTED_WORK_AGENTS
     for agent in SUPPORTED_WORK_AGENTS:
-        prompts[f"primary:{agent}"] = primary_prompt
+        prompts[f"primary:{agent}"] = role_prompt if role == "primary" else role_prompt
         prompts[f"secondary:{agent}"] = secondary_prompt
+        prompts[f"{role}:{agent}"] = role_prompt
     return prompts
 
 
@@ -1021,6 +1072,10 @@ def run_cycle_work_window_continuous(
     last_queue_log_at = time.perf_counter()
     queue_log_interval_seconds = 30.0  # Log queue state every 30s
 
+    # Squad context tracking for inter-agent awareness
+    squad_context_window_size = int(os.environ.get("WOS_SQUAD_CONTEXT_WINDOW", "5"))
+    recent_work_context: list[str] = []
+
     # Pre-fetch available issues for assignment (optimizes throughput)
     # Scale initial pool to support max_workers * 4 to reduce early starvation
     initial_pool_size = max(200, max_workers * 4)
@@ -1091,6 +1146,7 @@ def run_cycle_work_window_continuous(
                 if assigned_issue:
                     cached_unassigned_count -= 1  # Decrement cache after assignment
 
+            agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng, queue_tracker)
             work_prompt = _build_cycle_work_prompt(
                 sources,
                 memory_store,
@@ -1099,8 +1155,9 @@ def run_cycle_work_window_continuous(
                 note=note,
                 iteration_number=work_item_number,
                 assigned_issue=assigned_issue,
+                role=role,
+                recent_work=recent_work_context if recent_work_context else None,
             )
-            agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
             task_id = f"cycle-work-{work_item_number}-{role}"
 
             # Enqueue in agent tracker
@@ -1113,10 +1170,28 @@ def run_cycle_work_window_continuous(
             )
 
             utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
-            print(
-                f"[cycle] Starting work item {work_item_number} ({role}/{agent_type}) | "
-                f"queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
-            )
+
+            # Squad-aware logging if enabled
+            if os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true":
+                snapshot = queue_tracker.snapshot()
+                agent_load = {}
+                for task in snapshot.tasks:
+                    from workspace_os.agent_queue import AgentTaskState
+                    if task.state == AgentTaskState.RUNNING:
+                        agent_load[task.agent] = agent_load.get(task.agent, 0) + 1
+
+                from workspace_os.agent_policy import available_work_agents
+                agents_list = list(available_work_agents())
+                team_status = ", ".join(f"{a}={agent_load.get(a, 0)}" for a in agents_list)
+                print(
+                    f"[squad] Agent {agent_type} assigned to role '{role}' for work item {work_item_number} | "
+                    f"team: [{team_status}] | queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
+                )
+            else:
+                print(
+                    f"[cycle] Starting work item {work_item_number} ({role}/{agent_type}) | "
+                    f"queue: {len(pending_futures)}/{max_workers} ({utilization_pct:.0f}% util)"
+                )
             queue_tracker.start(task_id)
             future = pool.submit(
                 executor,
@@ -1150,11 +1225,38 @@ def run_cycle_work_window_continuous(
                 if elapsed_since_queue_log >= queue_log_interval_seconds:
                     snapshot = queue_tracker.snapshot()
                     utilization_pct = (snapshot.running_count / max_workers * 100) if max_workers > 0 else 0
-                    print(
-                        f"[cycle] Queue health check @ {time.perf_counter() - wall_started_at:.0f}s: "
-                        f"{snapshot.running_count}/{max_workers} agents busy ({utilization_pct:.0f}% util), "
-                        f"{snapshot.completed_count} done, {snapshot.failed_count} failed"
-                    )
+
+                    # Squad-aware logging if enabled
+                    if os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true":
+                        agent_load = {}
+                        for task in snapshot.tasks:
+                            from workspace_os.agent_queue import AgentTaskState
+                            if task.state == AgentTaskState.RUNNING:
+                                agent_load[task.agent] = agent_load.get(task.agent, 0) + 1
+
+                        from workspace_os.agent_policy import available_work_agents
+                        from workspace_os.learning import compute_agent_performance
+                        agents_list = list(available_work_agents())
+                        team_status = ", ".join(f"{a}={agent_load.get(a, 0)}" for a in agents_list)
+
+                        # Show performance metrics if available
+                        perf = compute_agent_performance(memory_store)
+                        perf_summary = " | ".join(
+                            f"{p.agent}: {p.success_rate:.0%} success, {p.avg_duration_seconds:.0f}s avg"
+                            for p in perf[:3]  # Top 3 performers
+                        ) if perf else "no metrics yet"
+
+                        print(
+                            f"[squad] Health @ {time.perf_counter() - wall_started_at:.0f}s: "
+                            f"team [{team_status}] | {utilization_pct:.0f}% util | "
+                            f"{snapshot.completed_count} done, {snapshot.failed_count} failed | perf: {perf_summary}"
+                        )
+                    else:
+                        print(
+                            f"[cycle] Queue health check @ {time.perf_counter() - wall_started_at:.0f}s: "
+                            f"{snapshot.running_count}/{max_workers} agents busy ({utilization_pct:.0f}% util), "
+                            f"{snapshot.completed_count} done, {snapshot.failed_count} failed"
+                        )
                     last_queue_log_at = time.perf_counter()
 
                 # Proactive background refetch: if pool is getting low AND queue is busy, refetch now
@@ -1228,6 +1330,15 @@ def run_cycle_work_window_continuous(
                         f"in {duration:.1f}s"
                     )
 
+                    # Update squad context with recent work summary
+                    work_summary = (
+                        f"{work_info['agent_type']} ({work_info['role']}) completed "
+                        f"work item {work_info['work_item_number']} in {duration:.1f}s"
+                    )
+                    recent_work_context.append(work_summary)
+                    if len(recent_work_context) > squad_context_window_size:
+                        recent_work_context.pop(0)
+
                     # Record completion for this work item
                     # Note: We checkpoint every N completions rather than every iteration
                     # to reduce checkpoint overhead while maintaining visibility
@@ -1246,7 +1357,20 @@ def run_cycle_work_window_continuous(
             # Batch-assign issues and queue new work items for all completed futures
             # This reduces idle time when multiple futures complete simultaneously
             if now_fn() < deadline and completed_futures:
-                new_work_count = min(len(completed_futures), max_workers - len(pending_futures))
+                # Dynamic batch sizing based on current utilization
+                if os.environ.get("WOS_DYNAMIC_REBALANCING", "true").lower() == "true":
+                    current_util = len(pending_futures) / max_workers if max_workers > 0 else 0
+                    if current_util < 0.3:  # Low utilization - fill queue aggressively
+                        new_work_count = max_workers - len(pending_futures)
+                    elif current_util < 0.7:  # Medium utilization - gradual fill
+                        new_work_count = (max_workers - len(pending_futures)) // 2
+                    else:  # High utilization - one at a time
+                        new_work_count = min(len(completed_futures), max_workers - len(pending_futures))
+                    new_work_count = max(1, new_work_count)  # Always queue at least 1
+                else:
+                    # Original: queue one per completed future
+                    new_work_count = min(len(completed_futures), max_workers - len(pending_futures))
+
                 batch_assigned_issues = []
 
                 # Pre-assign all issues for this batch to avoid one-by-one assignment overhead
@@ -1263,6 +1387,7 @@ def run_cycle_work_window_continuous(
                 for i in range(new_work_count):
                     assigned_issue = batch_assigned_issues[i] if i < len(batch_assigned_issues) else None
 
+                    agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng, queue_tracker)
                     work_prompt = _build_cycle_work_prompt(
                         sources,
                         memory_store,
@@ -1271,8 +1396,9 @@ def run_cycle_work_window_continuous(
                         note=note,
                         iteration_number=work_item_number,
                         assigned_issue=assigned_issue,
+                        role=role,
+                        recent_work=recent_work_context if recent_work_context else None,
                     )
-                    agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng)
                     next_task_id = f"cycle-work-{work_item_number}-{role}"
 
                     # Enqueue in agent tracker
@@ -1384,6 +1510,14 @@ def run_cycle_work_window_continuous(
                         cycle_id=cycle_id,
                         created_at=now_fn().isoformat(),
                     )
+                    # Update agent performance learning from queue tracker
+                    if os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true":
+                        from workspace_os.learning import update_agent_performance_from_queue
+                        try:
+                            update_agent_performance_from_queue(memory_store, queue_tracker)
+                        except Exception as e:
+                            print(f"[squad] Warning: Failed to update performance metrics: {e}")
+
                     # Log agent queue snapshot for visibility
                     snapshot = queue_tracker.snapshot()
                     print(f"[cycle] Queue snapshot at checkpoint {checkpoint_counter}:")
@@ -1480,10 +1614,109 @@ def _choose_continuous_work_item(
     work_item_number: int,
     memory_store: WorkspaceMemoryStore,
     rng: random.Random,
+    queue_tracker: AgentQueueTracker | None = None,
 ) -> tuple[str, str]:
+    """
+    Choose agent and role for a work item.
+
+    If WOS_SQUAD_LEAD_MODE is enabled, uses intelligent selection based on:
+    - Performance history (success rate, speed)
+    - Queue load balancing
+    - Role rotation (primary → cross-check → observer)
+
+    Otherwise, falls back to simple round-robin with primary role only.
+    """
+    import os
+    squad_lead_mode = os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true"
+
+    if squad_lead_mode and queue_tracker is not None:
+        return _squad_lead_choose_agent_and_role(
+            work_item_number=work_item_number,
+            memory_store=memory_store,
+            queue_tracker=queue_tracker,
+            rng=rng,
+        )
+
+    # Fallback: simple round-robin (original behavior)
     agents = ["opencode", "claude", "antigravity"]
     agent = agents[(work_item_number - 1) % len(agents)]
     role = "primary"
+    return agent, role
+
+
+def _squad_lead_choose_agent_and_role(
+    work_item_number: int,
+    memory_store: WorkspaceMemoryStore,
+    queue_tracker: AgentQueueTracker,
+    rng: random.Random,
+) -> tuple[str, str]:
+    """
+    Squad Lead intelligence: Choose agent and role based on:
+    1. Performance history (success rate, speed)
+    2. Current queue load (balance work)
+    3. Role rotation (primary → cross-check → observer)
+    4. Learning feedback
+    """
+    import os
+    from workspace_os.learning import recommend_agent_for_task, compute_agent_performance, AgentPerformanceMetrics
+    from workspace_os.agent_policy import available_work_agents
+    from workspace_os.agent_queue import AgentTaskState
+
+    agents = list(available_work_agents())
+    rotation_cycle_size = int(os.environ.get("WOS_ROLE_ROTATION_CYCLE", "9"))
+
+    # Role rotation cycle: 3 agents × 3 roles = 9 work items per full rotation
+    # Item 1,4,7: primary, cross-check, observer (different agents each)
+    # Item 2,5,8: primary, cross-check, observer (rotated)
+    # Item 3,6,9: primary, cross-check, observer (rotated)
+    rotation_cycle = work_item_number % rotation_cycle_size
+    role_index = rotation_cycle % len(["primary", "cross-check", "observer"])
+
+    roles = ["primary", "cross-check", "observer"]
+    role = roles[role_index]
+
+    # Get agent performance metrics
+    performance = compute_agent_performance(memory_store)
+    perf_by_agent = {p.agent: p for p in performance}
+
+    # Get queue load from tracker
+    snapshot = queue_tracker.snapshot()
+    agent_load: dict[str, int] = {}
+    for task in snapshot.tasks:
+        if task.state == AgentTaskState.RUNNING:
+            agent_load[task.agent] = agent_load.get(task.agent, 0) + 1
+
+    # Intelligent agent selection
+    if role == "primary":
+        # Primary: Use learning recommendation or best performer
+        recommended = recommend_agent_for_task("cycle_work", memory_store)
+        if recommended and recommended in agents:
+            agent = recommended
+        else:
+            # Fall back to least loaded agent with best success rate
+            candidates = sorted(agents, key=lambda a: (
+                agent_load.get(a, 0),  # Prefer less loaded
+                -perf_by_agent.get(a, AgentPerformanceMetrics(a, 0, 0, 0, 0, 0.5, {})).success_rate
+            ))
+            agent = candidates[0]
+
+    elif role == "cross-check":
+        # Cross-check: Choose different agent than primary, prefer thorough ones
+        # Claude is generally best for cross-checking
+        primary_history = [t.agent for t in snapshot.tasks[-10:] if t.metadata.get("role") == "primary"]
+        recent_primary = primary_history[-1] if primary_history else None
+
+        cross_check_candidates = [a for a in agents if a != recent_primary]
+        if "claude" in cross_check_candidates:
+            agent = "claude"
+        else:
+            agent = cross_check_candidates[0] if cross_check_candidates else agents[0]
+
+    else:  # observer
+        # Observer: Learns by reviewing others' work, rotate through all agents
+        agent_offset = (work_item_number // len(roles)) % len(agents)
+        agent = agents[agent_offset]
+
     return agent, role
 
 
