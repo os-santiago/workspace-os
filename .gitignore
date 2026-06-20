@@ -13,6 +13,7 @@ __pycache__/
 tmp/
 temp/
 .cache/
+.tmp/
 
 # Local indexes and databases
 *.db
