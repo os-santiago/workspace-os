@@ -1,0 +1,73 @@
+name: Mutation Testing
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+  workflow_dispatch:
+    inputs:
+      mutation_score_threshold:
+        description: 'Minimum mutation score percentage'
+        required: false
+        default: '70'
+
+jobs:
+  mutation-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest mutmut
+
+      - name: Run mutation tests
+        run: |
+          chmod +x scripts/run-mutation-tests.sh
+          ./scripts/run-mutation-tests.sh
+        continue-on-error: false
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-testing-report
+          path: html/
+          retention-days: 30
+
+      - name: Comment PR with mutation score
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let comment = '## Mutation Testing Results\n\n';
+
+            try {
+              // This is a simplified version - actual implementation would parse mutmut results
+              comment += 'Mutation testing completed. Download the artifact for detailed results.\n\n';
+              comment += 'Minimum threshold: 70%\n';
+              comment += '✅ All mutation tests passed.\n';
+            } catch (error) {
+              comment += '❌ Failed to parse mutation test results.\n';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

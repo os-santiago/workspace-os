@@ -151,6 +151,26 @@ python -m workspace_os --config config/workspace.sources.example.json housekeepi
 python -m workspace_os --config config/workspace.sources.example.json validate --skip-housekeeping
 ```
 
+## Quality Assurance
+
+### Mutation Testing
+
+Mutation testing is used to verify test quality by introducing code mutations and ensuring tests detect them. The minimum mutation score threshold is 70%.
+
+Run mutation tests:
+
+```bash
+# Linux/Mac
+./scripts/run-mutation-tests.sh
+
+# Windows
+.\scripts\run-mutation-tests.ps1
+```
+
+See [docs/testing/mutation-testing.md](docs/testing/mutation-testing.md) for detailed information.
+
+## PowerShell Integration
+
 To install a reusable PowerShell `wos` command for the current user, run:
 
 ```powershell
