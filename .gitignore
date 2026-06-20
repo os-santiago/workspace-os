@@ -14,6 +14,11 @@ tmp/
 temp/
 .cache/
 
+# Mutation testing
+.mutmut-cache
+html/
+mutmut-results.html
+
 # Local indexes and databases
 *.db
 *.sqlite

@@ -17,3 +17,17 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 workspace_os = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.mutmut]
+paths_to_mutate = "src/workspace_os/"
+backup = false
+runner = "python -m pytest -x --tb=line -q"
+tests_dir = "tests/"
+dict_synonyms = "Struct, NamedStruct"
