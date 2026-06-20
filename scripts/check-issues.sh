@@ -19,8 +19,8 @@ echo "   Open Issues: $OPEN_ISSUES"
 echo "   Open PRs: $OPEN_PRS"
 echo ""
 
-echo "🎯 Priority Issues (P0/P1):"
-gh issue list --state open --label P0,P1 --limit 5
+echo "🎯 Priority Issues (P0/P1 in title):"
+gh issue list --state open | grep -E '\[P[01]\]' | head -5
 echo ""
 
 echo "🔄 Open PRs:"
