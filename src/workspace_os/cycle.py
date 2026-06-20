@@ -1179,7 +1179,6 @@ def run_cycle_work_window_continuous(
                     if task.state == AgentTaskState.RUNNING:
                         agent_load[task.agent] = agent_load.get(task.agent, 0) + 1
 
-                from workspace_os.agent_policy import available_work_agents
                 agents_list = list(available_work_agents())
                 team_status = ", ".join(f"{a}={agent_load.get(a, 0)}" for a in agents_list)
                 print(
@@ -1233,7 +1232,6 @@ def run_cycle_work_window_continuous(
                             if task.state == AgentTaskState.RUNNING:
                                 agent_load[task.agent] = agent_load.get(task.agent, 0) + 1
 
-                        from workspace_os.agent_policy import available_work_agents
                         from workspace_os.learning import compute_agent_performance
                         agents_list = list(available_work_agents())
                         team_status = ", ".join(f"{a}={agent_load.get(a, 0)}" for a in agents_list)
@@ -1658,7 +1656,6 @@ def _squad_lead_choose_agent_and_role(
     """
     import os
     from workspace_os.learning import recommend_agent_for_task, compute_agent_performance, AgentPerformanceMetrics
-    from workspace_os.agent_policy import available_work_agents
     from workspace_os.agent_queue import AgentTaskState
 
     agents = list(available_work_agents())
