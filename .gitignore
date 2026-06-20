@@ -35,3 +35,5 @@ Thumbs.db
 .observer-summary-*.txt
 PROGRESS-*.md
 check-progress.sh
+.claude/
+.workspace/
