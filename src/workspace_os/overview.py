@@ -690,8 +690,9 @@ def _analysis_recommendation_lines(activities, workspace_name: str, preferred_pr
         reason = "it is diverged from upstream and likely needs attention"
 
     if compact:
-        # Compact: 2-line format (saves 4 lines from 6-line default)
+        # Compact: 3-line format (saves 3 lines from recommendation, 4 total from rendered analysis)
         return (
+            f"Continue with: {candidate.source.name}",
             f"Recommended continue: {candidate.source.name}",
             f"Reason: {reason}",
         )
