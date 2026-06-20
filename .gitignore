@@ -30,3 +30,8 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# WOS ephemeral files
+.observer-summary-*.txt
+PROGRESS-*.md
+check-progress.sh
