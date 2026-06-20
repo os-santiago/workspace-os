@@ -1472,7 +1472,7 @@ def run_cycle_work_window_continuous(
                             "",
                             "Please fix the failing assertions or compilation errors. Re-verify your edits and correct the code/files to satisfy all quality, stability, and security gates."
                         ])
-                        healing_agent, _ = _choose_continuous_work_item(checkpoint_counter, memory_store, rng)
+                        healing_agent, _ = _choose_continuous_work_item(checkpoint_counter, memory_store, rng, queue_tracker)
                         correction_prompt = f"{_build_cycle_work_prompt(sources, memory_store, workspace_name, objective or 'Improve WOS', note, iteration_number=checkpoint_counter)[f'primary:{healing_agent}']}\n\n=== DEFECT CORRECTION BRIEF ===\n{defect_brief}"
                         executor(
                             healing_agent,
