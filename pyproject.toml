@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Local-first controller for an AI-assisted workspace."
 requires-python = ">=3.11"
 readme = "README.md"
+dependencies = [
+    "rich>=13.0.0",
+]
 
 [project.scripts]
 workspace = "workspace_os.cli:main"

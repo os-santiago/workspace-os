@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from workspace_os.config import Source
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.progress import progress
 
 
 @dataclass(frozen=True)
