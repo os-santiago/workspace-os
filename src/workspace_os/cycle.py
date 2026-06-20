@@ -560,8 +560,7 @@ def _build_cycle_work_prompt(
                 *base_lines,
                 "",
                 "Role: learning observer.",
-                "Review recent work and provide feedback. Identify patterns, suggest process improvements.",
-                "Your feedback helps the squad learn and adapt.",
+                "Review recent work and provide feedback. Identify patterns, suggest process improvements. Your feedback helps the squad learn and adapt.",
             ]
         )
     else:
@@ -575,8 +574,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: executor.",
-                executor_guidance,
+                f"Role: executor. {executor_guidance}",
             ]
         )
 
@@ -585,8 +583,7 @@ def _build_cycle_work_prompt(
         [
             *base_lines,
             "",
-            "Role: cross-check.",
-            "Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
+            "Role: cross-check. Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
         ]
     )
 

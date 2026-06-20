@@ -119,5 +119,56 @@ class ContextCompactionTests(unittest.TestCase):
             )
 
 
+    def test_role_guidance_compact(self):
+        """Verify role guidance sections are compacted."""
+        from workspace_os.cycle import _build_cycle_work_prompt
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            db_path = workspace_root / "wos.db"
+            sources = [
+                Source(
+                    name="test-repo",
+                    type="git",
+                    responsibility="test workspace",
+                    path=workspace_root,
+                )
+            ]
+            memory_store = WorkspaceMemoryStore(db_path)
+            memory_store.ensure_schema()
+
+            for role in ["primary", "cross-check", "observer"]:
+                prompts = _build_cycle_work_prompt(
+                    sources,
+                    memory_store,
+                    "workspace root",
+                    "Test objective",
+                    None,
+                    1,
+                    role=role
+                )
+
+                prompt = prompts.get(f"{role}:claude", "")
+                lines = prompt.split("\n")
+
+                # Find role section (should be near end, after ADEV contract)
+                role_lines = [line for line in lines if line.startswith("Role:")]
+                self.assertEqual(len(role_lines), 1, f"Expected exactly 1 role line for {role}")
+
+                # Role guidance should be 1-2 lines max after compaction
+                role_idx = lines.index(role_lines[0])
+                role_section = []
+                for i in range(role_idx, min(role_idx + 3, len(lines))):
+                    if lines[i].strip():
+                        role_section.append(lines[i])
+
+                # After compaction, role should be 1-2 lines (Role: line + optional guidance)
+                self.assertLessEqual(
+                    len(role_section),
+                    2,
+                    f"Role {role} section should be ≤2 lines after compaction, got {len(role_section)}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
