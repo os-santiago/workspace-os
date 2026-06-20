@@ -98,6 +98,7 @@ The canonical product plan lives in `docs/product/product-plan.md`.
 
 After installation, use the `workspace` command:
 
+```bash
 # Check repository status
 workspace --config config/workspace.sources.local.json status
 
