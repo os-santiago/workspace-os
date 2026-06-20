@@ -1019,9 +1019,20 @@ def run_cycle_work_window_continuous(
     Unlike run_cycle_work_window which waits for both agents to complete before
     starting the next iteration, this implementation queues new work as soon as
     any agent finishes, maximizing agent utilization and reducing idle ratio.
+
+    WOS now operates with world-class development team standards by default:
+    - Squad Lead mode (intelligent coordination)
+    - Role rotation (primary → cross-check → observer)
+    - Performance tracking and learning
+    - Dynamic rebalancing and optimization
     """
     if duration_minutes < 0:
         raise ValueError("Cycle duration must be at least 0 minutes.")
+
+    # Show configuration banner
+    from workspace_os.defaults import print_config_banner, validate_config
+    print_config_banner()
+    validate_config()
 
     now_fn = now_fn or (lambda: datetime.now(timezone.utc))
     started_at = now_fn()
@@ -1171,7 +1182,7 @@ def run_cycle_work_window_continuous(
             utilization_pct = (len(pending_futures) / max_workers * 100) if max_workers > 0 else 0
 
             # Squad-aware logging if enabled
-            if os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true":
+            if os.environ.get("WOS_DISABLE_SQUAD_LEAD", "").lower() != "true":
                 snapshot = queue_tracker.snapshot()
                 agent_load = {}
                 for task in snapshot.tasks:
@@ -1225,7 +1236,7 @@ def run_cycle_work_window_continuous(
                     utilization_pct = (snapshot.running_count / max_workers * 100) if max_workers > 0 else 0
 
                     # Squad-aware logging if enabled
-                    if os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true":
+                    if os.environ.get("WOS_DISABLE_SQUAD_LEAD", "").lower() != "true":
                         agent_load = {}
                         for task in snapshot.tasks:
                             from workspace_os.agent_queue import AgentTaskState
@@ -1508,7 +1519,7 @@ def run_cycle_work_window_continuous(
                         created_at=now_fn().isoformat(),
                     )
                     # Update agent performance learning from queue tracker
-                    if os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true":
+                    if os.environ.get("WOS_DISABLE_SQUAD_LEAD", "").lower() != "true":
                         from workspace_os.learning import update_agent_performance_from_queue
                         try:
                             update_agent_performance_from_queue(memory_store, queue_tracker)
@@ -1616,17 +1627,19 @@ def _choose_continuous_work_item(
     """
     Choose agent and role for a work item.
 
-    If WOS_SQUAD_LEAD_MODE is enabled, uses intelligent selection based on:
+    Uses intelligent Squad Lead selection based on:
     - Performance history (success rate, speed)
     - Queue load balancing
     - Role rotation (primary → cross-check → observer)
 
-    Otherwise, falls back to simple round-robin with primary role only.
+    Squad Lead mode is now MANDATORY for all WOS cycles.
+    Set WOS_DISABLE_SQUAD_LEAD=true to use legacy round-robin (not recommended).
     """
     import os
-    squad_lead_mode = os.environ.get("WOS_SQUAD_LEAD_MODE", "").lower() == "true"
+    # Squad Lead is now default - only disable if explicitly requested
+    squad_lead_disabled = os.environ.get("WOS_DISABLE_SQUAD_LEAD", "").lower() == "true"
 
-    if squad_lead_mode and queue_tracker is not None:
+    if not squad_lead_disabled and queue_tracker is not None:
         return _squad_lead_choose_agent_and_role(
             work_item_number=work_item_number,
             memory_store=memory_store,
