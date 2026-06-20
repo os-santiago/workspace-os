@@ -31,6 +31,34 @@ class ClassificationTests(unittest.TestCase):
 
         self.assertEqual("temporary", result.target)
 
+    def test_classify_source_code_path(self):
+        result = classify_content("main.py", is_path=True)
+        self.assertEqual("execution", result.target)
+        self.assertEqual("high", result.confidence)
+
+    def test_classify_test_code_path(self):
+        result = classify_content("test_cli.py", is_path=True)
+        self.assertEqual("execution", result.target)
+        self.assertEqual("high", result.confidence)
+        self.assertIn("test code", result.reason)
+
+    def test_classify_config_path(self):
+        result = classify_content("pyproject.toml", is_path=True)
+        self.assertEqual("execution", result.target)
+        self.assertEqual("high", result.confidence)
+        self.assertIn("configuration", result.reason)
+
+    def test_classify_code_content(self):
+        result = classify_content("import os\nfrom pathlib import Path\ndef process():\n    pass")
+        self.assertEqual("execution", result.target)
+        self.assertEqual("medium", result.confidence)
+
+    def test_classify_test_content(self):
+        result = classify_content("def test_sum():\n    assert sum([1, 2]) == 3")
+        self.assertEqual("execution", result.target)
+        self.assertEqual("medium", result.confidence)
+        self.assertIn("test patterns", result.reason)
+
 
 if __name__ == "__main__":
     unittest.main()

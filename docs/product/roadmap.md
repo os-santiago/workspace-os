@@ -1,5 +1,7 @@
 # Roadmap
 
+This roadmap operationalizes the canonical product plan in `docs/product/product-plan.md`.
+
 ## Progress Map
 
 Status legend:
@@ -48,6 +50,7 @@ GOAL
   |      +-- show status, search, context, classify, validate
   |      +-- show batch progress and active roadmap
   |      +-- keep mutation flows behind explicit approval
+  |      +-- shell-first conversation and workspace switching
   |
   +-- [LATER] Stage 5 - Delivery workflows
   |      +-- consulting estimates
@@ -81,7 +84,7 @@ Batch 05 [DONE] Direct web pilot
   local web app | allowlisted endpoints | homedir-inspired shell
 
 Batch 06 [NEXT] UI workflow depth
-  capture flow | promotion flow | roadmap progress | agent context flow
+  capture flow | promotion flow | roadmap progress | agent context flow | terminal shell
 
 Batch 07 [TODO] Pilot hardening
   approvals | write workflows | local auth boundary | mobile access design
@@ -125,13 +128,13 @@ Goal: make Workspace OS the bridge between raw operator requests and governed ex
 
 Capabilities:
 - Receive a request as input.
-- Run the request through an Operational Conscience Layer that extracts intent, outcome, priority, risk, and checkpoint needs.
+- Run the request through OCE, the Operational Conscience Engine model, which extracts intent, outcome, priority, risk, and checkpoint needs.
 - Run the interpreted request through a learning engine that applies ADEV and searches scanales-kb.
 - Route the result to software work in Git, deliverables in Google Workspace, or an agent brief.
 - Refuse or pause requests that conflict with privacy, safety, or repository rules.
 
 Exit criteria:
-- Operational Conscience Layer definition is captured in sanitized local documentation.
+- The ADEV -> OCE -> WOS stack is captured in sanitized local documentation.
 - Learning-engine inputs are explicitly ADEV and scanales-kb.
 - Every delegated task includes intent, risk, relevant learning, destination, and approval requirements.
 - Google Workspace routing is blocked until a real connector exists.

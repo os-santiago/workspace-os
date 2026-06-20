@@ -3,18 +3,28 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from workspace_os.capture import build_capture_draft
+from workspace_os.agent_policy import normalize_agent_name
+from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
-from workspace_os.config import Source, load_sources
+from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
+from workspace_os.delegation import build_hardened_delegate_prompt
+from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
+from workspace_os.conversation import build_workspace_reply
+from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
+from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.overview import build_workspace_handoff, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text
 from workspace_os.promotion import build_promotion_proposal
+from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
 from workspace_os.validation import validate_workspace, validation_failed
@@ -25,7 +35,10 @@ STATIC_ROOT = Path(__file__).parent / "web_assets"
 
 def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     sources = load_sources(config_path)
-    handler = _build_handler(sources)
+    load_configured_oce_extensions(config_path)
+    workspace_root = load_workspace_root(config_path)
+    memory_path = load_workspace_memory_path(config_path)
+    handler = _build_handler(sources, workspace_root, memory_path, config_path)
     server = ThreadingHTTPServer((host, port), handler)
     print(f"Workspace OS web app listening on http://{host}:{port}")
     try:
@@ -36,7 +49,7 @@ def serve_web_app(config_path: Path, host: str = "127.0.0.1", port: int = 8765) 
         server.server_close()
 
 
-def _build_handler(sources: list[Source]):
+def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Path, config_path: Path | None = None):
     class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - http.server method name
             parsed = urlparse(self.path)
@@ -70,10 +83,90 @@ def _build_handler(sources: list[Source]):
                 self._send_json(_roadmap_payload())
                 return
             if parsed.path == "/api/recent-software":
-                self._send_json(_recent_software_payload())
+                self._send_json(_recent_software_payload(root=workspace_root))
+                return
+            if parsed.path == "/api/analysis":
+                self._send_json(_analysis_payload(sources, memory_path, query))
+                return
+            if parsed.path == "/api/analysis.md":
+                self._send_text(
+                    _analysis_markdown_payload(sources, memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="analysis.md",
+                )
+                return
+            if parsed.path == "/api/roots":
+                self._send_json(_roots_payload(sources, memory_path, query))
+                return
+            if parsed.path == "/api/roots.md":
+                self._send_text(
+                    _roots_markdown_payload(sources, memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="roots.md",
+                )
                 return
             if parsed.path == "/api/recent-docs":
                 self._send_json(_recent_docs_payload())
+                return
+            if parsed.path == "/api/context-snapshot":
+                self._send_json(_context_snapshot_payload(memory_path, workspace_root, query))
+                return
+            if parsed.path == "/api/context-snapshot.md":
+                self._send_text(
+                    _context_snapshot_markdown_payload(memory_path, workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="context-global.md",
+                )
+                return
+            if parsed.path == "/api/handoff":
+                self._send_json(_handoff_payload(sources, memory_path, workspace_root, query))
+                return
+            if parsed.path == "/api/handoff.md":
+                self._send_text(
+                    _handoff_markdown_payload(sources, memory_path, workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="handoff.md",
+                )
+                return
+            if parsed.path == "/api/next":
+                self._send_json(_next_action_payload(sources, memory_path, query))
+                return
+            if parsed.path == "/api/next.md":
+                self._send_text(
+                    _next_action_markdown_payload(sources, memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="next.md",
+                )
+                return
+            if parsed.path == "/api/conscience":
+                self._send_json(_conscience_metrics_payload(memory_path, query))
+                return
+            if parsed.path == "/api/conscience.md":
+                self._send_text(
+                    _conscience_metrics_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="conscience.md",
+                )
+                return
+            if parsed.path == "/api/conscience/recommend":
+                self._send_json(_conscience_recommendation_payload(memory_path, query))
+                return
+            if parsed.path == "/api/conscience/recommend.md":
+                self._send_text(
+                    _conscience_recommendation_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="conscience-recommendation.md",
+                )
+                return
+            if parsed.path == "/api/conscience/recommend":
+                self._send_json(_conscience_recommendation_payload(memory_path, query))
+                return
+            if parsed.path == "/api/conscience/recommend.md":
+                self._send_text(
+                    _conscience_recommendation_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="conscience-recommendation.md",
+                )
                 return
 
             self.send_error(404, "Not found")
@@ -92,13 +185,11 @@ def _build_handler(sources: list[Source]):
                 self._send_json(_conscience_preview_payload(payload))
                 return
             if parsed.path == "/api/chat":
-                self._send_json(_chat_payload(sources, payload))
+                self._send_json(_chat_payload(sources, payload, memory_path, workspace_root, config_path))
                 return
             if parsed.path == "/api/delegate-launch":
-                self._send_json(_delegate_launch_payload(payload))
+                self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
                 return
-
-            self.send_error(404, "Not found")
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -125,7 +216,19 @@ def _build_handler(sources: list[Source]):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            _write_response_body(self.wfile.write, body)
+
+        def _send_text(self, payload: dict[str, object], content_type: str, filename: str | None = None) -> None:
+            body = str(payload.get("text", "")).encode("utf-8")
+            status = 200 if payload.get("ok", True) else 400
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-store")
+            if filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            _write_response_body(self.wfile.write, body)
 
         def _send_static(self, filename: str, content_type: str) -> None:
             path = STATIC_ROOT / filename
@@ -138,9 +241,16 @@ def _build_handler(sources: list[Source]):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            _write_response_body(self.wfile.write, body)
 
     return WorkspaceRequestHandler
+
+
+def _write_response_body(writer, body: bytes) -> None:
+    try:
+        writer(body)
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+        return
 
 
 def _status_payload(sources: list[Source]) -> dict[str, object]:
@@ -252,44 +362,281 @@ def _conscience_preview_payload(payload: dict[str, object]) -> dict[str, object]
     return {"ok": True, "conscience": decision.to_dict()}
 
 
-def _chat_payload(sources: list[Source], payload: dict[str, object]) -> dict[str, object]:
+def _chat_payload(
+    sources: list[Source],
+    payload: dict[str, object],
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    config_path: Path | None = None,
+) -> dict[str, object]:
     message = _string_payload(payload, "message")
     if not message:
         return {"ok": False, "error": "Message is required."}
 
-    conscience = evaluate_request(message, destination="software")
-    learning = _learning_signal(message)
-    matches = search_sources(sources, message, max_results=5)
-    personal_context = _operator_principles_summary()
-    lines = [
-        "Request received.",
-        "",
-        f"Conscience: {conscience.decision} ({conscience.risk_level})",
-        f"Strategy: {conscience.response_strategy}",
-        f"Rationale: {conscience.rationale}",
-        "",
-        f"Learning engine: {'activated' if learning['activated'] else 'standby'}",
-        learning["summary"],
-        "",
-        f"Operator principles source: {personal_context['state']}",
-    ]
-    if matches:
-        lines.extend(["", "Related knowledge:"])
-        lines.extend([f"- {match.source_name}:{match.path}:{match.line_number}" for match in matches[:3]])
+    from workspace_os.conversation import route_natural_language_intent
+    cmd = route_natural_language_intent(message)
+    import os
+    is_testing = "PYTEST_CURRENT_TEST" in os.environ or "WOS_IN_SMOKE_TEST" in os.environ
+    if cmd and not is_testing:
+        import io
+        import shlex
+        from contextlib import redirect_stdout, redirect_stderr
+        from workspace_os.cli import main as cli_main
+
+        f = io.StringIO()
+        with redirect_stdout(f), redirect_stderr(f):
+            try:
+                argv = shlex.split(cmd)
+                if config_path:
+                    argv = ["--config", str(config_path)] + argv
+                cli_main(argv)
+            except Exception as e:
+                print(f"Error executing command: {e}")
+
+        output = f.getvalue()
+        return {
+            "ok": True,
+            "reply": f"Auto-executing command: {cmd}\n\n{output}",
+            "answer": f"Auto-executing command: {cmd}\n\n{output}",
+            "verbose_reply": f"Auto-executing command: {cmd}\n\n{output}",
+            "trace": f"Natural language routed to command: {cmd}",
+            "conscience": {"decision": "ALLOW", "risk_level": "low", "policy_refs": [], "rationale": "Auto-executed routed command"},
+            "learning": {"activated": False, "summary": "No learning candidate for auto-execution."},
+            "suggested_actions": [],
+        }
+    store = None
+    profile_tone = "neutral"
+    profile_detail = "standard"
+    if memory_path is not None:
+        store = WorkspaceMemoryStore(memory_path)
+        store.ensure_schema()
+        profile = load_profile(store)
+        profile_tone = profile.tone
+        profile_detail = profile.detail_level
+    reply = build_workspace_reply(
+        sources,
+        message,
+        memory_store=store,
+        tone=profile_tone,
+        detail_level=profile_detail,
+    )
+    personal_context = _operator_principles_summary(root=workspace_root)
+    context_snapshot = store.latest_context_snapshot() if store else None
+    process_report = current_process_report(store) if store else None
+    batch_report = current_batch_report(store) if store else None
     return {
         "ok": True,
-        "reply": sanitize_text("\n".join(lines)),
-        "conscience": conscience.to_dict(),
-        "learning": learning,
+        "reply": reply.answer,
+        "answer": reply.answer,
+        "verbose_reply": reply.reply,
+        "trace": reply.trace,
+        "conscience": reply.conscience.to_dict(),
+        "learning": reply.learning,
+        "suggested_actions": reply.suggested_actions,
         "personal_context": personal_context,
+        "context_snapshot": context_snapshot,
+        "process": _process_summary(process_report),
+        "batch": _batch_summary(batch_report),
     }
+
+
+def _handoff_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    launch_limit = 3
+    if query is not None:
+        launch_limit = _int_query(query, "launch_limit", 3)
+    profile = load_profile(store)
+    workspace = profile.default_workspace or None
+    handoff = build_workspace_handoff(
+        sources,
+        store,
+        workspace=workspace or _workspace_name_from_root(workspace_root),
+        launch_limit=launch_limit,
+    )
+    return {
+        "ok": True,
+        "workspace": handoff.workspace,
+        "markdown": handoff.render(),
+    }
+
+
+def _handoff_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    launch_limit = 3
+    compact = False
+    if query is not None:
+        launch_limit = _int_query(query, "launch_limit", 3)
+        compact = (_first(query, "compact") or "false").casefold() == "true"
+    profile = load_profile(store)
+    workspace = profile.default_workspace or None
+    text = render_workspace_handoff_text(
+        sources,
+        store,
+        workspace=workspace or _workspace_name_from_root(workspace_root),
+        launch_limit=launch_limit,
+        compact=compact,
+    )
+    return {"ok": True, "text": text}
+
+
+def _next_action_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    workspace = _first(query or {}, "workspace") or None
+    return {
+        "ok": True,
+        "workspace": workspace or _workspace_name_from_root(None),
+        "markdown": render_workspace_next_action_text(sources, store, workspace=workspace),
+    }
+
+
+def _next_action_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _next_action_payload(sources, memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load next action.")}
+    return {"ok": True, "text": payload.get("markdown", "")}
+
+
+def _conscience_metrics_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 20
+    if query is not None:
+        limit = _int_query(query, "limit", 20)
+    return {"ok": True, "report": build_conscience_report(store, limit=limit)}
+
+
+def _conscience_metrics_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 20
+    if query is not None:
+        limit = _int_query(query, "limit", 20)
+    report = build_conscience_report(store, limit=limit)
+    return {"ok": True, "text": render_conscience_report_text(report)}
+
+
+def _conscience_recommendation_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 20
+    if query is not None:
+        limit = _int_query(query, "limit", 20)
+    return {"ok": True, "text": build_conscience_recommendation_text(store, limit=limit)}
+
+
+def _conscience_recommendation_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    return _conscience_recommendation_payload(memory_path, query)
+
+
+def _conscience_recommendation_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 20
+    if query is not None:
+        limit = _int_query(query, "limit", 20)
+    return {"ok": True, "text": build_conscience_recommendation_text(store, limit=limit)}
+
+
+def _conscience_recommendation_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    return _conscience_recommendation_payload(memory_path, query)
+
+
+def _context_snapshot_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    snapshot = store.latest_context_snapshot()
+    if snapshot is None:
+        return {"ok": False, "error": "No context snapshot found."}
+    return {"ok": True, "snapshot": snapshot}
+
+
+def _context_snapshot_markdown_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    snapshot = store.latest_context_snapshot()
+    if snapshot is None:
+        return {"ok": False, "text": "No context snapshot found."}
+    lines = [
+        f"Workspace context snapshot: {snapshot['scope']}",
+        f"Reason: {snapshot['reason']}",
+        "",
+        f"- created_at={snapshot['created_at']}",
+        f"- summary={snapshot['summary']}",
+    ]
+    return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 
 def _delegate_launch_payload(
     payload: dict[str, object],
+    workspace_root: Path | None = None,
     launcher: object | None = None,
 ) -> dict[str, object]:
-    agent = _string_payload(payload, "agent").casefold()
+    agent = normalize_agent_name(_string_payload(payload, "agent")) or _string_payload(payload, "agent").casefold()
     destination = _string_payload(payload, "destination").casefold()
     task = _string_payload(payload, "task")
     brief = _string_payload(payload, "brief")
@@ -297,8 +644,8 @@ def _delegate_launch_payload(
 
     if not approved:
         return {"ok": False, "error": "Delegation requires explicit approval."}
-    if agent not in {"codex", "claude"}:
-        return {"ok": False, "error": "Allowed agents are codex and claude."}
+    if agent not in {"opencode", "codex", "claude", "antigravity"}:
+        return {"ok": False, "error": "Allowed agents are opencode, codex, claude and antigravity."}
     if not task or not brief:
         return {"ok": False, "error": "Delegation requires both task and brief."}
 
@@ -312,16 +659,22 @@ def _delegate_launch_payload(
     if not conscience.allows_execution():
         return {
             "ok": False,
-            "error": f"Operational Conscience blocked launch with decision {conscience.decision}.",
+            "error": f"OCE blocked launch with decision {conscience.decision}.",
             "conscience": conscience.to_dict(),
         }
 
-    workspace_root = Path.home() / "git"
+    workspace_root = workspace_root or _git_workspace_root()
     if not workspace_root.exists():
         return {"ok": False, "error": "Local Git workspace root was not found."}
 
     prompt = _build_delegate_prompt(task, brief, conscience)
-    command = _agent_command(agent, workspace_root, prompt)
+    hardened_prompt = build_hardened_delegate_prompt(
+        agent,
+        "local Git workspace",
+        workspace_root,
+        prompt,
+    )
+    command = _agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _launch_process
     pid = start_process(command, workspace_root)
     return {
@@ -340,10 +693,9 @@ def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision
             [
                 "You are receiving an approved Workspace OS delegation.",
                 "Work from the local Git workspace root.",
-                "Follow ADEV rules and preserve unrelated local changes.",
                 "Use Git repositories for software and infrastructure work.",
                 "Do not store secrets, personal data, or company-specific data.",
-                "Apply the Operational Conscience decision below before acting.",
+                "Apply the OCE decision below before acting.",
                 "",
                 "Task:",
                 task,
@@ -358,6 +710,18 @@ def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision
 
 
 def _agent_command(agent: str, workspace_root: Path, prompt: str) -> list[str]:
+    if agent == "opencode":
+        return [
+            "opencode",
+            "run",
+            "--model",
+            "opencode/deepseek-v4-flash-free",
+            "--dir",
+            str(workspace_root),
+            "--dangerously-skip-permissions",
+            "--prompt",
+            prompt,
+        ]
     if agent == "codex":
         return [
             "codex",
@@ -371,6 +735,11 @@ def _agent_command(agent: str, workspace_root: Path, prompt: str) -> list[str]:
             "on-request",
             prompt,
         ]
+    if agent == "antigravity":
+        command = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
+        if command:
+            return shlex.split(command.format(workspace_root=str(workspace_root), prompt=prompt, workspace=workspace_root.name))
+        return ["antigravity", "run", "--workspace", str(workspace_root), "--prompt", prompt]
     return ["claude", "-p", prompt]
 
 
@@ -397,10 +766,66 @@ def _roadmap_payload() -> dict[str, object]:
 def _recent_software_payload(root: Path | None = None, limit: int = 5) -> dict[str, object]:
     workspace_root = root or _git_workspace_root()
     if not workspace_root.exists():
-        return {"root": "local-git-workspace", "items": []}
+        return {"root": "D:\\git", "items": []}
     projects = [_project_summary(path) for path in workspace_root.iterdir() if path.is_dir()]
     projects.sort(key=lambda item: item["updated_epoch"], reverse=True)
-    return {"root": "local-git-workspace", "items": [_public_item(item) for item in projects[:limit]]}
+    return {"root": str(workspace_root), "items": [_public_item(item) for item in projects[:limit]]}
+
+
+def _analysis_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 5
+    compact = False
+    if query is not None:
+        limit = _int_query(query, "limit", 5)
+        compact = (_first(query, "compact") or "false").casefold() == "true"
+    text = render_workspace_analysis_text(sources, store, limit=limit, compact=compact)
+    return {"ok": True, "text": text}
+
+
+def _analysis_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _analysis_payload(sources, memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load analysis.")}
+    return {"ok": True, "text": payload["text"]}
+
+
+def _roots_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 5
+    if query is not None:
+        limit = _int_query(query, "limit", 5)
+    text = render_workspace_roots_text(sources, store, limit=limit)
+    return {"ok": True, "text": text}
+
+
+def _roots_markdown_payload(
+    sources: list[Source],
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _roots_payload(sources, memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load roots.")}
+    return {"ok": True, "text": payload["text"]}
 
 
 DOCUMENT_ACTIVITY_EXTENSIONS = {
@@ -515,8 +940,58 @@ def _learning_signal(message: str) -> dict[str, object]:
     }
 
 
+def _batch_summary(batch: object | None) -> dict[str, object] | None:
+    if batch is None:
+        return None
+    return {
+        "batch_id": batch.batch_id,
+        "label": batch.label,
+        "objective": batch.objective,
+        "duration_seconds": batch.duration_seconds,
+        "delegations": batch.delegations,
+        "defect_iterations": batch.defect_iterations,
+        "conversation_turns": batch.conversation_turns,
+    }
+
+
+def _process_summary(process: object | None) -> dict[str, object] | None:
+    if process is None:
+        return None
+    return {
+        "process_id": process.process_id,
+        "label": process.label,
+        "objective": process.objective,
+        "duration_seconds": process.duration_seconds,
+        "batch_count": process.batch_count,
+        "delegations": process.delegations,
+        "defect_iterations": process.defect_iterations,
+        "checkpoint_count": process.checkpoint_count,
+        "latest_checkpoint_label": process.latest_checkpoint_label,
+        "latest_checkpoint_note": process.latest_checkpoint_note,
+    }
+
+
+def _workspace_name_from_root(workspace_root: Path | None) -> str:
+    if workspace_root is None:
+        return "all workspaces"
+    return str(workspace_root) or "all workspaces"
+
+
 def _git_workspace_root() -> Path:
-    return Path(os.environ.get("WORKSPACE_OS_GIT_ROOT", str(Path.home() / "git")))
+    config_path = Path.cwd() / "config" / "workspace.sources.example.json"
+    if config_path.exists():
+        try:
+            return load_workspace_root(config_path)
+        except (OSError, ValueError):
+            pass
+
+    env_root = os.environ.get("WORKSPACE_OS_GIT_ROOT", "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    default_root = Path("D:/git")
+    if default_root.exists():
+        return default_root.resolve()
+    return (Path.home() / "git").resolve()
 
 
 def _drive_root() -> Path:

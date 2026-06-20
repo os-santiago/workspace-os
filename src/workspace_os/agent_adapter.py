@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+from pathlib import Path
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass
+import os
+import shlex
+
+from workspace_os.agent_policy import normalize_agent_name
+from workspace_os.delegation import build_hardened_delegate_prompt
+from workspace_os.memory import WorkspaceMemoryStore
+
+
+@dataclass(frozen=True)
+class AgentExecutionResult:
+    agent: str
+    command: tuple[str, ...]
+    returncode: int
+    duration_seconds: float
+
+
+def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_args: list[str] | None = None) -> list[str]:
+    args = list(extra_args or [])
+    normalized_agent = normalize_agent_name(agent) or agent
+    if normalized_agent == "opencode":
+        return [
+            "opencode",
+            "run",
+            "--model",
+            "opencode/deepseek-v4-flash-free",
+            "--dir",
+            str(workspace_root),
+            "--dangerously-skip-permissions",
+            *args,
+            prompt,
+        ]
+    if normalized_agent == "codex":
+        return [
+            "codex",
+            "exec",
+            "--cd",
+            str(workspace_root),
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "on-request",
+            *args,
+            prompt,
+        ]
+    if normalized_agent == "claude":
+        return [
+            "claude",
+            "--allow-dangerously-skip-permissions",
+            "--add-dir",
+            str(workspace_root),
+            "-p",
+            *args,
+            prompt,
+        ]
+    if normalized_agent == "antigravity":
+        template = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
+        if template:
+            expanded = template.format(
+                workspace_root=str(workspace_root),
+                prompt=prompt.replace('"', '\\"'),
+                workspace=workspace_root.name,
+            )
+            return shlex.split(expanded)
+        return [
+            "antigravity",
+            "run",
+            "--workspace",
+            str(workspace_root),
+            "--prompt",
+            prompt,
+        ]
+    raise ValueError("Allowed agents are opencode, codex, claude and antigravity.")
+
+
+def launch_agent(
+    agent: str,
+    workspace_name: str,
+    task: str,
+    prompt: str,
+    workspace_root: Path,
+    memory_store: WorkspaceMemoryStore,
+    launcher: object | None = None,
+) -> int:
+    hardened_prompt = build_hardened_delegate_prompt(agent, workspace_name, workspace_root, prompt)
+    command = build_agent_command(agent, workspace_root, hardened_prompt)
+    start_process = launcher or _launch_process
+
+    log_dir = Path("C:/Users/sergi/.openclaw/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{task}.log"
+
+    pid = start_process(_prepare_command(command), workspace_root, log_file)
+    memory_store.record_agent_launch(agent, task, workspace_name)
+    return pid
+
+
+def run_agent(
+    agent: str,
+    workspace_name: str,
+    task: str,
+    prompt: str,
+    workspace_root: Path,
+    memory_store: WorkspaceMemoryStore,
+    launcher: object | None = None,
+) -> AgentExecutionResult:
+    hardened_prompt = build_hardened_delegate_prompt(agent, workspace_name, workspace_root, prompt)
+    command = build_agent_command(agent, workspace_root, hardened_prompt)
+    start_process = launcher or _run_process
+    started_at = time.perf_counter()
+
+    log_dir = Path("C:/Users/sergi/.openclaw/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{task}.log"
+
+    completed = start_process(_prepare_command(command), workspace_root, log_file)
+    duration_seconds = max(0.0, time.perf_counter() - started_at)
+    memory_store.record_agent_launch(agent, task, workspace_name)
+    return AgentExecutionResult(agent=agent, command=tuple(command), returncode=int(completed), duration_seconds=duration_seconds)
+
+
+def _launch_process(command: list[str], cwd: Path, log_file: Path | None = None) -> int:
+    command = _prepare_command(command)
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    stdout = stderr = subprocess.DEVNULL
+    if log_file:
+        try:
+            f = open(log_file, "w", encoding="utf-8")
+            stdout = stderr = f
+        except Exception:
+            pass
+
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
+        creationflags=creationflags,
+    )
+    return process.pid
+
+
+def _run_process(command: list[str], cwd: Path, log_file: Path | None = None) -> int:
+    command = _prepare_command(command)
+
+    stdout = stderr = subprocess.DEVNULL
+    f = None
+    if log_file:
+        try:
+            f = open(log_file, "w", encoding="utf-8")
+            stdout = stderr = f
+        except Exception:
+            pass
+
+    completed = subprocess.run(
+        command,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
+        check=False,
+    )
+    if f:
+        f.close()
+    return completed.returncode
+
+
+def _prepare_command(command: list[str]) -> list[str]:
+    if not command:
+        return command
+    executable = shutil.which(command[0]) or command[0]
+    executable_path = Path(executable)
+    suffix = executable_path.suffix.lower()
+    if suffix in {".cmd", ".bat"}:
+        return ["cmd.exe", "/c", executable, *command[1:]]
+    return [executable, *command[1:]]

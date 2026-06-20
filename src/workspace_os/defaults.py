@@ -30,12 +30,6 @@ PERFORMANCE_TRACKING = os.environ.get("WOS_DISABLE_PERFORMANCE_TRACKING", "").lo
 # Progress Monitoring - Show animated progress by default
 PROGRESS_MONITORING = os.environ.get("WOS_DISABLE_PROGRESS_MONITORING", "").lower() != "true"
 
-# PR Traceability - Enable traceability metadata by default
-PR_TRACEABILITY_ENABLED = os.environ.get("WOS_DISABLE_PR_TRACEABILITY", "").lower() != "true"
-
-# PR Validation Mode - "soft" (warn only) or "strict" (fail on missing metadata)
-PR_VALIDATION_MODE = os.environ.get("WOS_PR_VALIDATION_MODE", "soft")
-
 
 def get_default_config():
     """
@@ -75,10 +69,6 @@ def get_default_config():
         "enable_issue_assignment": os.environ.get("WOS_ENABLE_ISSUE_ASSIGNMENT", "true").lower() in ("true", "1", "yes"),
         "performance_tracking": PERFORMANCE_TRACKING,
         "progress_monitoring": PROGRESS_MONITORING,
-
-        # Traceability
-        "pr_traceability_enabled": PR_TRACEABILITY_ENABLED,
-        "pr_validation_mode": PR_VALIDATION_MODE,
     }
 
 
@@ -109,10 +99,6 @@ def print_config_banner():
     print("📊 Optimization:")
     print(f"  ✓ Issue Pre-Assignment: {'ENABLED' if config['enable_issue_assignment'] else 'DISABLED'}")
     print(f"  ✓ Performance Tracking: {'ENABLED' if config['performance_tracking'] else 'DISABLED'}")
-    print()
-    print("🔍 Traceability:")
-    print(f"  ✓ PR Traceability: {'ENABLED' if config['pr_traceability_enabled'] else 'DISABLED'}")
-    print(f"  ✓ Validation Mode: {config['pr_validation_mode'].upper()}")
     print()
     print("Target: 95%+ success rate | World-class development standards")
     print()
@@ -158,6 +144,4 @@ __all__ = [
     'DYNAMIC_REBALANCING',
     'PERFORMANCE_TRACKING',
     'PROGRESS_MONITORING',
-    'PR_TRACEABILITY_ENABLED',
-    'PR_VALIDATION_MODE',
 ]

@@ -178,12 +178,34 @@ Acceptance criteria:
 - Mutating workflows require explicit approval.
 
 Initial implementation:
+- `python -m workspace_os shell` opens a terminal-first workspace shell with workspace switching and conversational prompts.
 - `python -m workspace_os web` starts the local web pilot.
 - The pilot uses allowlisted local endpoints instead of arbitrary shell execution.
 - The UI includes software, documents, presentations, and learning contexts inspired by homedir.
 - Capture and promotion actions are preview-only from the browser.
 - Software delegation can launch an approved Codex or Claude run from the local Git workspace.
 - Document and presentation delegation remain blocked until a real Google Drive connector exists.
+- Shell profile commands remember tone, detail level, default workspace, and shortcut aliases in persistent memory, and the shell startup banner summarizes inferred operator habits from recent launches and conversation activity.
+- Shell agent commands launch allowlisted Codex, Claude, or Antigravity tasks from the active workspace and record the launch.
+- Batch telemetry records start and end time, delegations, defects, and conversation activity so each iteration can be reported with duration and defect-driven churn.
+- Chat and web responses surface the active batch summary so the current work window stays visible outside the shell.
+- Batch summary output lists the recent batch count with duration and defect iterations per batch, and reports the global process window from first start to last end for accurate stopwatch-style measurement.
+- Process summary output gives a dedicated stopwatch for a long-running work window, including batch count, delegations, and defect iterations for the whole process.
+- Process checkpoints record milestones within the active process so the operator can mark progress without closing the window.
+- A read-only `inspect` surface condenses source status, memory, profile, habits, active process, active batch, and recent launches into one operator-facing summary.
+- `inspect --compact` trims the overview into summary lines for lower-noise supervision.
+- A concise `handoff` surface turns the current workspace state into a copyable closing summary for iteration wrap-up.
+- `context latest` replays the most recent compacted global context snapshot directly from memory, while `context <topic>` still builds a governed task pack.
+- The interactive chat CLI opens by showing the latest compacted global context snapshot before prompting for input so the operator starts from shared state.
+- The web chat shows the latest compacted global context snapshot above the chat history, refreshes it from the latest reply, lets the operator expand or collapse the block on demand, and remembers that preference across reloads.
+- Chat replies separate the user-facing `Answer:` from the internal `Trace:` so reasoning and results are visually distinct.
+- Greetings, app-overview questions, and repetition complaints return intent-aware guidance instead of the same canned fallback.
+- Ambiguous workspace-status questions route to Codex first with Claude as a parallel fallback when the workspace needs inventory or cross-checking.
+- `handoff` can export Markdown to a file from the CLI and shell so the closing summary can be archived or pasted elsewhere without copying.
+- `batch handoff` and `process handoff` export scoped closing summaries for the active batch or process, including optional `--output` and `--compact` modes.
+- `batch stop` and `process stop` write a default `handoff.md` beside the local memory store and a `context-global.md` snapshot so completed windows leave both a closing artifact and compacted durable context automatically, and shell exit also persists the latest context snapshot.
+- The web pilot exposes the same handoff summary through a local API so the browser panel can close work without entering the shell.
+- The web panel shows refreshable handoff and context blocks, plus direct download actions, so the closing summary and compacted workspace context stay visible and exportable during supervision.
 
 ### WSOS-019: Deepen Web Pilot Workflows
 
@@ -204,15 +226,50 @@ Acceptance criteria:
 - Consciousness engine captures intent, desired outcome, risk, priority, timing, and checkpoint needs.
 - Learning engine applies ADEV doctrine and scanales-kb evidence before routing.
 - Routing output identifies destination: Git, Google Workspace, agent brief, answer, clarification, or refusal.
-- Operational Conscience Layer is captured as sanitized local architecture documentation.
+- OCE is captured as sanitized local architecture documentation, with Operational Conscience Layer retained as the historical predecessor.
 - The UI exposes the bridge state without overwhelming the first-use flow.
 
 Initial implementation:
 - Deterministic Operational Conscience evaluation exists for delegated software work.
-- Launch decisions return risk level, moral categories, applicable norms, decision, strategy, rationale, review requirement, and missing context.
+- Launch decisions return risk level, moral categories, applicable norms, policy refs, context, decision, strategy, rationale, review requirement, and missing context.
+- Ambiguous requests can return `SAFE_REDIRECT` so the system can route them to Codex first and Claude as a parallel cross-check.
+- The chat surfaces keep the user-facing answer terse by default and expose the full answer-plus-trace payload only through `verbose` mode in the shell or web UI.
+- Continuation requests such as "keep going" or "continue the implementation" answer with a direct resume path instead of the generic fallback, usually pointing at `/inspect`, `/next`, and the active Codex/Claude route.
+- `analysis` surfaces the workspace root, the projects under that root, and a recommendation for which repo to continue first, so the initial workspace scan can start from the highest-leverage repo.
+- `feedback` should record the request, result, and follow-up reaction, then classify the signal as positive, questionable, or over expectation so WOS can reinforce what worked and discourage what did not. The feedback layer also tags common agent errors such as too-verbose answers, wrong-agent routing, missing repo resolution, missing clarification, ignored preference, and generic fallback so the lightweight learning model can bias future routing and answer style.
+- The web chat exposes redirect routes as launchable actions for ambiguous requests.
+- `conscience status` and `conscience history` expose decision metrics, routing reasons, and recent conscience decisions in CLI, shell, and web.
+- `conscience recommend` exposes a compact next action derived from the decision log so repeated work can move faster with less trace noise.
+- `conscience extensions` exposes registered OCE extension layers, policy docs, and hook counts so collaborators can review what is pluggable without reading source code first, and the workspace config can list extension modules to load at startup.
+- `next` exposes the immediate operational step from the current workspace state so the operator can move without opening the full overview.
+- `bridge next` exposes the shortest decision surface, `bridge status` defaults to a short decision-oriented summary, `bridge status --detail` expands the full bridge inventory, and `bridge capabilities` exposes the command surface so Codex, Claude, or any other CLI agent can query WOS without opening the shell.
+- `cycle` orchestrates long-running implementation plans with explicit health, stability, security, and quality checkpoints between iterations so WOS can supervise long cycles of delegated work, `cycle run` can execute multiple checkpoints in one pass when the active cycle is already open or when a new cycle is started with a label and objective, `cycle watch` can keep checkpointing until a target duration elapses, and `cycle next` can recommend the next iteration without rethinking the plan from scratch.
+- Long-run cycles write execution journals under the workspace memory root so each run preserves story, code metrics, functional metrics, checkpoint history, wall-clock time, logical time, and idle ratio for later analysis.
+- `tests/test_smoke_queries.py` provides a regression battery of representative user queries and command surfaces, and each batch should run it alongside the normal validation suite.
+- `workspace validate` includes the smoke regression battery by default, with `--skip-smoke-queries` available for narrower gates, and optional sources do not fail the gate when they are marked `required: false`.
+- The web UI exposes a collapsible Conscience panel with decision, policy refs, and moral context.
+- The canonical architecture stack is documented as ADEV -> OCE -> WOS, where ADEV is the principle layer, OCE is the Operational Conscience Engine model layer, and WOS is the implementation layer.
+- The OCE layer is layered and pluggable: it can accept bounded context hooks, decision hooks, and policy documents through registered extension modules and a workspace config list.
+- The operating model distinguishes predictive routing from generative synthesis so the product can use low-cost interpretation before high-value generation.
+- The normative base is stored as versioned Markdown under `docs/architecture/policies/`.
 - Delegate launch is blocked when the decision is `ASK_CLARIFICATION`, `REFUSE`, or `ESCALATE_TO_HUMAN`.
 - Google Workspace destinations remain blocked until a real connector exists.
 - The web UI exposes a chat-first workspace with engine activation indicators and recent local software and document activity.
+
+### WSOS-021: Persist Operator Memory
+
+As the operator, the system needs a persistent memory layer that captures preferences, lessons, outcomes, and conversation traces so repeated instructions do not have to be re-entered.
+
+Acceptance criteria:
+- Workspace memory is stored locally in SQLite.
+- Preferences, reusable lessons, outcomes, and decision traces can be recorded and retrieved.
+- Context packs and chat responses can consult prior memory entries.
+- The memory store remains local-first and portable across workspace roots.
+
+Initial implementation:
+- `python -m workspace_os chat` can record conversation turns in the memory store.
+- `python -m workspace_os memory status` reports memory store location and counts.
+- `python -m workspace_os memory preference set|get` can seed and retrieve operator preferences.
 
 ### WSOS-011: Define Consulting Estimate Workflow
 

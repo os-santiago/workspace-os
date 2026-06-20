@@ -10,17 +10,30 @@
     <header class="top-bar">
       <div class="brand">Workspace OS</div>
       <div class="engine-indicators" aria-label="Engine indicators">
-        <span class="engine-pill" id="conscienceIndicator">Conscience 0</span>
+        <span class="engine-pill" id="conscienceIndicator">OCE 0</span>
         <span class="engine-pill" id="learningIndicator">Learning 0</span>
+        <button class="engine-pill" id="chatVerboseToggle" type="button">Verbose Off</button>
       </div>
     </header>
 
     <main class="workspace-layout">
       <section class="chat-panel" aria-label="Workspace chat">
+        <section class="chat-context" aria-label="Latest context snapshot">
+          <div class="rail-header">
+            <h2>Latest Context</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="chatContextToggle" type="button">Expand</button>
+              <button class="rail-action" id="chatContextRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="chat-context-body">
+            <pre class="chat-context-output" id="chatContextOutput">Loading context...</pre>
+          </div>
+        </section>
         <div class="chat-stream" id="chatStream">
           <article class="message system-message">
             <strong>Workspace OS</strong>
-            <p>Send a request. The Operational Conscience Layer evaluates it, the learning engine checks for reusable knowledge, and Workspace OS prepares the next action.</p>
+            <p>Ask about current projects, repo state, context, or delegation. WOS routes work across tracked repos, remembers context, and can hand off to Codex or Claude when the request needs execution.</p>
           </article>
         </div>
         <form class="chat-composer" id="chatForm">
@@ -44,6 +57,85 @@
             <span>Recent 5</span>
           </div>
           <div class="rail-list" id="docsList"></div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
+            <h2>Context</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="contextDownload" type="button">Download</button>
+              <button class="rail-action" id="contextRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Durable global context snapshot for the current workspace state.</p>
+            <pre class="handoff-output" id="contextOutput">Loading context...</pre>
+          </div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
+            <h2>Analysis</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="analysisRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Recent repo activity and the recommended continuation path.</p>
+            <pre class="handoff-output" id="analysisOutput">Loading analysis...</pre>
+          </div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
+            <h2>Next</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="nextRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Immediate next operational action derived from the current workspace state.</p>
+            <pre class="handoff-output" id="nextOutput">Loading next action...</pre>
+          </div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
+            <h2>Conscience</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="conscienceToggle" type="button">Expand</button>
+              <button class="rail-action" id="conscienceRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Decision trace, policy refs, and moral context for the latest chat request.</p>
+            <pre class="handoff-output" id="conscienceOutput">Waiting for an OCE decision...</pre>
+            <div class="suggested-actions" id="conscienceActions"></div>
+            <div class="context-divider"></div>
+            <div class="rail-header">
+              <h3>Metrics</h3>
+              <div class="rail-actions">
+                <button class="rail-action" id="conscienceRecommendRefresh" type="button">Recommend</button>
+                <button class="rail-action" id="conscienceMetricsRefresh" type="button">Refresh</button>
+              </div>
+            </div>
+            <pre class="handoff-output" id="conscienceRecommendationOutput">Loading OCE recommendation...</pre>
+            <pre class="handoff-output" id="conscienceMetricsOutput">Loading OCE metrics...</pre>
+          </div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
+            <h2>Handoff</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="handoffDownload" type="button">Download</button>
+              <button class="rail-action" id="handoffRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Copyable closing summary for the current workspace state.</p>
+            <pre class="handoff-output" id="handoffOutput">Loading handoff...</pre>
+          </div>
         </section>
       </aside>
     </main>

@@ -389,7 +389,7 @@ def _build_cycle_work_prompt(
         next_action_text = "Workspace next action unavailable."
     else:
         analysis_text = render_workspace_analysis_text(sources, memory_store, workspace=workspace_name, limit=5, compact=True).rstrip()
-        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name).rstrip()
+        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name, compact=True).rstrip()
 
     # Get recent plan gaps from latest journal to guide prioritization
     plan_gap_hint = ""
@@ -453,14 +453,15 @@ def _build_cycle_work_prompt(
     except Exception:
         pass
 
-    # Get latest journal entry to show previous iteration context
+    # Get latest journal entry to show previous iteration context (compact: 2 lines max)
     journal_context_lines: list[str] = []
     try:
         from workspace_os.journal import latest_journal_entry
         latest_entry = latest_journal_entry(memory_store)
         if latest_entry and latest_entry.story_lines:
             journal_context_lines.append("Previous iteration summary:")
-            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:5])
+            # Compact: show only first 2 lines (saves 3 lines)
+            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:2])
     except Exception:
         pass
 
@@ -498,10 +499,8 @@ def _build_cycle_work_prompt(
     base_lines.extend(
         [
             "Focus on concrete repository changes that reduce agent overhead, keep agents busy, and improve the long-run operating model.",
-            "Prefer code, tests, and docs over prose-only output.",
-            "Keep unrelated local changes intact.",
-            "Return a concise summary of changed files, validations, and any remaining gaps.",
-            f"Supported work agents: {', '.join(available_work_agents())}.",
+            "Prefer code, tests, and docs over prose-only output. Keep unrelated local changes intact.",
+            f"Return a concise summary of changed files, validations, and any remaining gaps. Supported work agents: {', '.join(available_work_agents())}.",
         ]
     )
     if recent_work_lines:
@@ -543,9 +542,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: primary executor.",
-                "Lead implementation. Focus on getting it done correctly and efficiently.",
-                role_guidance,
+                f"Role: primary executor. {role_guidance}",
             ]
         )
     elif role == "cross-check":
@@ -553,9 +550,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: cross-check reviewer.",
-                "Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort.",
-                "Focus on catching issues before they reach checkpoints.",
+                "Role: cross-check reviewer. Review recent work items. Verify correctness, suggest improvements, but don't duplicate effort. Focus on catching issues before they reach checkpoints.",
             ]
         )
     elif role == "observer":
@@ -563,9 +558,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: learning observer.",
-                "Review recent work and provide feedback. Identify patterns, suggest process improvements.",
-                "Your feedback helps the squad learn and adapt.",
+                "Role: learning observer. Review recent work and provide feedback. Identify patterns, suggest process improvements. Your feedback helps the squad learn and adapt.",
             ]
         )
     else:
@@ -579,8 +572,7 @@ def _build_cycle_work_prompt(
             [
                 *base_lines,
                 "",
-                "Role: executor.",
-                executor_guidance,
+                f"Role: executor. {executor_guidance}",
             ]
         )
 
@@ -589,8 +581,7 @@ def _build_cycle_work_prompt(
         [
             *base_lines,
             "",
-            "Role: cross-check.",
-            "Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
+            "Role: cross-check. Review the executor's likely change surface, identify gaps, and suggest the fastest correction path.",
         ]
     )
 
@@ -1326,33 +1317,6 @@ def run_cycle_work_window_continuous(
                     # Record successful completion in queue tracker
                     completed_metadata = queue_tracker.complete(work_info["task_id"], returncode=0, duration_seconds=duration)
 
-                    # Verify PR links to issue (continuous mode only)
-                    pr_validation_result = None
-                    if completed_metadata and "issue_number" in completed_metadata:
-                        issue_num = completed_metadata["issue_number"]
-                        if issue_num:
-                            pr_validation_result = _verify_pr_links_to_issue(sources, issue_num)
-
-                            # Store PR info in completed_metadata for tracking
-                            if pr_validation_result.get("pr_number"):
-                                completed_metadata["pr_number"] = pr_validation_result["pr_number"]
-                            if pr_validation_result.get("pr_url"):
-                                completed_metadata["pr_url"] = pr_validation_result["pr_url"]
-
-                            # Log validation result
-                            if pr_validation_result.get("validated"):
-                                if pr_validation_result.get("passed"):
-                                    if pr_validation_result.get("pr_number"):
-                                        print(
-                                            f"[cycle] PR validation passed: Issue #{issue_num} linked in PR #{pr_validation_result['pr_number']}"
-                                        )
-                                else:
-                                    print(
-                                        f"[cycle] PR validation FAILED: {pr_validation_result.get('error', 'Unknown error')}"
-                                    )
-                            elif pr_validation_result.get("error"):
-                                print(f"[cycle] PR validation skipped: {pr_validation_result['error']}")
-
                     # Mark issue as no longer in progress (allows work stealing if re-queued)
                     if completed_metadata and "issue_number" in completed_metadata:
                         issue_num = completed_metadata["issue_number"]
@@ -2015,152 +1979,6 @@ def _parse_pytest_failures(output: str) -> list[dict[str, str | int]]:
             })
 
     return failures
-
-
-def _verify_pr_links_to_issue(
-    sources: list[Source],
-    issue_number: int | None,
-    timeout_seconds: float = 10.0,
-) -> dict[str, object]:
-    """Verify that recent PRs properly link to the assigned issue.
-
-    Args:
-        sources: List of Source objects defining the workspace
-        issue_number: The issue number that should be linked in the PR
-        timeout_seconds: Maximum time to wait for gh command
-
-    Returns:
-        Dictionary with validation results:
-        - validated: bool - whether validation was performed
-        - passed: bool - whether PR properly links to issue
-        - pr_number: int | None - PR number if found
-        - pr_url: str | None - PR URL if found
-        - error: str | None - error message if validation failed
-    """
-    # Check environment variables
-    skip_validation = os.environ.get("WOS_SKIP_PR_VALIDATION", "").lower() in ("true", "1", "yes")
-    if skip_validation:
-        return {
-            "validated": False,
-            "passed": True,
-            "pr_number": None,
-            "pr_url": None,
-            "error": "Validation skipped via WOS_SKIP_PR_VALIDATION",
-        }
-
-    validation_mode = os.environ.get("WOS_PR_VALIDATION_MODE", "soft").lower()
-    if validation_mode not in ("soft", "hard"):
-        validation_mode = "soft"
-
-    if not issue_number:
-        return {
-            "validated": False,
-            "passed": True,
-            "pr_number": None,
-            "pr_url": None,
-            "error": "No issue assigned to this work item",
-        }
-
-    try:
-        workspace_root = _workspace_root_for_sources(sources)
-
-        # Fetch recent PRs (last 10) with metadata
-        result = subprocess.run(
-            ["gh", "pr", "list", "--limit", "10", "--json", "number,title,body,url,createdAt"],
-            cwd=workspace_root,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or "Unknown error"
-
-            # Handle rate limiting
-            if "rate limit" in error_msg.lower() or "API rate limit" in error_msg.lower():
-                return {
-                    "validated": False,
-                    "passed": True if validation_mode == "soft" else False,
-                    "pr_number": None,
-                    "pr_url": None,
-                    "error": f"GitHub API rate limit exceeded (mode={validation_mode})",
-                }
-
-            # Handle other errors
-            return {
-                "validated": False,
-                "passed": True if validation_mode == "soft" else False,
-                "pr_number": None,
-                "pr_url": None,
-                "error": f"gh pr list failed: {error_msg} (mode={validation_mode})",
-            }
-
-        prs = json.loads(result.stdout)
-
-        # Check for closing keywords: Closes/Fixes/Resolves #N
-        closing_keywords = ["closes", "fixes", "resolves", "close", "fix", "resolve"]
-        issue_ref = f"#{issue_number}"
-
-        for pr in prs:
-            pr_body = (pr.get("body") or "").lower()
-            pr_title = (pr.get("title") or "").lower()
-            combined_text = f"{pr_title} {pr_body}"
-
-            # Check if PR mentions the issue with a closing keyword
-            for keyword in closing_keywords:
-                if f"{keyword} {issue_ref}".lower() in combined_text or f"{keyword}:{issue_ref}".lower() in combined_text:
-                    return {
-                        "validated": True,
-                        "passed": True,
-                        "pr_number": int(pr["number"]),
-                        "pr_url": pr.get("url"),
-                        "error": None,
-                    }
-
-        # No PR found linking to the issue
-        if validation_mode == "hard":
-            return {
-                "validated": True,
-                "passed": False,
-                "pr_number": None,
-                "pr_url": None,
-                "error": f"No PR found with closing keyword for issue #{issue_number}",
-            }
-        else:
-            # Soft mode: warn but don't fail
-            return {
-                "validated": True,
-                "passed": True,
-                "pr_number": None,
-                "pr_url": None,
-                "error": f"Warning: No PR found with closing keyword for issue #{issue_number} (soft mode)",
-            }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "validated": False,
-            "passed": True if validation_mode == "soft" else False,
-            "pr_number": None,
-            "pr_url": None,
-            "error": f"gh pr list timed out after {timeout_seconds}s (mode={validation_mode})",
-        }
-    except json.JSONDecodeError as e:
-        return {
-            "validated": False,
-            "passed": True if validation_mode == "soft" else False,
-            "pr_number": None,
-            "pr_url": None,
-            "error": f"Failed to parse gh pr list output: {e} (mode={validation_mode})",
-        }
-    except Exception as e:
-        return {
-            "validated": False,
-            "passed": True if validation_mode == "soft" else False,
-            "pr_number": None,
-            "pr_url": None,
-            "error": f"Unexpected error during PR validation: {e} (mode={validation_mode})",
-        }
 
 
 def _generate_issues_from_backlog_inline(
