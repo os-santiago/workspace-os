@@ -13,6 +13,7 @@ __pycache__/
 tmp/
 temp/
 .cache/
+.tmp/
 
 # Local indexes and databases
 *.db
@@ -29,3 +30,10 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# WOS ephemeral files
+.observer-summary-*.txt
+PROGRESS-*.md
+check-progress.sh
+.claude/
+.workspace/

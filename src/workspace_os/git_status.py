@@ -32,6 +32,14 @@ class GitStatus:
         return "clean"
 
 
+@dataclass(frozen=True)
+class SourceActivity:
+    source: Source
+    status: GitStatus
+    updated_epoch: float
+    updated: str
+
+
 def inspect_source(source: Source) -> GitStatus:
     if not source.path.exists():
         return GitStatus(source=source, exists=False, is_git_repo=False)
@@ -71,6 +79,27 @@ def inspect_source(source: Source) -> GitStatus:
     )
 
 
+def recent_source_activities(sources: list[Source], limit: int = 5) -> list[SourceActivity]:
+    activities: list[SourceActivity] = []
+    for source in sources:
+        if not source.path.exists():
+            continue
+        status = inspect_source(source)
+        if not status.is_git_repo or status.error:
+            continue
+        updated_epoch = _source_last_activity_epoch(source.path)
+        activities.append(
+            SourceActivity(
+                source=source,
+                status=status,
+                updated_epoch=updated_epoch,
+                updated=_format_epoch(updated_epoch),
+            )
+        )
+    activities.sort(key=lambda item: (item.status.state == "dirty", item.updated_epoch), reverse=True)
+    return activities[:limit]
+
+
 def _is_git_repo(path: Path) -> bool:
     try:
         output = _run_git(path, "rev-parse", "--is-inside-work-tree").strip()
@@ -103,3 +132,28 @@ def _run_git(path: Path, *args: str) -> str:
         errors="replace",
     )
     return completed.stdout
+
+
+def _source_last_activity_epoch(path: Path) -> float:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "log", "-1", "--format=%ct"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return path.stat().st_mtime
+    if result.returncode != 0:
+        return path.stat().st_mtime
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return path.stat().st_mtime
+
+
+def _format_epoch(epoch: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()

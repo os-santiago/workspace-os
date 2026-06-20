@@ -15,24 +15,16 @@ class ValidationResult:
     detail: str
 
 
-def validate_workspace(sources: list[Source], include_housekeeping: bool = True) -> list[ValidationResult]:
-    total_steps = len(sources) + (1 if include_housekeeping else 0) + 1  # sources + housekeeping + registry check
-
-    with progress("Validating workspace", total=total_steps) as tracker:
-        tracker.update(description="Checking source registry")
-        results = [_validate_sources_exist(sources)]
-        tracker.update()
-
-        tracker.update(description="Validating source states")
-        results.extend(_validate_source_states(sources))
-
-        if include_housekeeping:
-            tracker.update(description="Checking for temporary artifacts")
-            results.append(_validate_housekeeping(sources))
-            tracker.update()
-
-        tracker.complete()
-
+def validate_workspace(
+    sources: list[Source],
+    include_housekeeping: bool = True,
+    include_smoke_queries: bool = False,
+) -> list[ValidationResult]:
+    results = [_validate_sources_exist(sources), *_validate_source_states(sources)]
+    if include_housekeeping:
+        results.append(_validate_housekeeping(sources))
+    if include_smoke_queries:
+        results.extend(_validate_smoke_queries())
     return results
 
 
@@ -51,10 +43,16 @@ def _validate_source_states(sources: list[Source]) -> list[ValidationResult]:
     for source in sources:
         status = inspect_source(source)
         if not status.exists:
-            results.append(ValidationResult(f"source:{source.name}", False, "Configured path is missing."))
+            if source.required:
+                results.append(ValidationResult(f"source:{source.name}", False, "Configured path is missing."))
+            else:
+                results.append(ValidationResult(f"source:{source.name}", True, "Optional path is missing."))
             continue
         if not status.is_git_repo:
-            results.append(ValidationResult(f"source:{source.name}", False, "Configured path is not a Git repository."))
+            if source.required:
+                results.append(ValidationResult(f"source:{source.name}", False, "Configured path is not a Git repository."))
+            else:
+                results.append(ValidationResult(f"source:{source.name}", True, "Optional path is not a Git repository."))
             continue
         if status.error:
             results.append(ValidationResult(f"source:{source.name}", False, "Git status inspection failed."))
@@ -73,3 +71,13 @@ def _validate_housekeeping(sources: list[Source]) -> ValidationResult:
             f"Temporary artifact found at {finding.source_name}:{finding.path}.",
         )
     return ValidationResult("housekeeping", True, "No temporary artifacts found.")
+
+
+def _validate_smoke_queries() -> list[ValidationResult]:
+    from workspace_os.smoke import run_smoke_regression_checks
+
+    smoke_results = run_smoke_regression_checks()
+    return [
+        ValidationResult(f"smoke:{result.name}", result.passed, result.detail)
+        for result in smoke_results
+    ]

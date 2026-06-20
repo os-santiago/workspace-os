@@ -1,0 +1,1505 @@
+from __future__ import annotations
+
+import argparse
+import cmd
+import os
+from pathlib import Path
+import shlex
+import sys
+
+from workspace_os.agent_adapter import launch_agent
+from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
+from workspace_os.capture import build_capture_draft
+from workspace_os.classification import classify_content
+from workspace_os.cycle import active_cycle_report, build_cycle_next_action, cycle_history_report, record_cycle_checkpoint, render_cycle_evaluation, run_cycle_evaluation, run_cycle_plan, run_cycle_window, run_cycle_work_window, run_cycle_work_window_continuous, start_cycle, stop_cycle
+from workspace_os.bridge import render_workspace_bridge_capabilities_text, render_workspace_bridge_json, render_workspace_bridge_next_json, render_workspace_bridge_next_text, render_workspace_bridge_text
+from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
+from workspace_os.config import Source
+from workspace_os.conversation import build_workspace_reply
+from workspace_os.feedback import assess_feedback
+from workspace_os.context_pack import build_context_pack
+from workspace_os.git_status import inspect_source
+from workspace_os.habits import compute_habits
+from workspace_os.journal import journal_root, latest_journal_entry, list_journal_entries, write_cycle_journal
+from workspace_os.oce_extensions_report import build_oce_extensions_report, render_oce_extensions_report_text
+from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
+from workspace_os.promotion import build_promotion_proposal
+from workspace_os.profile import load_profile, save_profile_key, save_shortcut
+from workspace_os.sanitization import sanitize_text
+from workspace_os.search import search_sources
+from workspace_os.validation import validate_workspace, validation_failed
+
+
+class WorkspaceShell(cmd.Cmd):
+    intro = "Workspace OS shell. Type /help for commands, /exit to leave."
+    ruler = "-"
+
+    def __init__(self, sources: list[Source], memory_path: Path, session_id: str = "shell"):
+        super().__init__()
+        self.sources = sources
+        self.memory_store = WorkspaceMemoryStore(memory_path)
+        self.memory_store.ensure_schema()
+        self.profile = load_profile(self.memory_store)
+        self.habits = compute_habits(self.memory_store, self.profile)
+        self.session_id = session_id
+        self.verbose = False
+        self.active_workspace: str | None = self.profile.default_workspace
+        if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
+            self.active_workspace = None
+        self.active_process = self.memory_store.active_process()
+        self.active_batch = self.memory_store.active_batch()
+        self.context_snapshot = self.memory_store.latest_context_snapshot()
+        self.intro = (
+            f"Workspace OS shell. {self.habits.render_summary()}\n"
+            f"{self._render_context_banner()}"
+            f"{self._render_process_banner()}"
+            f"{self._render_batch_banner()}"
+            "Type /help for commands, /inspect for overview, /handoff for closing summary, /exit to leave."
+        )
+        self.prompt = self._render_prompt()
+
+    def parseline(self, line: str):
+        stripped = self._normalize_line(line)
+        if stripped.startswith("/"):
+            stripped = stripped[1:]
+        return super().parseline(stripped)
+
+    def precmd(self, line: str) -> str:
+        return self._expand_alias(self._normalize_line(line))
+
+    def default(self, line: str) -> None:
+        message = line.strip()
+        if not message:
+            return
+
+        import os
+        from workspace_os.conversation import route_natural_language_intent
+        is_testing = "PYTEST_CURRENT_TEST" in os.environ or "WOS_IN_SMOKE_TEST" in os.environ
+        cmd = None if is_testing else route_natural_language_intent(message)
+        if cmd:
+            self._emit(f"[WOS] Auto-executing matched command: {cmd}\n")
+            self.onecmd(cmd)
+            return
+
+        reply = build_workspace_reply(
+            self._selected_sources(),
+            message,
+            memory_store=self.memory_store,
+            session_id=self.session_id,
+            tone=self.profile.tone,
+            detail_level=self.profile.detail_level,
+        )
+        self._emit(self._render_reply(reply))
+        self.habits = compute_habits(self.memory_store, self.profile)
+        self.context_snapshot = self.memory_store.latest_context_snapshot()
+        self.prompt = self._render_prompt()
+
+    def do_help(self, arg: str) -> None:
+        print(
+            "\n".join(
+                [
+                    "Workspace OS shell commands:",
+                    "/ws <name>          switch active workspace",
+                    "/workspaces         list configured workspaces",
+                    "/status             show active workspace status",
+                    "/search <query>     search configured sources",
+                    "/context <topic>    build governed context pack",
+                    "/context latest     show the latest compacted global context snapshot",
+                    "/classify <text>    classify content destination",
+                    "/validate [--skip-smoke-queries] validate workspace health",
+                    "/capture <type>     capture session/incident/decision/daily notes",
+                    "/promote <target>   promote rule to ADEV/kb",
+                    "/memory [query]     search persistent memory",
+                    "/feedback add|history|status  manage request/result feedback signals",
+                    "/inspect [opts]     show a condensed read-only workspace overview",
+                    "/analysis [opts]    show recently updated repos and a recommended continuation",
+                    "/roots [opts]       show workspace and knowledge base roots",
+                    "/bridge [opts]      show next decision, status, or capability inventory",
+                    "/handoff [opts]     show or export a concise handoff summary",
+                    "/next               show the next operational action",
+                    "/profile [k v]      get or set profile values",
+                    "/habits             show inferred operator habits",
+                    "/batch ...          start, stop, report, handoff, status, summary, or list batches",
+                    "/process ...        start, stop, report, handoff, status, summary, checkpoint, or list processes",
+                    "/cycle ...          start, stop, run, work, watch, report, status, checkpoint, or list long-run cycles",
+                    "/cycle next         recommend the next cycle action",
+                    "/journal ...        inspect productivity journals from long runs",
+                    "/alias ...          save, list, or invoke shortcuts",
+                    "/conscience ...     show decision metrics, history, recommendation, or extensions",
+                    "/oce ...           alias for /conscience",
+                    "/verbose [on|off]   toggle full answer+trace output (default is answer only)",
+                    "/opencode <task>    launch opencode with the active workspace",
+                    "/codex <task>       launch codex with the active workspace",
+                    "/claude <task>      launch claude with the active workspace",
+                    "/antigravity <task> launch antigravity with the active workspace",
+                    "/launches           show recent agent launches",
+                    "/exit               exit shell",
+                    "",
+                    "Free text is treated as a chat message and recorded in memory.",
+                ]
+            )
+        )
+
+    def do_exit(self, arg: str) -> bool:
+        try:
+            write_workspace_context_snapshot(
+                default_workspace_context_path(self.memory_store.path),
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                reason="shell-exit",
+            )
+        except OSError:
+            pass
+        return True
+
+    def do_ws(self, arg: str) -> None:
+        name = arg.strip()
+        if not name:
+            self._print_workspaces()
+            return
+        if not any(source.name == name for source in self.sources):
+            self._emit(f"Unknown workspace: {name}")
+            return
+        self.active_workspace = name
+        self.prompt = self._render_prompt()
+        self._emit(f"active workspace={name}")
+
+    def do_workspaces(self, arg: str) -> None:
+        self._print_workspaces()
+
+    def do_status(self, arg: str) -> None:
+        self._print_status()
+
+    def do_search(self, arg: str) -> None:
+        query = arg.strip()
+        if not query:
+            self._emit("Usage: /search <query>")
+            return
+        matches = search_sources(self._selected_sources(), query, max_results=20)
+        for match in matches:
+            self._emit(f"{match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}")
+        if not matches:
+            self._emit("No matches found.")
+
+    def do_context(self, arg: str) -> None:
+        topic = arg.strip()
+        if not topic:
+            self._emit("Usage: /context <topic>")
+            return
+        if topic.casefold() == "latest":
+            self._emit(render_latest_workspace_context_text(self.memory_store), end="")
+            return
+        pack = build_context_pack(
+            sources=self.sources,
+            topic=topic,
+            memory_path=self.memory_store.path,
+        )
+        self._emit(pack.render_markdown(), end="")
+
+    def do_classify(self, arg: str) -> None:
+        value = arg.strip()
+        if not value:
+            self._emit("Usage: /classify <text>")
+            return
+        classification = classify_content(value)
+        self._emit(f"target={classification.target}")
+        self._emit(f"confidence={classification.confidence}")
+        self._emit(f"reason={classification.reason}")
+
+    def do_validate(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        skip_smoke_queries = "--skip-smoke-queries" in parts
+        results = validate_workspace(self.sources, include_smoke_queries=not skip_smoke_queries)
+        for result in results:
+            state = "PASS" if result.passed else "FAIL"
+            self._emit(f"{state} {result.name}: {result.detail}")
+        if validation_failed(results):
+            self._emit("validation_failed=true")
+
+    def do_capture(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if len(parts) < 2:
+            self._emit("Usage: /capture <type> <title> | /capture <type> --title <title>")
+            return
+        capture_type = parts[0]
+        title = " ".join(parts[1:]).strip()
+        try:
+            draft = build_capture_draft(self.sources, capture_type, title, "")
+        except (OSError, ValueError) as exc:
+            self._emit(f"error: {exc}")
+            return
+        self._emit("dry_run=true")
+        self._emit(f"target={draft.source_name}:{draft.relative_path}")
+        self._emit("")
+        self._emit(draft.content, end="")
+
+    def do_promote(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if len(parts) < 2:
+            self._emit("Usage: /promote <target> <rule>")
+            return
+        target = parts[0]
+        rule = " ".join(parts[1:]).strip()
+        try:
+            proposal = build_promotion_proposal(
+                sources=self.sources,
+                target=target,
+                rule=rule,
+                evidence="workspace-shell",
+            )
+        except ValueError as exc:
+            self._emit(f"error: {exc}")
+            return
+        self._emit(proposal.render_markdown(), end="")
+
+    def do_memory(self, arg: str) -> None:
+        query = arg.strip()
+        hits = self.memory_store.search(query, limit=10) if query else self.memory_store.recent(limit=10)
+        for hit in hits:
+            self._emit(hit.render())
+        if not hits:
+            self._emit("No memory entries found.")
+
+    def do_feedback(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/feedback", add_help=False)
+        subparsers = parser.add_subparsers(dest="feedback_command", required=True)
+
+        add_parser = subparsers.add_parser("add", add_help=False)
+        add_parser.add_argument("--request", required=True)
+        add_parser.add_argument("--result", required=True)
+        add_parser.add_argument("--feedback", required=True)
+
+        history_parser = subparsers.add_parser("history", add_help=False)
+        history_parser.add_argument("--limit", type=int, default=10)
+
+        subparsers.add_parser("status", add_help=False)
+
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /feedback add --request <text> --result <text> --feedback <text>")
+            print("       /feedback history [--limit N]")
+            print("       /feedback status")
+            return
+
+        if options.feedback_command == "add":
+            assessment = assess_feedback(options.request, options.result, options.feedback)
+            entry_id = self.memory_store.record_feedback_event(
+                request_text=options.request,
+                result_text=options.result,
+                feedback_text=options.feedback,
+                status=assessment.status,
+                reason=assessment.reason,
+                error_type=assessment.error_type,
+                has_objection=assessment.has_objection,
+                has_praise=assessment.has_praise,
+            )
+            self._emit(f"saved feedback {entry_id}")
+            self._emit(f"status={assessment.status}")
+            self._emit(f"error_type={assessment.error_type}")
+            self._emit(f"reason={assessment.reason}")
+            return
+        if options.feedback_command == "history":
+            entries = self.memory_store.feedback_history(limit=options.limit)
+            for entry in entries:
+                self._emit(f"- {entry['id']} {entry['status']} ({entry['error_type']}): {entry['feedback_text']} ({entry['created_at']})")
+            if not entries:
+                self._emit("No feedback entries found.")
+            return
+        if options.feedback_command == "status":
+            from workspace_os.learning import build_workspace_learning_model
+
+            profile = load_profile(self.memory_store)
+            metrics = self.memory_store.feedback_metrics()
+            self._emit("Feedback report")
+            for key, value in metrics.items():
+                self._emit(f"{key}={value}")
+            self._emit(f"learning_model={build_workspace_learning_model(self.memory_store, profile).render_summary()}")
+            return
+
+    def do_inspect(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/inspect", add_help=False)
+        parser.add_argument("--compact", action="store_true")
+        parser.add_argument("launch_limit", nargs="?", type=int, default=5)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /inspect [--compact] [launch-limit]")
+            return
+        overview = build_workspace_overview(
+            self._selected_sources(),
+            self.memory_store,
+            workspace=self.active_workspace,
+            launch_limit=max(1, options.launch_limit),
+            compact=options.compact,
+        )
+        self._emit(overview.render(), end="")
+
+    def do_analysis(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/analysis", add_help=False)
+        parser.add_argument("--compact", action="store_true")
+        parser.add_argument("limit", nargs="?", type=int, default=5)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /analysis [--compact] [limit]")
+            return
+        self._emit(
+            render_workspace_analysis_text(
+                self.sources,
+                self.memory_store,
+                workspace=self.active_workspace,
+                limit=max(1, options.limit),
+                compact=options.compact,
+            ),
+            end="",
+        )
+
+    do_analyze = do_analysis
+
+    def do_roots(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/roots", add_help=False)
+        parser.add_argument("limit", nargs="?", type=int, default=5)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /roots [limit]")
+            return
+        self._emit(
+            render_workspace_roots_text(
+                self.sources,
+                self.memory_store,
+                workspace=self.active_workspace,
+                limit=max(1, options.limit),
+            ),
+            end="",
+        )
+
+    do_kb = do_roots
+
+    def do_bridge(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/bridge", add_help=False)
+        parser.add_argument("--format", choices=["text", "json"], default="text")
+        parser.add_argument("--detail", action="store_true")
+        parser.add_argument("bridge_command", nargs="?", choices=["status", "next", "capabilities"], default="status")
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /bridge [status|next|capabilities] [--format text|json] [--detail]")
+            return
+        if options.bridge_command == "next":
+            rendered = (
+                render_workspace_bridge_next_json(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+                if options.format == "json"
+                else render_workspace_bridge_next_text(
+                    self._selected_sources(),
+                    self.memory_store,
+                    workspace=self.active_workspace,
+                    detail=options.detail,
+                )
+            )
+            self._emit(rendered, end="")
+            return
+        rendered = (
+            render_workspace_bridge_json(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+            if options.format == "json"
+            else render_workspace_bridge_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                compact=not options.detail,
+            )
+        )
+        if options.bridge_command == "capabilities" and options.format == "text":
+            self._emit(
+                render_workspace_bridge_capabilities_text(
+                    self._selected_sources(),
+                    self.memory_store,
+                    workspace=self.active_workspace,
+                ),
+                end="",
+            )
+            return
+        self._emit(rendered, end="")
+
+    def do_handoff(self, arg: str) -> None:
+        try:
+            options = self._parse_handoff_args(arg)
+        except ValueError as exc:
+            print(f"Usage: /handoff [--launch-limit N] [--output path] [--compact]")
+            print(f"error: {exc}")
+            return
+        if options.output is not None:
+            write_workspace_handoff(
+                options.output,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+            )
+            print(f"written={options.output}")
+            return
+        self._emit(
+            render_workspace_handoff_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+            ),
+            end="",
+        )
+
+    def do_next(self, arg: str) -> None:
+        compact = arg.strip().casefold() == "--compact"
+        if arg.strip() and not compact:
+            print("Usage: /next [--compact]")
+            return
+        if compact:
+            self._emit(render_workspace_next_action_text(self._selected_sources(), self.memory_store, workspace=self.active_workspace), end="")
+            return
+        next_action = build_workspace_next_action(self._selected_sources(), self.memory_store, workspace=self.active_workspace)
+        self._emit(next_action.render(), end="")
+
+    def do_profile(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_profile()
+            return
+        if len(parts) < 2:
+            print("Usage: /profile <key> <value>")
+            return
+        key = parts[0].strip()
+        value = " ".join(parts[1:]).strip()
+        if key not in {"tone", "detail_level", "default_workspace", "primary_agent"}:
+            print("Supported keys: tone, detail_level, default_workspace, primary_agent")
+            return
+        save_profile_key(self.memory_store, key, value)
+        self.profile = load_profile(self.memory_store)
+        self.habits = compute_habits(self.memory_store, self.profile)
+        if key == "default_workspace":
+            self.active_workspace = value or None
+            if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
+                self.active_workspace = None
+        self.prompt = self._render_prompt()
+        print(f"saved profile {key}")
+
+    def do_alias(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_aliases()
+            return
+        if len(parts) == 1:
+            alias = parts[0]
+            command = self.profile.shortcuts.get(alias)
+            if command is None:
+                print("No alias found.")
+                return
+            print(f"{alias}={command}")
+            return
+        alias = parts[0]
+        command = " ".join(parts[1:])
+        save_shortcut(self.memory_store, alias, command)
+        self.profile = load_profile(self.memory_store)
+        self.habits = compute_habits(self.memory_store, self.profile)
+        print(f"saved alias {alias}")
+
+    def do_habits(self, arg: str) -> None:
+        habits = compute_habits(self.memory_store, self.profile)
+        print(habits.render_full(), end="")
+
+    def do_conscience(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        limit = 20
+        if parts:
+            command = parts[0].casefold()
+            if command in {"status", "history"}:
+                if len(parts) > 1:
+                    try:
+                        limit = max(1, int(parts[1]))
+                    except ValueError:
+                        print("Usage: /conscience [status|history|recommend|extensions] [limit]")
+                        return
+                report = build_conscience_report(self.memory_store, limit=limit)
+                self._emit(render_conscience_report_text(report), end="")
+                return
+            if command == "recommend":
+                if len(parts) > 1:
+                    try:
+                        limit = max(1, int(parts[1]))
+                    except ValueError:
+                        print("Usage: /conscience [status|history|recommend|extensions] [limit]")
+                        return
+                self._emit(build_conscience_recommendation_text(self.memory_store, limit=limit), end="")
+                return
+            if command == "extensions":
+                self._emit(render_oce_extensions_report_text(build_oce_extensions_report()), end="")
+                return
+            try:
+                limit = max(1, int(parts[0]))
+            except ValueError:
+                print("Usage: /conscience [status|history|recommend|extensions] [limit]")
+                return
+        report = build_conscience_report(self.memory_store, limit=limit)
+        self._emit(render_conscience_report_text(report), end="")
+
+    do_oce = do_conscience
+
+    def do_batch(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_batch_status()
+            return
+        command = parts[0].casefold()
+        if command == "start":
+            if len(parts) < 3:
+                print("Usage: /batch start <label> <objective>")
+                return
+            label = parts[1]
+            objective = " ".join(parts[2:]).strip()
+            try:
+                batch_id = start_batch(self.memory_store, label, objective)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return
+            self.active_batch = self.memory_store.active_batch()
+            print(f"batch_started={batch_id}")
+            return
+        if command == "stop":
+            report = stop_batch(self.memory_store)
+            self.active_batch = self.memory_store.active_batch()
+            if report is None:
+                print("No active batch found.")
+                return
+            self._emit(report.render(), end="")
+            handoff_path = default_workspace_handoff_path(self.memory_store.path)
+            context_path = default_workspace_context_path(self.memory_store.path)
+            write_workspace_handoff(
+                handoff_path,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                prefix=report.render(),
+            )
+            write_workspace_context_snapshot(
+                context_path,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                reason="batch-stop",
+            )
+            print(f"handoff_written={handoff_path}")
+            print(f"context_written={context_path}")
+            return
+        if command == "report":
+            batch_id = int(parts[1]) if len(parts) > 1 else None
+            report = current_batch_report(self.memory_store, batch_id=batch_id)
+            if report is None:
+                print("No batch found.")
+                return
+            self._emit(report.render(), end="")
+            return
+        if command == "handoff":
+            self._batch_handoff(arg[len(parts[0]) :].strip())
+            return
+        if command == "status":
+            self._print_batch_status()
+            return
+        if command == "history":
+            self._print_batch_history()
+            return
+        if command == "summary":
+            self._print_batch_summary(parts[1:])
+            return
+        print("Usage: /batch <start|stop|report|status|history|summary>")
+
+    def do_process(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_process_status()
+            return
+        command = parts[0].casefold()
+        if command == "start":
+            if len(parts) < 3:
+                print("Usage: /process start <label> <objective>")
+                return
+            label = parts[1]
+            objective = " ".join(parts[2:]).strip()
+            try:
+                process_id = start_process(self.memory_store, label, objective)
+            except ValueError as exc:
+                print(f"error: {exc}")
+                return
+            self.active_process = self.memory_store.active_process()
+            print(f"process_started={process_id}")
+            return
+        if command == "stop":
+            report = stop_process(self.memory_store)
+            self.active_process = self.memory_store.active_process()
+            if report is None:
+                print("No active process found.")
+                return
+            print(report.render(), end="")
+            handoff_path = default_workspace_handoff_path(self.memory_store.path)
+            context_path = default_workspace_context_path(self.memory_store.path)
+            write_workspace_handoff(
+                handoff_path,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                prefix=report.render(),
+            )
+            write_workspace_context_snapshot(
+                context_path,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=3,
+                reason="process-stop",
+            )
+            print(f"handoff_written={handoff_path}")
+            print(f"context_written={context_path}")
+            return
+        if command == "report":
+            process_id = int(parts[1]) if len(parts) > 1 else None
+            report = current_process_report(self.memory_store, process_id=process_id)
+            if report is None:
+                print("No process found.")
+                return
+            print(report.render(), end="")
+            return
+        if command == "handoff":
+            self._process_handoff(arg[len(parts[0]) :].strip())
+            return
+        if command == "status":
+            self._print_process_status()
+            return
+        if command == "summary":
+            self._print_process_summary(parts[1:])
+            return
+        if command == "history":
+            self._print_process_history()
+            return
+        if command == "checkpoint":
+            self._process_checkpoint(parts[1:])
+            return
+        print("Usage: /process <start|stop|report|status|history|summary|checkpoint>")
+
+    def do_codex(self, arg: str) -> None:
+        self._launch_agent("codex", arg)
+
+    def do_opencode(self, arg: str) -> None:
+        self._launch_agent("opencode", arg)
+
+    def do_claude(self, arg: str) -> None:
+        self._launch_agent("claude", arg)
+
+    def do_antigravity(self, arg: str) -> None:
+        self._launch_agent("antigravity", arg)
+
+    def do_launches(self, arg: str) -> None:
+        launches = self.memory_store.recent_launches(limit=10)
+        for launch in launches:
+            print(
+                f"- {launch['agent']} {launch['workspace'] or 'all'}: {launch['task']} "
+                f"({launch['launched_at']})"
+            )
+        if not launches:
+            print("No agent launches found.")
+
+    def do_cycle(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/cycle", add_help=False)
+        subparsers = parser.add_subparsers(dest="cycle_command", required=True)
+
+        start_parser = subparsers.add_parser("start", add_help=False)
+        start_parser.add_argument("--label", required=True)
+        start_parser.add_argument("--objective", required=True)
+
+        run_parser = subparsers.add_parser("run", add_help=False)
+        run_parser.add_argument("--iterations", type=int, default=3)
+        run_parser.add_argument("--label")
+        run_parser.add_argument("--objective")
+        run_parser.add_argument("--note", default="")
+        run_parser.add_argument("--stop-on-failure", action="store_true")
+        run_parser.add_argument("--duration-minutes", type=float)
+        run_parser.add_argument("--interval-minutes", type=float, default=5.0)
+
+        watch_parser = subparsers.add_parser("watch", add_help=False)
+        watch_parser.add_argument("--duration-minutes", type=float, required=True)
+        watch_parser.add_argument("--interval-minutes", type=float, default=5.0)
+        watch_parser.add_argument("--label")
+        watch_parser.add_argument("--objective")
+        watch_parser.add_argument("--note", default="")
+        watch_parser.add_argument("--stop-on-failure", action="store_true")
+
+        work_parser = subparsers.add_parser("work", add_help=False)
+        work_parser.add_argument("--duration-minutes", type=float, required=True)
+        work_parser.add_argument("--label")
+        work_parser.add_argument("--objective")
+        work_parser.add_argument("--note", default="")
+        work_parser.add_argument("--stop-on-failure", action="store_true")
+        work_parser.add_argument("--continuous", action="store_true")
+
+        subparsers.add_parser("stop", add_help=False)
+        subparsers.add_parser("next", add_help=False)
+
+        report_parser = subparsers.add_parser("report", add_help=False)
+        report_parser.add_argument("--id", type=int)
+
+        history_parser = subparsers.add_parser("history", add_help=False)
+        history_parser.add_argument("--limit", type=int, default=5)
+
+        checkpoint_parser = subparsers.add_parser("checkpoint", add_help=False)
+        checkpoint_parser.add_argument("--label", required=True)
+        checkpoint_parser.add_argument("--note", default="")
+
+        subparsers.add_parser("status", add_help=False)
+
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /cycle start --label <name> --objective <text>")
+            print("       /cycle run --iterations N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle run --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle watch --duration-minutes N [--interval-minutes N] [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure]")
+            print("       /cycle work --duration-minutes N [--label <name>] [--objective <text>] [--note <text>] [--stop-on-failure] [--continuous]")
+            print("       /cycle stop")
+            print("       /cycle status")
+            print("       /cycle report [--id N]")
+            print("       /cycle checkpoint --label <name> [--note <text>]")
+            print("       /cycle history [--limit N]")
+            return
+
+        if options.cycle_command == "start":
+            cycle_id = start_cycle(self.memory_store, options.label, options.objective)
+            self._emit(f"started cycle {cycle_id}")
+            return
+
+        if options.cycle_command == "run":
+            try:
+                is_duration_mode = getattr(options, "duration_minutes", None) is not None
+                if getattr(options, "duration_minutes", None) is not None:
+                    result = run_cycle_window(
+                        self.memory_store,
+                        self._selected_sources(),
+                        duration_minutes=max(0.0, options.duration_minutes),
+                        interval_minutes=max(0.01, options.interval_minutes),
+                        label=options.label,
+                        objective=options.objective,
+                        note=options.note,
+                        stop_on_failure=options.stop_on_failure,
+                    )
+                else:
+                    result = run_cycle_plan(
+                        self.memory_store,
+                        self._selected_sources(),
+                        iterations=max(1, options.iterations),
+                        label=options.label,
+                        objective=options.objective,
+                        note=options.note,
+                        stop_on_failure=options.stop_on_failure,
+                    )
+            except ValueError as exc:
+                self._emit(f"error: {exc}")
+                return
+            self._emit(f"cycle_id={result.cycle_id}")
+            self._emit(f"iterations_completed={result.iterations_completed}")
+            if result.target_duration_minutes is not None:
+                self._emit(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+            if result.window_started_at is not None:
+                self._emit(f"window_started_at={result.window_started_at}")
+            if result.window_ended_at is not None:
+                self._emit(f"window_ended_at={result.window_ended_at}")
+            for iteration in result.iteration_results:
+                self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                self._emit(render_cycle_evaluation(iteration.evaluation), end="")
+            self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            if is_duration_mode:
+                journal = write_cycle_journal(
+                    self.memory_store,
+                    self._selected_sources(),
+                    result.report.cycle,
+                    self.memory_store.cycle_checkpoints(result.cycle_id, limit=1000),
+                    story_title=result.report.cycle["label"],
+                    logical_duration_seconds=result.logical_duration_seconds,
+                    wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+                    sleep_duration_seconds=result.sleep_duration_seconds,
+                    logical_active_duration_seconds=result.logical_active_duration_seconds,
+                    wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+                    idle_ratio=result.idle_ratio,
+                )
+                self._emit(f"journal_written={journal.entry_path}")
+            return
+
+        if options.cycle_command == "watch":
+            try:
+                result = run_cycle_window(
+                    self.memory_store,
+                    self._selected_sources(),
+                    duration_minutes=max(0.0, options.duration_minutes),
+                    interval_minutes=max(0.01, options.interval_minutes),
+                    label=options.label,
+                    objective=options.objective,
+                    note=options.note,
+                    stop_on_failure=options.stop_on_failure,
+                )
+            except ValueError as exc:
+                self._emit(f"error: {exc}")
+                return
+            self._emit(f"cycle_id={result.cycle_id}")
+            self._emit(f"iterations_completed={result.iterations_completed}")
+            self._emit(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+            self._emit(f"window_started_at={result.window_started_at}")
+            self._emit(f"window_ended_at={result.window_ended_at}")
+            for iteration in result.iteration_results:
+                self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                self._emit(render_cycle_evaluation(iteration.evaluation), end="")
+            self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            journal = write_cycle_journal(
+                self.memory_store,
+                self._selected_sources(),
+                result.report.cycle,
+                self.memory_store.cycle_checkpoints(result.cycle_id, limit=1000),
+                story_title=result.report.cycle["label"],
+                logical_duration_seconds=result.logical_duration_seconds,
+                wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+                sleep_duration_seconds=result.sleep_duration_seconds,
+                logical_active_duration_seconds=result.logical_active_duration_seconds,
+                wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+                idle_ratio=result.idle_ratio,
+                delegation_count=result.delegation_count,
+                agent_active_duration_seconds=result.agent_active_duration_seconds,
+            )
+            self._emit(f"journal_written={journal.entry_path}")
+            return
+
+        if options.cycle_command == "work":
+            try:
+                work_fn = run_cycle_work_window_continuous if options.continuous else run_cycle_work_window
+                result = work_fn(
+                    self.memory_store,
+                    self._selected_sources(),
+                    duration_minutes=max(0.0, options.duration_minutes),
+                    label=options.label,
+                    objective=options.objective,
+                    note=options.note,
+                    stop_on_failure=options.stop_on_failure,
+                )
+            except ValueError as exc:
+                self._emit(f"error: {exc}")
+                return
+            self._emit(f"cycle_id={result.cycle_id}")
+            self._emit(f"iterations_completed={result.iterations_completed}")
+            self._emit(f"target_duration_minutes={result.target_duration_minutes:.2f}")
+            self._emit(f"window_started_at={result.window_started_at}")
+            self._emit(f"window_ended_at={result.window_ended_at}")
+            self._emit(f"delegation_count={result.delegation_count or 0}")
+            self._emit(f"agent_active_duration_seconds={result.agent_active_duration_seconds or 0.0:.2f}")
+            queue_utilization_ratio = getattr(result, "queue_utilization_ratio", None)
+            if queue_utilization_ratio is not None:
+                self._emit(f"queue_utilization_ratio={queue_utilization_ratio:.2f}")
+                self._emit(f"max_queue_depth={getattr(result, 'max_queue_depth', 0) or 0}")
+                self._emit(
+                    f"avg_work_item_duration_seconds={getattr(result, 'avg_work_item_duration_seconds', 0.0) or 0.0:.2f}"
+                )
+            for iteration in result.iteration_results:
+                self._emit(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                self._emit(render_cycle_evaluation(iteration.evaluation), end="")
+                if iteration.work_summary:
+                    self._emit(iteration.work_summary)
+            self._emit(self._render_cycle_report(self._cycle_report_to_dict(result.report)), end="")
+            journal = write_cycle_journal(
+                self.memory_store,
+                self._selected_sources(),
+                result.report.cycle,
+                self.memory_store.cycle_checkpoints(result.cycle_id, limit=1000),
+                story_title=result.report.cycle["label"],
+                logical_duration_seconds=result.logical_duration_seconds,
+                wall_clock_duration_seconds=result.wall_clock_duration_seconds,
+                sleep_duration_seconds=result.sleep_duration_seconds,
+                logical_active_duration_seconds=result.logical_active_duration_seconds,
+                wall_clock_active_duration_seconds=result.wall_clock_active_duration_seconds,
+                idle_ratio=result.idle_ratio,
+                delegation_count=result.delegation_count,
+                agent_active_duration_seconds=result.agent_active_duration_seconds,
+            )
+            self._emit(f"journal_written={journal.entry_path}")
+            return
+
+        if options.cycle_command == "stop":
+            cycle = stop_cycle(self.memory_store)
+            if cycle is None:
+                self._emit("No active cycle found.")
+                return
+            report = self.memory_store.cycle_report(int(cycle["id"]))
+            if report is not None:
+                self._emit(self._render_cycle_report(report), end="")
+            return
+
+        if options.cycle_command == "status":
+            report = active_cycle_report(self.memory_store)
+            if report is None:
+                self._emit("No active cycle found.")
+                return
+            self._emit(report.render(), end="")
+            return
+
+        if options.cycle_command == "next":
+            self._emit(build_cycle_next_action(self.memory_store).render(), end="")
+            return
+
+        if options.cycle_command == "report":
+            report = self.memory_store.cycle_report(options.id)
+            if report is None:
+                self._emit("No cycle found.")
+                return
+            self._emit(self._render_cycle_report(report), end="")
+            return
+
+        if options.cycle_command == "history":
+            cycles = cycle_history_report(self.memory_store, limit=options.limit)
+            if not cycles:
+                self._emit("No cycles found.")
+                return
+            for cycle in cycles:
+                self._emit(
+                    f"- {cycle['id']} {cycle['label']}: {cycle['objective']} ({cycle['started_at']} -> {cycle['ended_at'] or 'active'})"
+                )
+            return
+
+        if options.cycle_command == "checkpoint":
+            active = self.memory_store.active_cycle()
+            if active is None:
+                self._emit("No active cycle found.")
+                return
+            evaluation = run_cycle_evaluation(self._selected_sources(), self.memory_store)
+            checkpoint_id = record_cycle_checkpoint(
+                self.memory_store,
+                evaluation,
+                options.label,
+                iteration_number=len(self.memory_store.cycle_checkpoints(int(active["id"]), limit=1000)) + 1,
+                note=options.note or None,
+            )
+            self._emit(f"saved checkpoint {checkpoint_id}")
+            self._emit(render_cycle_evaluation(evaluation), end="")
+            return
+
+        self._emit("error: unsupported cycle command")
+
+    def do_journal(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        parser = argparse.ArgumentParser(prog="/journal", add_help=False)
+        subparsers = parser.add_subparsers(dest="journal_command", required=True)
+        subparsers.add_parser("status", add_help=False)
+        history_parser = subparsers.add_parser("history", add_help=False)
+        history_parser.add_argument("--limit", type=int, default=10)
+        report_parser = subparsers.add_parser("report", add_help=False)
+        report_parser.add_argument("--limit", type=int, default=1)
+        try:
+            options = parser.parse_args(parts)
+        except SystemExit:
+            print("Usage: /journal status|history|report [--limit N]")
+            return
+        if options.journal_command == "status":
+            entry = latest_journal_entry(self.memory_store)
+            if entry is None:
+                self._emit(f"journal_root={journal_root(self.memory_store)}")
+                self._emit("No journal entries found.")
+                return
+            self._emit(entry.render(), end="")
+            return
+        if options.journal_command == "history":
+            entries = list_journal_entries(self.memory_store, limit=options.limit)
+            if not entries:
+                self._emit(f"journal_root={journal_root(self.memory_store)}")
+                self._emit("No journal entries found.")
+                return
+            self._emit(f"journal_root={journal_root(self.memory_store)}")
+            for entry in entries:
+                commits = sum(metric.commits for metric in entry.source_metrics)
+                self._emit(
+                    f"- {entry.entry_id} {entry.label}: duration={entry.duration_seconds:.0f}s checkpoints={entry.checkpoint_count} commits={commits}"
+                )
+            return
+        if options.journal_command == "report":
+            entries = list_journal_entries(self.memory_store, limit=options.limit)
+            if not entries:
+                self._emit("No journal entries found.")
+                return
+            self._emit(entries[0].render(), end="")
+            return
+
+    def do_chat(self, arg: str) -> None:
+        message = arg.strip()
+        if not message:
+            print("Usage: /chat <message>")
+            return
+        reply = build_workspace_reply(
+            self._selected_sources(),
+            message,
+            memory_store=self.memory_store,
+            session_id=self.session_id,
+            tone=self.profile.tone,
+            detail_level=self.profile.detail_level,
+        )
+        self._emit(self._render_reply(reply))
+        self.habits = compute_habits(self.memory_store, self.profile)
+        self.context_snapshot = self.memory_store.latest_context_snapshot()
+
+    def do_verbose(self, arg: str) -> None:
+        value = arg.strip().casefold()
+        if not value:
+            self.verbose = not self.verbose
+        elif value in {"on", "1", "true", "yes"}:
+            self.verbose = True
+        elif value in {"off", "0", "false", "no"}:
+            self.verbose = False
+        else:
+            self._emit("Usage: /verbose [on|off]")
+            return
+        self._emit(f"verbose={'on' if self.verbose else 'off'}")
+
+    def _print_workspaces(self) -> None:
+        for source in self.sources:
+            marker = "*" if source.name == self.active_workspace else " "
+            print(f"{marker} {source.name:16} {source.type:10} {source.path}")
+
+    def _print_status(self) -> None:
+        for status in [inspect_source(source) for source in self._selected_sources()]:
+            source = status.source
+            print(
+                f"{source.name:16} {source.type:10} {status.state:8} "
+                f"branch={status.branch} changes={status.dirty_count} "
+                f"untracked={status.untracked_count} ahead={status.ahead} behind={status.behind}"
+            )
+
+    def _print_profile(self) -> None:
+        print(f"tone={self.profile.tone}")
+        print(f"detail_level={self.profile.detail_level}")
+        print(f"default_workspace={self.profile.default_workspace or ''}")
+        print(f"primary_agent={self.profile.primary_agent or ''}")
+
+    def _print_aliases(self) -> None:
+        if not self.profile.shortcuts:
+            print("No aliases saved.")
+            return
+        for name, command in sorted(self.profile.shortcuts.items()):
+            print(f"{name}={command}")
+
+    def _launch_agent(self, agent: str, arg: str) -> None:
+        task = arg.strip()
+        if not task:
+            print(f"Usage: /{agent} <task>")
+            return
+        workspace = self._active_workspace_source()
+        if workspace is None:
+            print("No active workspace selected.")
+            return
+        prompt = self._build_agent_prompt(agent, task)
+        try:
+            pid = launch_agent(
+                agent=agent,
+                workspace_name=workspace.name,
+                task=task,
+                prompt=prompt,
+                workspace_root=workspace.path,
+                memory_store=self.memory_store,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}")
+            return
+        self.habits = compute_habits(self.memory_store, self.profile)
+        print(f"launched={agent}:{pid}")
+
+    def _build_agent_prompt(self, agent: str, task: str) -> str:
+        return "\n".join(
+            [
+                f"Workspace OS shell delegation for {agent}.",
+                f"Active workspace: {self.active_workspace or 'all'}",
+                f"Tone: {self.profile.tone}",
+                f"Detail level: {self.profile.detail_level}",
+                "Use the selected workspace only.",
+                "",
+                "Task:",
+                task,
+            ]
+        )
+
+    def _active_workspace_source(self) -> Source | None:
+        if self.active_workspace:
+            for source in self.sources:
+                if source.name == self.active_workspace:
+                    return source
+        return self.sources[0] if self.sources else None
+
+    def _selected_sources(self) -> list[Source]:
+        if not self.active_workspace:
+            return self.sources
+        return [source for source in self.sources if source.name == self.active_workspace]
+
+    def _render_prompt(self) -> str:
+        active = self.active_workspace or "all"
+        return f"workspace[{active}]> "
+
+    def _render_batch_banner(self) -> str:
+        if self.active_batch is None:
+            return "Batch: none\n"
+        batch = self.active_batch
+        return (
+            "Batch: "
+            f"{batch['label']} | objective={batch['objective']} | started={batch['started_at']}\n"
+        )
+
+    def _render_process_banner(self) -> str:
+        report = current_process_report(self.memory_store)
+        if report is None:
+            return "Process: none\n"
+        checkpoint = f" | checkpoints={report.checkpoint_count}"
+        latest = ""
+        if report.latest_checkpoint_label:
+            latest = f" | latest={report.latest_checkpoint_label}"
+            if report.latest_checkpoint_note:
+                latest += f" ({report.latest_checkpoint_note})"
+        return (
+            "Process: "
+            f"{report.label} | objective={report.objective} | started={report.started_at}"
+            f"{checkpoint}{latest}\n"
+        )
+
+    def _render_context_banner(self) -> str:
+        if self.context_snapshot is None:
+            return "Context: none\n"
+        summary = self.context_snapshot["summary"]
+        reason = self.context_snapshot["reason"]
+        created_at = self.context_snapshot["created_at"]
+        return f"Context: {reason} | {created_at} | {summary}\n"
+
+    def _print_batch_status(self) -> None:
+        report = current_batch_report(self.memory_store)
+        if report is None:
+            print("No active batch found.")
+            return
+        print(report.render(), end="")
+
+    def _print_batch_history(self) -> None:
+        batches = self.memory_store.batch_history(limit=5)
+        for batch in batches:
+            print(
+                f"- {batch['id']} {batch['label']}: {batch['objective']} "
+                f"({batch['started_at']} -> {batch['ended_at'] or 'active'})"
+            )
+        if not batches:
+            print("No batches found.")
+
+    def _print_batch_summary(self, args: list[str]) -> None:
+        limit = 5
+        if args:
+            try:
+                limit = max(1, int(args[0]))
+            except ValueError:
+                print("Usage: /batch summary [limit]")
+                return
+        summary = batch_summary(self.memory_store, limit=limit)
+        print(summary.render(), end="")
+
+    def _print_process_status(self) -> None:
+        report = current_process_report(self.memory_store)
+        if report is None:
+            print("No active process found.")
+            return
+        print(report.render(), end="")
+
+    def _print_process_summary(self, args: list[str]) -> None:
+        process_id = None
+        if args:
+            try:
+                process_id = int(args[0])
+            except ValueError:
+                print("Usage: /process summary [id]")
+                return
+        report = process_summary(self.memory_store, process_id=process_id)
+        if report is None:
+            print("No process found.")
+            return
+        print(report.render(), end="")
+
+    def _print_process_history(self) -> None:
+        processes = self.memory_store.process_history(limit=5)
+        for process in processes:
+            print(
+                f"- {process['id']} {process['label']}: {process['objective']} "
+                f"({process['started_at']} -> {process['ended_at'] or 'active'})"
+            )
+        if not processes:
+            print("No processes found.")
+
+    def _render_cycle_report(self, report: dict[str, object]) -> str:
+        lines = [f"Cycle report: {report['cycle']['label']}"]
+        lines.append(f"cycle_id={report['cycle_id']}")
+        lines.append(f"checkpoint_count={report['checkpoint_count']}")
+        lines.append(f"health_pass_rate={report['health_pass_rate']:.2f}")
+        lines.append(f"stability_pass_rate={report['stability_pass_rate']:.2f}")
+        lines.append(f"security_pass_rate={report['security_pass_rate']:.2f}")
+        lines.append(f"quality_pass_rate={report['quality_pass_rate']:.2f}")
+        latest = report.get("latest_checkpoint")
+        if isinstance(latest, dict):
+            lines.append(f"latest_checkpoint={latest.get('iteration_number', 'n/a')}")
+            lines.append(f"latest_label={latest.get('label', 'n/a')}")
+        return "\n".join(lines) + "\n"
+
+    def _cycle_report_to_dict(self, report: object) -> dict[str, object]:
+        cycle = getattr(report, "cycle", None)
+        if cycle is None:
+            raise TypeError("Unsupported cycle report type.")
+        return {
+            "cycle": cycle,
+            "cycle_id": cycle.get("id"),
+            "checkpoint_count": getattr(report, "checkpoint_count"),
+            "health_pass_rate": getattr(report, "health_pass_rate"),
+            "stability_pass_rate": getattr(report, "stability_pass_rate"),
+            "security_pass_rate": getattr(report, "security_pass_rate"),
+            "quality_pass_rate": getattr(report, "quality_pass_rate"),
+            "latest_checkpoint": getattr(report, "latest_checkpoint"),
+        }
+
+    def _next_cycle_iteration(self, cycle_id: int) -> int:
+        return len(self.memory_store.cycle_checkpoints(cycle_id, limit=1000)) + 1
+
+    def _batch_handoff(self, arg: str) -> None:
+        try:
+            options = self._parse_handoff_args(arg)
+        except ValueError as exc:
+            print("Usage: /batch handoff [--launch-limit N] [--output path] [--compact]")
+            print(f"error: {exc}")
+            return
+        report = current_batch_report(self.memory_store)
+        if report is None:
+            print("No active batch found.")
+            return
+        if options.output is not None:
+            write_workspace_handoff(
+                options.output,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            )
+            print(f"written={options.output}")
+            return
+        print(
+            render_workspace_handoff_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            ),
+            end="",
+        )
+
+    def _process_handoff(self, arg: str) -> None:
+        try:
+            options = self._parse_handoff_args(arg)
+        except ValueError as exc:
+            print("Usage: /process handoff [--launch-limit N] [--output path] [--compact]")
+            print(f"error: {exc}")
+            return
+        report = current_process_report(self.memory_store)
+        if report is None:
+            print("No active process found.")
+            return
+        if options.output is not None:
+            write_workspace_handoff(
+                options.output,
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            )
+            print(f"written={options.output}")
+            return
+        print(
+            render_workspace_handoff_text(
+                self._selected_sources(),
+                self.memory_store,
+                workspace=self.active_workspace,
+                launch_limit=options.launch_limit,
+                compact=options.compact,
+                prefix=report.render(),
+            ),
+            end="",
+        )
+
+    def _process_checkpoint(self, args: list[str]) -> None:
+        if not args:
+            self._emit("Usage: /process checkpoint <label> [note]")
+            return
+        label = args[0]
+        note = " ".join(args[1:]).strip() or None
+        process = self.memory_store.active_process()
+        if process is None:
+            self._emit("No active process found.")
+            return
+        try:
+            checkpoint_id = self.memory_store.record_process_checkpoint(
+                label=label,
+                note=note,
+                process_id=int(process["id"]),
+            )
+        except ValueError as exc:
+            self._emit(f"error: {exc}")
+            return
+        self.active_process = self.memory_store.active_process()
+        self._emit(f"checkpoint_recorded={checkpoint_id}")
+
+    def _emit(self, text: str, end: str = "\n") -> None:
+        print(self._colorize(text), end=end)
+
+    def _render_reply(self, reply) -> str:
+        return reply.reply if self.verbose else reply.answer
+
+    def _colorize(self, text: str) -> str:
+        if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+            return text
+        return "\n".join(self._colorize_line(line) for line in text.splitlines())
+
+    def _colorize_line(self, line: str) -> str:
+        reset = "\033[0m"
+        bold = "\033[1m"
+        dim = "\033[2m"
+        cyan = "\033[36m"
+        green = "\033[32m"
+        yellow = "\033[33m"
+        red = "\033[31m"
+        magenta = "\033[35m"
+        blue = "\033[34m"
+
+        def paint(prefix: str, color: str, remainder: str = "") -> str:
+            return f"{color}{prefix}{reset}{remainder}"
+
+        if line == "Answer:":
+            return paint(line, bold + cyan)
+        if line == "Trace:":
+            return paint(line, dim)
+        if line.startswith("Workspace roots:"):
+            return paint("Workspace roots:", bold + cyan, line[len("Workspace roots:"):])
+        if line.startswith("Workspace root:"):
+            return paint("Workspace root:", bold + magenta, line[len("Workspace root:"):])
+        if line.startswith("Workspace analysis:"):
+            return paint("Workspace analysis:", bold + cyan, line[len("Workspace analysis:"):])
+        if line.startswith("Workspace bridge:"):
+            return paint("Workspace bridge:", bold + magenta, line[len("Workspace bridge:"):])
+        if line.startswith("Workspace next:"):
+            return paint("Workspace next:", bold + green, line[len("Workspace next:"):])
+        if line == "Workspace projects under root:":
+            return paint(line, bold + blue)
+        if line == "Knowledge base projects:":
+            return paint(line, bold + yellow)
+        if line == "Workspace repos:":
+            return paint(line, bold + blue)
+        if line == "Knowledge base repos:":
+            return paint(line, bold + yellow)
+        if line.startswith("Knowledge base root:"):
+            return paint("Knowledge base root:", bold + yellow, line[len("Knowledge base root:"):])
+        if line == "Analysis:" or line == "Recommendation:":
+            return paint(line, bold + cyan)
+        if line.startswith("- [DEV]"):
+            return paint("- [DEV]", green, line[len("- [DEV]"):])
+        if line.startswith("- [MISSING]"):
+            return paint("- [MISSING]", red, line[len("- [MISSING]"):])
+        if line.startswith("- [NOT-GIT]"):
+            return paint("- [NOT-GIT]", yellow, line[len("- [NOT-GIT]"):])
+        if line.startswith("- [ERROR]"):
+            return paint("- [ERROR]", red, line[len("- [ERROR]"):])
+        if line.startswith("Workspace status:"):
+            return paint("Workspace status:", bold + blue, line[len("Workspace status:"):])
+        if line == "Recent launches:":
+            return paint(line, blue)
+        if line.startswith("No active work window is tracked.") or line.startswith("No active process found.") or line.startswith("No active batch found.") or line.startswith("No active workspace selected."):
+            return paint(line, yellow)
+        if line.startswith("Next action:") or line.startswith("Next step:") or line.startswith("Suggested command:"):
+            return paint(line, bold + green)
+        if line.startswith("Continue with:") or line.startswith("Recommended continue:"):
+            return paint(line, bold + green)
+        if line.startswith("Recommended entrypoint:"):
+            return paint(line, bold + green)
+        if line.startswith("Primary route:") or line.startswith("Optional cross-check:"):
+            return paint(line, cyan)
+        if line.startswith("Safe surfaces:"):
+            return paint(line, bold + blue)
+        if line == "Available surfaces:":
+            return paint(line, bold + blue)
+        if line.startswith("Command:"):
+            return paint(line, dim)
+        if line.startswith("OCE:") or line.startswith("OCE report") or line.startswith("OCE recommendation"):
+            return paint(line, bold + yellow)
+        if line.startswith("Feedback report") or line.startswith("saved feedback") or line.startswith("status=") or line.startswith("reason="):
+            return paint(line, bold + yellow)
+        if line.startswith("Policy refs:") or line.startswith("Learning engine:") or line.startswith("Memory signals:") or line.startswith("Related knowledge:") or line.startswith("Global context:") or line.startswith("Active process:") or line.startswith("Active batch:") or line.startswith("Context:"):
+            return paint(line, dim)
+        if line.startswith("History bias:"):
+            return paint(line, magenta)
+        if line.startswith("Process:") or line.startswith("Batch:") or line.startswith("Profile:") or line.startswith("Habits:") or line.startswith("Memory:"):
+            return paint(line, blue)
+        if line.startswith("["):
+            return paint(line, green)
+        return line
+
+    def _normalize_line(self, line: str) -> str:
+        return line.lstrip("\ufeff").strip()
+
+    def _parse_handoff_args(self, arg: str) -> argparse.Namespace:
+        tokens = shlex.split(arg, posix=False)
+        if not tokens:
+            return argparse.Namespace(launch_limit=3, output=None, compact=False)
+        if any(token.startswith("--") for token in tokens):
+            parser = argparse.ArgumentParser(prog="/handoff", add_help=False)
+            parser.add_argument("--launch-limit", type=int, default=3)
+            parser.add_argument("--output", type=Path)
+            parser.add_argument("--compact", action="store_true")
+            parsed = parser.parse_args(tokens)
+            if parsed.output is not None:
+                parsed.output = Path(str(parsed.output).strip('"'))
+            return parsed
+        if len(tokens) == 1:
+            try:
+                return argparse.Namespace(launch_limit=max(1, int(tokens[0])), output=None, compact=False)
+            except ValueError:
+                return argparse.Namespace(launch_limit=3, output=Path(tokens[0].strip('"')), compact=False)
+        if len(tokens) == 2:
+            try:
+                launch_limit = max(1, int(tokens[0]))
+            except ValueError as exc:
+                raise ValueError("launch limit must be an integer when providing two positional arguments") from exc
+            return argparse.Namespace(launch_limit=launch_limit, output=Path(tokens[1].strip('"')), compact=False)
+        raise ValueError("too many positional arguments")
+
+    def _expand_alias(self, line: str) -> str:
+        if not line:
+            return line
+        parts = shlex.split(line)
+        if not parts:
+            return line
+        replacement = self.profile.shortcuts.get(parts[0])
+        if not replacement:
+            return line
+        remainder = " ".join(parts[1:])
+        return f"{replacement} {remainder}".strip()
