@@ -389,7 +389,7 @@ def _build_cycle_work_prompt(
         next_action_text = "Workspace next action unavailable."
     else:
         analysis_text = render_workspace_analysis_text(sources, memory_store, workspace=workspace_name, limit=5, compact=True).rstrip()
-        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name).rstrip()
+        next_action_text = render_workspace_next_action_text(sources, memory_store, workspace=workspace_name, compact=True).rstrip()
 
     # Get recent plan gaps from latest journal to guide prioritization
     plan_gap_hint = ""
@@ -453,14 +453,15 @@ def _build_cycle_work_prompt(
     except Exception:
         pass
 
-    # Get latest journal entry to show previous iteration context
+    # Get latest journal entry to show previous iteration context (compact: 2 lines max)
     journal_context_lines: list[str] = []
     try:
         from workspace_os.journal import latest_journal_entry
         latest_entry = latest_journal_entry(memory_store)
         if latest_entry and latest_entry.story_lines:
             journal_context_lines.append("Previous iteration summary:")
-            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:5])
+            # Compact: show only first 2 lines (saves 3 lines)
+            journal_context_lines.extend(f"- {line}" for line in latest_entry.story_lines[:2])
     except Exception:
         pass
 

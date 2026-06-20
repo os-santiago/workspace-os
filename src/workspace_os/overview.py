@@ -260,6 +260,7 @@ def build_workspace_next_action(
     sources,
     memory_store: WorkspaceMemoryStore,
     workspace: str | None = None,
+    compact: bool = False,
 ) -> WorkspaceNextAction:
     profile = load_profile(memory_store)
     habits = compute_habits(memory_store, profile)
@@ -278,35 +279,48 @@ def build_workspace_next_action(
         _summary_line("Batch", batch),
     )
 
-    if process is None and batch is None:
-        analysis = build_workspace_analysis(sources, memory_store, workspace=workspace_name, limit=5, compact=True)
-        action_lines = (
-            "Next: review the initial analysis before broad work.",
-            f"Primary route={route_hint}",
-            f"Suggested command: {_route_command(route_hint, workspace_name)}",
-            "Fallback route=/analysis --compact",
-            f"Learning model: {learning_model.render_summary()}",
-            "Use analysis to pick the repo that changed most recently, then inspect it before delegating.",
-            *analysis.recommendation_lines,
-        )
-    elif process is not None and batch is None:
-        action_lines = (
-            "Next: start a batch inside the active process.",
-            "Suggested command: /batch start <label> <objective>",
-            "Use a batch when the process needs a focused execution window.",
-        )
-    elif process is not None:
-        action_lines = (
-            "Next: record the next checkpoint or close the process when complete.",
-            "Suggested command: /process checkpoint <label> <note>",
-            "If the batch is complete, stop the batch and process to persist the handoff.",
-        )
+    if compact:
+        # Ultra-compact mode: 2-line next action (saves 1-5 lines depending on state)
+        if process is not None:
+            action_lines = (
+                "Next: record the next checkpoint or close the process when complete.",
+                "Suggested command: /process checkpoint <label> <note>",
+            )
+        else:
+            action_lines = (
+                "Next: start a process window before the next batch.",
+                "Suggested command: /process start <label> <objective>",
+            )
     else:
-        action_lines = (
-            "Next: start a process window before the next batch.",
-            "Suggested command: /process start <label> <objective>",
-            "Use a process when work is spread across several batches.",
-        )
+        if process is None and batch is None:
+            analysis = build_workspace_analysis(sources, memory_store, workspace=workspace_name, limit=5, compact=True)
+            action_lines = (
+                "Next: review the initial analysis before broad work.",
+                f"Primary route={route_hint}",
+                f"Suggested command: {_route_command(route_hint, workspace_name)}",
+                "Fallback route=/analysis --compact",
+                f"Learning model: {learning_model.render_summary()}",
+                "Use analysis to pick the repo that changed most recently, then inspect it before delegating.",
+                *analysis.recommendation_lines,
+            )
+        elif process is not None and batch is None:
+            action_lines = (
+                "Next: start a batch inside the active process.",
+                "Suggested command: /batch start <label> <objective>",
+                "Use a batch when the process needs a focused execution window.",
+            )
+        elif process is not None:
+            action_lines = (
+                "Next: record the next checkpoint or close the process when complete.",
+                "Suggested command: /process checkpoint <label> <note>",
+                "If the batch is complete, stop the batch and process to persist the handoff.",
+            )
+        else:
+            action_lines = (
+                "Next: start a process window before the next batch.",
+                "Suggested command: /process start <label> <objective>",
+                "Use a process when work is spread across several batches.",
+            )
 
     return WorkspaceNextAction(
         workspace=workspace_name,
@@ -350,7 +364,7 @@ def build_workspace_analysis(
             *_render_activity_lines(knowledge_activities, compact=False),
         )
 
-    recommendation_lines = _analysis_recommendation_lines(workspace_activities, workspace_name, profile.primary_agent)
+    recommendation_lines = _analysis_recommendation_lines(workspace_activities, workspace_name, profile.primary_agent, compact=compact)
     recommendation_lines = recommendation_lines + (f"Learning model: {build_workspace_learning_model(memory_store, profile).render_summary()}",)
     return WorkspaceAnalysis(
         workspace=workspace_name,
@@ -444,8 +458,8 @@ def render_latest_workspace_context_text(memory_store: WorkspaceMemoryStore) -> 
     return f"{snapshot['markdown'].rstrip()}\n"
 
 
-def render_workspace_next_action_text(sources, memory_store: WorkspaceMemoryStore, workspace: str | None = None) -> str:
-    next_action = build_workspace_next_action(sources, memory_store, workspace=workspace)
+def render_workspace_next_action_text(sources, memory_store: WorkspaceMemoryStore, workspace: str | None = None, compact: bool = False) -> str:
+    next_action = build_workspace_next_action(sources, memory_store, workspace=workspace, compact=compact)
     return next_action.render()
 
 
@@ -655,9 +669,11 @@ def _render_activity_lines(activities, compact: bool = False) -> tuple[str, ...]
     return tuple(lines)
 
 
-def _analysis_recommendation_lines(activities, workspace_name: str, preferred_primary_agent: str | None = None) -> tuple[str, ...]:
+def _analysis_recommendation_lines(activities, workspace_name: str, preferred_primary_agent: str | None = None, compact: bool = False) -> tuple[str, ...]:
     route_agent = normalize_agent_name(preferred_primary_agent) or "opencode"
     if not activities:
+        if compact:
+            return ("Continue with: inspect the workspace first",)
         return (
             "Continue with: inspect the workspace first.",
             "Recommended continue: inspect the workspace first.",
@@ -672,6 +688,14 @@ def _analysis_recommendation_lines(activities, workspace_name: str, preferred_pr
         reason = "it has uncommitted changes and is likely the active work surface"
     elif status.ahead or status.behind:
         reason = "it is diverged from upstream and likely needs attention"
+
+    if compact:
+        # Compact: 2-line format (saves 4 lines from 6-line default)
+        return (
+            f"Continue with: {candidate.source.name}",
+            f"Recommended continue: {candidate.source.name}",
+            f"Reason: {reason}",
+        )
     return (
         f"Continue with: {candidate.source.name}",
         f"Recommended continue: {candidate.source.name}",
