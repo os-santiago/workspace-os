@@ -11,7 +11,7 @@ import time
 import tempfile
 from collections.abc import Callable
 
-from workspace_os.agent_policy import choose_work_agent_pair, available_work_agents
+from workspace_os.agent_policy import choose_work_agent_pair, available_work_agents, _is_testing
 from workspace_os.agent_queue import AgentQueueTracker
 from workspace_os.config import Source
 from workspace_os.agent_adapter import run_agent
@@ -1056,7 +1056,6 @@ def run_cycle_work_window_continuous(
 
     # Adaptive checkpoint tracking
     last_checkpoint_at = time.perf_counter()
-    from workspace_os.agent_policy import _is_testing
     # Configure via environment variables to allow fine-tuning of quality vs speed
     checkpoint_interval_seconds = float(os.environ.get("WOS_CHECKPOINT_INTERVAL_SECONDS", 300.0))  # Default: 5 minutes
     # Scale workers to enable 32 parallel agents for high-throughput issue resolution
