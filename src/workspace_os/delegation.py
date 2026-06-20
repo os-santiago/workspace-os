@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from workspace_os.agent_policy import normalize_agent_name
+from workspace_os.plan_gap import get_plan_work_hint
 from workspace_os.sanitization import sanitize_text
 
 
@@ -14,6 +15,7 @@ def build_hardened_delegate_prompt(
     brief: str | None = None,
     tone: str | None = None,
     detail_level: str | None = None,
+    include_backlog_hint: bool = True,
 ) -> str:
     lines = [
         f"Workspace OS delegation for {agent}.",
@@ -42,6 +44,13 @@ def build_hardened_delegate_prompt(
         "- Test edge cases manually",
         "- Never skip validation steps to save time",
     ]
+
+    if include_backlog_hint:
+        backlog_path = workspace_root / "docs" / "product" / "backlog.md"
+        if backlog_path.exists():
+            backlog_hint = get_plan_work_hint(backlog_path)
+            if backlog_hint:
+                lines.extend(["", backlog_hint])
     if tone:
         lines.append(f"Tone: {tone}")
     if detail_level:
