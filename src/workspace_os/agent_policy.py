@@ -65,7 +65,7 @@ def _suggest_agent_from_task(task_hint: str | None) -> str | None:
 
     task_lower = task_hint.lower()
 
-    # opencode: refactoring, cleanup, mechanical changes
+    # Priority 1: opencode - refactoring, cleanup, mechanical changes
     opencode_keywords = (
         "refactor", "cleanup", "rename", "delete", "format",
         "lint", "remove", "move", "fix typo", "mechanical"
@@ -73,21 +73,21 @@ def _suggest_agent_from_task(task_hint: str | None) -> str | None:
     if any(keyword in task_lower for keyword in opencode_keywords):
         return "opencode"
 
-    # claude: analysis, planning, reasoning, cross-checking
+    # Priority 2: antigravity - architectural work, gap discovery (more specific than claude)
+    antigravity_keywords = (
+        "gap", "architectural", "architecture", "leverage", "discover",
+        "audit", "assess", "strategic", "opportunity"
+    )
+    if any(keyword in task_lower for keyword in antigravity_keywords):
+        return "antigravity"
+
+    # Priority 3: claude - analysis, planning, reasoning, cross-checking
     claude_keywords = (
         "analyze", "review", "plan", "design", "explain",
         "cross-check", "verify", "evaluate", "investigate"
     )
     if any(keyword in task_lower for keyword in claude_keywords):
         return "claude"
-
-    # antigravity: architectural work, gap discovery, leverage analysis
-    antigravity_keywords = (
-        "gap", "architectural", "leverage", "discover",
-        "audit", "assess", "strategic", "opportunity"
-    )
-    if any(keyword in task_lower for keyword in antigravity_keywords):
-        return "antigravity"
 
     return None
 
@@ -97,6 +97,7 @@ def choose_work_agent_pair(
     preferred_primary: str | None = None,
     learning_bias: str | None = None,
     task_hint: str | None = None,
+    cross_check: bool = False,
 ) -> tuple[str, str]:
     """
     Choose primary and secondary agents for a work item.
@@ -107,11 +108,15 @@ def choose_work_agent_pair(
     3. preferred_primary - explicit preference
     4. random - fallback
 
+    When cross_check=True, validates the primary choice against task-based routing
+    and swaps with secondary if a better match is detected.
+
     Args:
         rng: Random number generator for reproducibility
         preferred_primary: Explicitly preferred primary agent
         learning_bias: Agent suggested by learning model (takes 65% precedence)
         task_hint: Task description for keyword-based routing
+        cross_check: Enable second-pass validation of agent selection
 
     Returns:
         Tuple of (primary_agent, secondary_agent)
@@ -128,21 +133,31 @@ def choose_work_agent_pair(
         print(f"[ROUTING DEBUG] task_hint={task_hint!r} suggestion={task_suggestion}")
 
     # Priority: learning_bias (65%) > task_suggestion > preferred_primary > random
-    bias = normalize_agent_name(learning_bias) or normalize_agent_name(task_suggestion) or normalize_agent_name(preferred_primary)
+    primary: str
+    normalized_learning = normalize_agent_name(learning_bias)
 
     # Learning bias takes precedence (65% weight)
-    if learning_bias and normalize_agent_name(learning_bias) in available and rng.random() < 0.65:
-        primary = normalize_agent_name(learning_bias)
+    if normalized_learning and normalized_learning in available and rng.random() < 0.65:
+        primary = normalized_learning
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (learning_bias)")
-    elif bias in available:
-        primary = bias
-        if routing_debug:
-            print(f"[ROUTING DEBUG] selected primary={primary} (bias={bias})")
     else:
-        primary = rng.choice(available)
-        if routing_debug:
-            print(f"[ROUTING DEBUG] selected primary={primary} (random)")
+        # When learning bias loses or absent, check task_suggestion, then preferred, then random
+        normalized_task = normalize_agent_name(task_suggestion) if task_suggestion else None
+        normalized_preferred = normalize_agent_name(preferred_primary)
+
+        if normalized_task and normalized_task in available:
+            primary = normalized_task
+            if routing_debug:
+                print(f"[ROUTING DEBUG] selected primary={primary} (task_hint)")
+        elif normalized_preferred and normalized_preferred in available:
+            primary = normalized_preferred
+            if routing_debug:
+                print(f"[ROUTING DEBUG] selected primary={primary} (preferred)")
+        else:
+            primary = rng.choice(available)
+            if routing_debug:
+                print(f"[ROUTING DEBUG] selected primary={primary} (random)")
 
     secondary_candidates = [agent for agent in available if agent != primary]
     if not secondary_candidates:
@@ -151,6 +166,26 @@ def choose_work_agent_pair(
         secondary = "claude"
     else:
         secondary = rng.choice(secondary_candidates)
+
+    # Cross-check validation: when enabled, verify primary choice against task-based routing
+    if cross_check and task_hint and task_aware_enabled:
+        task_suggestion = _suggest_agent_from_task(task_hint)
+        normalized_suggestion = normalize_agent_name(task_suggestion)
+
+        # If task analysis suggests a different agent than the selected primary, consider swap
+        if normalized_suggestion and normalized_suggestion in available and normalized_suggestion != primary:
+            # Swap primary and secondary if the task-suggested agent is the secondary
+            if normalized_suggestion == secondary:
+                if routing_debug:
+                    print(f"[ROUTING DEBUG] cross-check: swapping {primary} ↔ {secondary} (task suggests {normalized_suggestion})")
+                primary, secondary = secondary, primary
+            # Otherwise, if task suggestion is strong and different, replace primary
+            elif normalized_suggestion != learning_bias:
+                if routing_debug:
+                    print(f"[ROUTING DEBUG] cross-check: replacing primary {primary} → {normalized_suggestion}")
+                secondary = primary
+                primary = normalized_suggestion
+
     return primary, secondary
 
 
