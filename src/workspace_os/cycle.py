@@ -1116,6 +1116,10 @@ def run_cycle_work_window_continuous(
     else:
         cycle_id = int(active["id"])
 
+    # Configuration: Allow scaling refetch pool size via environment variable
+    # Default: 4x max_workers (historical value that reduces starvation)
+    refetch_multiplier = int(os.getenv("WOS_REFETCH_MULTIPLIER", "4"))
+
     iteration_results: list[CycleIterationResult] = []
     work_item_number = 1
     completed_work_items = 0
@@ -1156,7 +1160,7 @@ def run_cycle_work_window_continuous(
 
     # Pre-fetch available issues for assignment (optimizes throughput)
     # Scale initial pool to support max_workers * 4 to reduce early starvation
-    initial_pool_size = max(200, max_workers * 4)
+    initial_pool_size = max(200, max_workers * refetch_multiplier)
     available_issues = _fetch_available_issues(sources, limit=initial_pool_size)
     assigned_issues: set[int] = set()  # Issues that have been assigned at least once
     in_progress_issues: set[int] = set()  # Issues currently being worked on
@@ -1197,9 +1201,9 @@ def run_cycle_work_window_continuous(
                 should_refetch = cached_unassigned_count < refetch_threshold
                 if should_refetch:
                     print(f"[cycle] Issue pool running low during seeding ({cached_unassigned_count} unassigned) - refetching...")
-                    # Scale refetch to at least 4x max_workers to replenish above threshold
-                    # At 32 workers: refetch_threshold=96, refetch_size=128 → healthy margin
-                    refetch_size = max(200, max_workers * 4)
+                    # Scale refetch using WOS_REFETCH_MULTIPLIER (default: 4)
+                    # At 32 workers with default: refetch_threshold=96, refetch_size=128
+                    refetch_size = max(200, max_workers * refetch_multiplier)
                     fresh_issues = _fetch_available_issues(sources, limit=refetch_size)
                     if fresh_issues:
                         existing_numbers = {int(issue["number"]) for issue in available_issues}
@@ -1362,9 +1366,9 @@ def run_cycle_work_window_continuous(
                     )
                     if should_refetch:
                         print(f"[cycle] Proactive issue refetch (unassigned={cached_unassigned_count}, util={len(pending_futures)}/{max_workers})")
-                        # Scale refetch to at least 4x max_workers to replenish above threshold
-                        # At 32 workers: refetch_threshold=96, refetch_size=128 → healthy margin
-                        refetch_size = max(200, max_workers * 4)
+                        # Scale refetch using WOS_REFETCH_MULTIPLIER (default: 4)
+                        # At 32 workers with default: refetch_threshold=96, refetch_size=128
+                        refetch_size = max(200, max_workers * refetch_multiplier)
                         fresh_issues = _fetch_available_issues(sources, limit=refetch_size)
                         if fresh_issues:
                             existing_numbers = {int(issue["number"]) for issue in available_issues}
