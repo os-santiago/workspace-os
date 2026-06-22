@@ -1208,7 +1208,16 @@ def run_cycle_work_window_continuous(
                 if assigned_issue:
                     cached_unassigned_count -= 1  # Decrement cache after assignment
 
-            agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng, queue_tracker)
+            # Extract task hint from assigned issue or objective
+            task_hint = None
+            if assigned_issue:
+                task_hint = assigned_issue.get("title", "")
+            elif objective:
+                task_hint = objective
+
+            agent_type, role = _choose_continuous_work_item(
+                work_item_number, memory_store, rng, queue_tracker, task_hint=task_hint
+            )
             work_prompt = _build_cycle_work_prompt(
                 sources,
                 memory_store,
@@ -1447,7 +1456,16 @@ def run_cycle_work_window_continuous(
                 for i in range(new_work_count):
                     assigned_issue = batch_assigned_issues[i] if i < len(batch_assigned_issues) else None
 
-                    agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng, queue_tracker)
+                    # Extract task hint from assigned issue or objective
+                    task_hint = None
+                    if assigned_issue:
+                        task_hint = assigned_issue.get("title", "")
+                    elif objective:
+                        task_hint = objective
+
+                    agent_type, role = _choose_continuous_work_item(
+                        work_item_number, memory_store, rng, queue_tracker, task_hint=task_hint
+                    )
                     work_prompt = _build_cycle_work_prompt(
                         sources,
                         memory_store,
@@ -1693,6 +1711,7 @@ def _choose_continuous_work_item(
     memory_store: WorkspaceMemoryStore,
     rng: random.Random,
     queue_tracker: AgentQueueTracker | None = None,
+    task_hint: str | None = None,
 ) -> tuple[str, str]:
     """
     Choose agent and role for a work item.
@@ -1701,6 +1720,7 @@ def _choose_continuous_work_item(
     - Performance history (success rate, speed)
     - Queue load balancing
     - Role rotation (primary → cross-check → observer)
+    - Task-aware routing (if enabled)
 
     Squad Lead mode is now MANDATORY for all WOS cycles.
     Set WOS_DISABLE_SQUAD_LEAD=true to use legacy round-robin (not recommended).
@@ -1715,6 +1735,7 @@ def _choose_continuous_work_item(
             memory_store=memory_store,
             queue_tracker=queue_tracker,
             rng=rng,
+            task_hint=task_hint,
         )
 
     # Fallback: simple round-robin (original behavior)
@@ -1729,6 +1750,7 @@ def _squad_lead_choose_agent_and_role(
     memory_store: WorkspaceMemoryStore,
     queue_tracker: AgentQueueTracker,
     rng: random.Random,
+    task_hint: str | None = None,
 ) -> tuple[str, str]:
     """
     Squad Lead intelligence: Choose agent and role based on:
