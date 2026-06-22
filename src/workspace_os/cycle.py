@@ -1738,21 +1738,43 @@ def _squad_lead_choose_agent_and_role(
     4. Learning feedback
     """
     import os
-    from workspace_os.learning import recommend_agent_for_task, compute_agent_performance, AgentPerformanceMetrics
+    from workspace_os.learning import (
+        recommend_agent_for_task,
+        compute_agent_performance,
+        AgentPerformanceMetrics,
+        build_workspace_learning_model,
+    )
+    from workspace_os.profile import load_profile
     from workspace_os.agent_queue import AgentTaskState
 
     agents = list(available_work_agents())
     rotation_cycle_size = int(os.environ.get("WOS_ROLE_ROTATION_CYCLE", "9"))
 
-    # Role rotation cycle: 3 agents × 3 roles = 9 work items per full rotation
-    # Item 1,4,7: primary, cross-check, observer (different agents each)
-    # Item 2,5,8: primary, cross-check, observer (rotated)
-    # Item 3,6,9: primary, cross-check, observer (rotated)
-    rotation_cycle = work_item_number % rotation_cycle_size
-    role_index = rotation_cycle % len(["primary", "cross-check", "observer"])
 
-    roles = ["primary", "cross-check", "observer"]
-    role = roles[role_index]
+    # Check learning model for wrong_agent signal to enable adaptive cross-checking
+    profile = load_profile(memory_store)
+    learning = build_workspace_learning_model(memory_store, profile)
+    wrong_agent_threshold = 0.8  # Confidence threshold for adaptive cross-checking
+
+    # Adaptive role selection: increase cross-check frequency if wrong_agent errors are high
+    if (
+        learning.dominant_error_type == "wrong_agent"
+        and learning.confidence >= wrong_agent_threshold
+    ):
+        # When wrong_agent confidence is high, use 1:1 ratio (primary:cross-check alternation)
+        # This implements the learning model's "cross_check" recommendation
+        roles = ["primary", "cross-check"]
+        role_index = work_item_number % len(roles)
+        role = roles[role_index]
+    else:
+        # Standard rotation: 3 agents × 3 roles = 9 work items per full rotation
+        # Item 1,4,7: primary, cross-check, observer (different agents each)
+        # Item 2,5,8: primary, cross-check, observer (rotated)
+        # Item 3,6,9: primary, cross-check, observer (rotated)
+        rotation_cycle = work_item_number % rotation_cycle_size
+        role_index = rotation_cycle % len(["primary", "cross-check", "observer"])
+        roles = ["primary", "cross-check", "observer"]
+        role = roles[role_index]
 
     # Get agent performance metrics
     performance = compute_agent_performance(memory_store)

@@ -60,6 +60,61 @@ class LearningModelTests(unittest.TestCase):
         self.assertEqual("compact", model.detail_level_hint)
         self.assertIn("reduce answer verbosity", model.render_summary())
 
+    def test_wrong_agent_confidence_triggers_adaptive_cross_checking(self):
+        """When wrong_agent errors dominate with high confidence, squad lead increases cross-check frequency."""
+        import random
+
+        from workspace_os.agent_queue import AgentQueueTracker
+        from workspace_os.cycle import _squad_lead_choose_agent_and_role
+
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            save_profile_key(store, "primary_agent", "opencode")
+
+            # Record 10 wrong_agent errors to create high confidence (10/10 = 1.0)
+            for i in range(10):
+                store.record_feedback_event(
+                    request_text=f"Task {i}",
+                    result_text="Wrong agent was used.",
+                    feedback_text="Wrong agent - should use different route.",
+                    status="questionable",
+                    reason="Agent routing error.",
+                    error_type="wrong_agent",
+                    has_objection=True,
+                )
+
+            model = build_workspace_learning_model(store, load_profile(store))
+            self.assertEqual("wrong_agent", model.dominant_error_type)
+            self.assertGreaterEqual(model.confidence, 0.8)
+
+            # Test adaptive role selection: should alternate primary/cross-check
+            tracker = AgentQueueTracker(Path(directory))
+            rng = random.Random(42)
+
+            roles = []
+            for work_item in range(1, 11):
+                agent, role = _squad_lead_choose_agent_and_role(
+                    work_item, store, tracker, rng
+                )
+                roles.append(role)
+
+            # With wrong_agent confidence >= 0.8, should use 1:1 primary:cross-check alternation
+            self.assertIn("cross-check", roles, "Should include cross-check roles")
+            # Count cross-checks: should be ~50% (5 out of 10) instead of ~33% (3-4 out of 10)
+            cross_check_count = roles.count("cross-check")
+            self.assertGreaterEqual(
+                cross_check_count,
+                4,
+                f"Expected more cross-checks due to wrong_agent signal, got {cross_check_count}",
+            )
+            self.assertNotIn(
+                "observer",
+                roles,
+                "Should not use observer role during adaptive cross-checking",
+            )
+
     def test_agent_mismatch_detection_identifies_capability_issues(self):
         """Test that _is_agent_mismatch_error identifies missing commands/tools."""
         self.assertTrue(_is_agent_mismatch_error("command not found: antigravity"))
