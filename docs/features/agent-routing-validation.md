@@ -2,18 +2,22 @@
 
 ## Overview
 
-Agent routing validation provides pre-assignment validation to ensure work is routed to the most appropriate agent based on task type, learning model feedback, and agent capabilities.
+Agent routing validation provides pre-assignment validation and cross-check routing to ensure work is routed to the most appropriate agent based on task type, learning model feedback, and agent capabilities.
 
 ## Problem Statement
 
-The learning model showed recurring `wrong_agent` errors with 0.97 confidence, indicating systematic agent routing issues. Without pre-validation:
+The learning model showed recurring `wrong_agent` errors with 0.97 confidence, indicating systematic agent routing issues. Without pre-validation and cross-checking:
 - Work types could be mismatched to agent capabilities
 - Agent specialization was not consistently respected
 - Ambiguous work routing lacked a clarification pass
+- Learning model detected errors but couldn't prevent them
 
 ## Solution
 
-Added `validate_agent_assignment()` function that performs pre-validation before task delegation:
+Two-tier routing system:
+
+1. **Pre-validation**: `validate_agent_assignment()` function performs validation before task delegation
+2. **Cross-check routing**: Automatic validation pass when learning model detects high-confidence wrong_agent patterns
 
 ### Validation Checks
 
@@ -97,6 +101,56 @@ Log entries include:
 }
 ```
 
+### Cross-Check Routing
+
+When the learning model detects high-confidence wrong_agent errors, automatic cross-check routing is enabled:
+
+```python
+from workspace_os.agent_policy import choose_work_agent_pair
+
+# Automatic cross-check when learning confidence >= 0.7
+pair = choose_work_agent_pair(
+    rng=rng,
+    preferred_primary="claude",
+    learning_bias="claude",
+    task_hint="refactor authentication module",
+    cross_check=True,              # Enabled by learning model
+    learning_confidence=0.97,       # High confidence wrong_agent detection
+)
+```
+
+**How it works:**
+
+1. Initial agent selection (learning_bias, task_hint, or random)
+2. If `cross_check=True` and `learning_confidence >= 0.7`:
+   - Validate selection with `validate_agent_assignment()`
+   - If validation suggests different agent with confidence >= 0.6:
+     - Override to suggested agent
+     - Log override reason
+3. Return final agent pair
+
+**Benefits:**
+
+- Automatically corrects wrong_agent errors before they happen
+- Catches task-capability mismatches even when learning_bias is set
+- Provides audit trail of override decisions
+- Reduces wrong_agent error rate in production
+
+**Example:**
+
+```python
+# Learning bias suggests claude, but task is refactoring work
+# Cross-check detects mismatch and routes to opencode instead
+primary, secondary = choose_work_agent_pair(
+    learning_bias="claude",           # From learning model
+    task_hint="cleanup deprecated functions",  # Clearly opencode work
+    cross_check=True,                 # Learning detected wrong_agent pattern
+    learning_confidence=0.97,
+)
+# Result: primary="opencode" (cross-check override)
+# Reason: "Task keywords suggest 'opencode' but 'claude' assigned"
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -104,7 +158,7 @@ Log entries include:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WOS_TASK_AWARE_ROUTING` | `true` | Enable task-aware keyword matching |
-| `WOS_ROUTING_DEBUG` | `false` | Enable debug output for routing decisions |
+| `WOS_ROUTING_DEBUG` | `false` | Enable debug output for routing decisions and cross-check validation |
 | `WOS_ROUTING_LOG` | `false` | Enable structured routing decision logging |
 | `WOS_ROUTING_LOG_FILE` | - | Path to routing log file (logs to stderr if not set) |
 
@@ -112,11 +166,12 @@ Log entries include:
 
 The validation function integrates with the learning model:
 
-1. Learning model detects `wrong_agent` errors
-2. Builds confidence score (e.g., 0.97 for wrong_agent)
-3. Suggests preferred agent via `learning_bias`
-4. Validation function checks assignment against bias
-5. Logs decisions for continuous improvement
+1. Learning model detects `wrong_agent` errors from historical feedback
+2. Builds confidence score (e.g., 0.97 for dominant wrong_agent pattern)
+3. Sets `detail_level_hint="cross_check"` when wrong_agent is dominant
+4. `choose_work_agent_pair()` receives `cross_check=True` from cycle
+5. Cross-check validation triggers for high-confidence scenarios
+6. Routing decisions logged for continuous learning
 
 ## Testing
 
@@ -132,6 +187,10 @@ Test coverage includes:
 - Task-capability mismatch detection
 - Learning bias mismatch detection
 - Routing decision logging
+- Cross-check routing with high confidence
+- Cross-check override behavior
+- Cross-check with aligned agents (no override)
+- Cross-check low confidence (no trigger)
 
 ## Impact
 
@@ -140,16 +199,21 @@ Test coverage includes:
 - No pre-validation
 - Silent routing mismatches
 - No routing decision audit trail
+- Errors detected but not prevented
 
 ### After
-- Pre-validation catches mismatches
+- Pre-validation catches mismatches before delegation
+- Cross-check automatically corrects high-confidence errors
+- Task-capability alignment validated
+- Complete routing audit trail
+- Proactive error prevention (not just detection)
 - Soft warnings for sub-optimal routing
 - Structured logging for learning
 - Reduced wrong_agent error rate
 
 ## References
 
-- Issue #918: [WOS] Implement agent routing validation to reduce wrong_agent errors
+- Issue #97: [Learning] Implement cross-check routing for wrong_agent errors
 - Learning model: `src/workspace_os/learning.py`
 - Agent policy: `src/workspace_os/agent_policy.py`
 - Tests: `tests/test_agent_routing.py`

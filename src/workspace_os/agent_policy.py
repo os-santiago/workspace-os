@@ -219,19 +219,35 @@ def choose_work_agent_pair(
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (random)")
 
-    # Cross-check routing: validate primary agent against task complexity
-    # when confidence is high (>=0.7) and cross_check is enabled
-    if cross_check and learning_confidence >= 0.7 and task_suggestion and task_suggestion != primary:
-        if routing_debug:
-            print(f"[ROUTING DEBUG] cross_check triggered: task suggests {task_suggestion}, but selected {primary}")
+    # Cross-check routing if enabled by learning model (high confidence wrong_agent errors)
+    if cross_check and learning_confidence >= 0.7:
+        validation = validate_agent_assignment(
+            agent=primary,
+            task_hint=task_hint,
+            learning_bias=learning_bias,
+        )
 
-        # Task suggestion disagrees with primary choice - validate the mismatch
-        if task_suggestion in available:
-            # Swap to task suggestion as it's likely more appropriate
-            original_primary = primary
-            primary = task_suggestion
+        if routing_debug:
+            print(
+                f"[ROUTING DEBUG] cross_check validation: "
+                f"valid={validation.is_valid} confidence={validation.confidence} "
+                f"suggested={validation.suggested_agent} reason={validation.reason}"
+            )
+
+        # If validation suggests a different agent with high confidence, route to it
+        if (
+            validation.suggested_agent
+            and validation.suggested_agent != primary
+            and validation.confidence >= 0.6
+            and validation.suggested_agent in available
+        ):
+            primary = validation.suggested_agent
+            routing_reason = f"cross_check_override:{validation.reason}"
             if routing_debug:
-                print(f"[ROUTING DEBUG] cross_check: swapped {original_primary} -> {primary} based on task analysis")
+                print(
+                    f"[ROUTING DEBUG] cross_check override: "
+                    f"switching to {primary} (reason: {validation.reason})"
+                )
 
     # Log routing decision for learning
     _log_routing_decision(
@@ -355,18 +371,8 @@ def validate_agent_assignment(
             confidence=1.0,
         )
 
-    # Check 2: Task-capability matching (if task hint provided)
-    task_suggested = _suggest_agent_from_task(task_hint) if task_hint else None
-    if task_suggested and task_suggested != normalized:
-        # Soft warning: task type suggests different agent
-        return AgentRoutingValidation(
-            is_valid=True,  # Still valid, but flag the mismatch
-            suggested_agent=task_suggested,
-            reason=f"Task keywords suggest '{task_suggested}' but '{normalized}' assigned",
-            confidence=0.6,  # Medium confidence warning
-        )
-
-    # Check 3: Learning model alignment (if learning bias provided)
+    # Check 2: Learning model alignment (if learning bias provided)
+    # Learning bias mismatch takes priority over task-capability matching
     if learning_bias:
         bias_normalized = normalize_agent_name(learning_bias)
         if bias_normalized and bias_normalized != normalized:
@@ -376,6 +382,19 @@ def validate_agent_assignment(
                 reason=f"Learning model suggests '{bias_normalized}' but '{normalized}' assigned",
                 confidence=0.65,  # Confidence from learning bias weight
             )
+
+    # Check 3: Task-capability matching (if task hint provided)
+    # Task-capability check runs even if learning bias matches, to catch potential misrouting
+    # But only suggests alternative if task_hint is present AND no learning_bias conflict
+    task_suggested = _suggest_agent_from_task(task_hint) if task_hint else None
+    if task_suggested and task_suggested != normalized:
+        # Soft warning: task type suggests different agent
+        return AgentRoutingValidation(
+            is_valid=True,  # Still valid, but flag the mismatch
+            suggested_agent=task_suggested,
+            reason=f"Task keywords suggest '{task_suggested}' but '{normalized}' assigned",
+            confidence=0.6,  # Medium confidence warning
+        )
 
     # All checks passed
     return AgentRoutingValidation(
