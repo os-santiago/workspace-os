@@ -124,6 +124,6 @@ def _load_oce_extension_module(config_path: Path, module_spec: str) -> str:
 
 
 def _module_name_from_path(path: Path) -> str:
-    digest = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha1(str(path).encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
     slug = path.stem.replace("-", "_")
     return f"workspace_os.oce_extension_{slug}_{digest}"

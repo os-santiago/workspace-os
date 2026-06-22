@@ -289,7 +289,19 @@ def _choose_work_agents(
     profile = load_profile(memory_store)
     learning = build_workspace_learning_model(memory_store, profile)
     preferred = learning.primary_agent_bias or profile.primary_agent
-    pair = choose_work_agent_pair(rng=rng, preferred_primary=preferred, learning_bias=learning.primary_agent_bias)
+
+    # Extract task hint from active cycle objective for task-aware routing
+    task_hint = None
+    active = memory_store.active_cycle()
+    if active:
+        task_hint = active.get("objective")
+
+    pair = choose_work_agent_pair(
+        rng=rng,
+        preferred_primary=preferred,
+        learning_bias=learning.primary_agent_bias,
+        task_hint=task_hint
+    )
     if pair[0] == pair[1] and len(available_work_agents()) > 1:
         return _cycle_agents_for_iteration(iteration_number - 1)
     return pair
@@ -1208,7 +1220,16 @@ def run_cycle_work_window_continuous(
                 if assigned_issue:
                     cached_unassigned_count -= 1  # Decrement cache after assignment
 
-            agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng, queue_tracker)
+            # Extract task hint from assigned issue or objective
+            task_hint = None
+            if assigned_issue:
+                task_hint = assigned_issue.get("title", "")
+            elif objective:
+                task_hint = objective
+
+            agent_type, role = _choose_continuous_work_item(
+                work_item_number, memory_store, rng, queue_tracker, task_hint=task_hint
+            )
             work_prompt = _build_cycle_work_prompt(
                 sources,
                 memory_store,
@@ -1447,7 +1468,16 @@ def run_cycle_work_window_continuous(
                 for i in range(new_work_count):
                     assigned_issue = batch_assigned_issues[i] if i < len(batch_assigned_issues) else None
 
-                    agent_type, role = _choose_continuous_work_item(work_item_number, memory_store, rng, queue_tracker)
+                    # Extract task hint from assigned issue or objective
+                    task_hint = None
+                    if assigned_issue:
+                        task_hint = assigned_issue.get("title", "")
+                    elif objective:
+                        task_hint = objective
+
+                    agent_type, role = _choose_continuous_work_item(
+                        work_item_number, memory_store, rng, queue_tracker, task_hint=task_hint
+                    )
                     work_prompt = _build_cycle_work_prompt(
                         sources,
                         memory_store,
@@ -1693,6 +1723,7 @@ def _choose_continuous_work_item(
     memory_store: WorkspaceMemoryStore,
     rng: random.Random,
     queue_tracker: AgentQueueTracker | None = None,
+    task_hint: str | None = None,
 ) -> tuple[str, str]:
     """
     Choose agent and role for a work item.
@@ -1701,6 +1732,7 @@ def _choose_continuous_work_item(
     - Performance history (success rate, speed)
     - Queue load balancing
     - Role rotation (primary → cross-check → observer)
+    - Task-aware routing (if enabled)
 
     Squad Lead mode is now MANDATORY for all WOS cycles.
     Set WOS_DISABLE_SQUAD_LEAD=true to use legacy round-robin (not recommended).
@@ -1715,6 +1747,7 @@ def _choose_continuous_work_item(
             memory_store=memory_store,
             queue_tracker=queue_tracker,
             rng=rng,
+            task_hint=task_hint,
         )
 
     # Fallback: simple round-robin (original behavior)
@@ -1729,6 +1762,7 @@ def _squad_lead_choose_agent_and_role(
     memory_store: WorkspaceMemoryStore,
     queue_tracker: AgentQueueTracker,
     rng: random.Random,
+    task_hint: str | None = None,
 ) -> tuple[str, str]:
     """
     Squad Lead intelligence: Choose agent and role based on:
@@ -1738,21 +1772,43 @@ def _squad_lead_choose_agent_and_role(
     4. Learning feedback
     """
     import os
-    from workspace_os.learning import recommend_agent_for_task, compute_agent_performance, AgentPerformanceMetrics
+    from workspace_os.learning import (
+        recommend_agent_for_task,
+        compute_agent_performance,
+        AgentPerformanceMetrics,
+        build_workspace_learning_model,
+    )
+    from workspace_os.profile import load_profile
     from workspace_os.agent_queue import AgentTaskState
 
     agents = list(available_work_agents())
     rotation_cycle_size = int(os.environ.get("WOS_ROLE_ROTATION_CYCLE", "9"))
 
-    # Role rotation cycle: 3 agents × 3 roles = 9 work items per full rotation
-    # Item 1,4,7: primary, cross-check, observer (different agents each)
-    # Item 2,5,8: primary, cross-check, observer (rotated)
-    # Item 3,6,9: primary, cross-check, observer (rotated)
-    rotation_cycle = work_item_number % rotation_cycle_size
-    role_index = rotation_cycle % len(["primary", "cross-check", "observer"])
 
-    roles = ["primary", "cross-check", "observer"]
-    role = roles[role_index]
+    # Check learning model for wrong_agent signal to enable adaptive cross-checking
+    profile = load_profile(memory_store)
+    learning = build_workspace_learning_model(memory_store, profile)
+    wrong_agent_threshold = 0.8  # Confidence threshold for adaptive cross-checking
+
+    # Adaptive role selection: increase cross-check frequency if wrong_agent errors are high
+    if (
+        learning.dominant_error_type == "wrong_agent"
+        and learning.confidence >= wrong_agent_threshold
+    ):
+        # When wrong_agent confidence is high, use 1:1 ratio (primary:cross-check alternation)
+        # This implements the learning model's "cross_check" recommendation
+        roles = ["primary", "cross-check"]
+        role_index = work_item_number % len(roles)
+        role = roles[role_index]
+    else:
+        # Standard rotation: 3 agents × 3 roles = 9 work items per full rotation
+        # Item 1,4,7: primary, cross-check, observer (different agents each)
+        # Item 2,5,8: primary, cross-check, observer (rotated)
+        # Item 3,6,9: primary, cross-check, observer (rotated)
+        rotation_cycle = work_item_number % rotation_cycle_size
+        role_index = rotation_cycle % len(["primary", "cross-check", "observer"])
+        roles = ["primary", "cross-check", "observer"]
+        role = roles[role_index]
 
     # Get agent performance metrics
     performance = compute_agent_performance(memory_store)

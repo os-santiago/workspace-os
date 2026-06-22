@@ -169,6 +169,31 @@ Run mutation tests:
 
 See [docs/testing/mutation-testing.md](docs/testing/mutation-testing.md) for detailed information.
 
+## Agent Routing
+
+### Task-Aware Routing
+
+Task-aware routing matches agents to work based on task characteristics, reducing wrong-agent errors. The system analyzes task descriptions for keywords and routes accordingly:
+
+- **opencode**: refactoring, cleanup, mechanical changes (keywords: refactor, cleanup, rename, delete, format, lint, remove, move, mechanical)
+- **claude**: analysis, planning, reasoning (keywords: analyze, review, plan, design, explain, cross-check, verify, evaluate, investigate)
+- **antigravity**: architectural work, gap discovery (keywords: gap, architectural, leverage, discover, audit, assess, strategic, opportunity)
+
+Routing priority: `learning_bias` (65% weight) > `task_hint` > `preferred_primary` > random fallback.
+
+**Environment Variables:**
+- `WOS_TASK_AWARE_ROUTING`: Enable/disable task-aware routing (default: `true`)
+- `WOS_ROUTING_DEBUG`: Enable routing debug logging (default: `false`)
+
+Example:
+```bash
+# Disable task-aware routing
+export WOS_TASK_AWARE_ROUTING=false
+
+# Enable routing debug logs
+export WOS_ROUTING_DEBUG=true
+```
+
 ## PowerShell Integration
 
 To install a reusable PowerShell `wos` command for the current user, run:
