@@ -476,27 +476,69 @@ def _build_cycle_work_prompt(
     ]
     if note and note.strip():
         base_lines.append(f"Note: {note.strip()}")
+
+    # ALWAYS enforce ADEV-compliant PR workflow (Fix for Issue #86)
+    # Previously this was conditional on gh_issues_hint, which caused agents to skip
+    # PR creation when WOS_ENABLE_ISSUE_ASSIGNMENT=false
+    base_lines.append("")
+    base_lines.append("=" * 80)
+    base_lines.append("CRITICAL: ADEV-COMPLIANT WORKFLOW (NON-NEGOTIABLE)")
+    base_lines.append("=" * 80)
+    base_lines.append("")
+    base_lines.append("ADEV Rule #1: Each iteration must ship from a dedicated branch and a single atomic PR.")
+    base_lines.append("ADEV Rule #3: Commits must be atomic and use Conventional Commits.")
+    base_lines.append("ADEV Rule #48: One issue → One branch → One PR → Merge → Cleanup")
+    base_lines.append("")
+    base_lines.append("WORKFLOW ENFORCEMENT:")
+    base_lines.append("1. NEVER commit directly to main branch")
+    base_lines.append("2. ONE issue = ONE dedicated branch = ONE atomic PR")
+    base_lines.append("3. Branch naming: fix/issue-NNN or feat/issue-NNN or feat/descriptive-name")
+    base_lines.append("4. Create branch: git checkout -b fix/issue-NNN")
+    base_lines.append("5. Implement ONLY the scoped issue (do NOT batch multiple issues)")
+    base_lines.append("6. Commit atomically with Conventional Commits format:")
+    base_lines.append("   git commit -m \"fix: <description> (Closes #NNN)\"")
+    base_lines.append("7. Push branch: git push -u origin fix/issue-NNN")
+    base_lines.append("8. Create Pull Request:")
+    base_lines.append("   gh pr create --title \"fix: <description>\" \\")
+    base_lines.append("     --body \"Closes #NNN\\n\\n<detailed description>\" \\")
+    base_lines.append("     --fill")
+    base_lines.append("9. Link issue in PR body with 'Closes #NNN' for automatic closure")
+    base_lines.append("10. DO NOT merge yourself - wait for CI checks and review")
+    base_lines.append("11. After merge: delete local and remote branch")
+    base_lines.append("")
+    base_lines.append("PROHIBITED (ADEV violations):")
+    base_lines.append("- ❌ Batch commits with multiple issues (violates atomic commit rule)")
+    base_lines.append("- ❌ Direct commits to main (violates PR workflow)")
+    base_lines.append("- ❌ Mixing unrelated changes in one PR (violates single responsibility)")
+    base_lines.append("- ❌ Commits without creating PR (violates code review requirement)")
+    base_lines.append("")
+
+    # Add issue-specific context if available
     if gh_issues_hint:
-        base_lines.append("")
+        base_lines.append("ASSIGNED ISSUE CONTEXT:")
         base_lines.append(gh_issues_hint)
         base_lines.append("")
-        base_lines.append("CRITICAL INSTRUCTIONS FOR ISSUES:")
         if assigned_issue:
-            # Direct assignment - no choice needed
             issue_num = assigned_issue["number"]
-            base_lines.append(f"- Work ONLY on issue #{issue_num}. This issue has been pre-assigned to you to avoid conflicts with other agents.")
-            base_lines.append(f"- Check out a new dedicated branch: git checkout -b fix/issue-{issue_num} (NEVER write code or commit directly to main).")
-            base_lines.append("- Implement the fix/feature, write tests, and run local validations.")
-            base_lines.append(f"- Open a Pull Request: gh pr create --title \"fix: resolve issue #{issue_num}\" --body \"Closes #{issue_num}\" --fill")
-            base_lines.append("- After creating the PR, the WOS cycle checks will validate it. Do not attempt to merge it yourself unless all checks pass.")
-        else:
-            # Original behavior: let agent choose
-            base_lines.append("- Choose one open issue from the list above that is not currently being worked on by another agent.")
-            base_lines.append("- Check out a new dedicated branch with the issue ID in the name, e.g., git checkout -b fix/issue-123 (NEVER write code or commit directly to main).")
-            base_lines.append("- Implement the fix/feature, write tests, and run local validations.")
-            base_lines.append("- Open a Pull Request on GitHub using non-interactive gh CLI, explicitly linking the issue in the body so it closes automatically: gh pr create --title \"fix: resolve issue #<id>\" --body \"Closes #<id>\" --fill (or specify title/body manually).")
-            base_lines.append("- After creating the PR, the WOS cycle checks will validate it. Do not attempt to merge it yourself unless all checks pass.")
-    elif backlog_work_hint:
+            base_lines.append(f"YOUR TASK: Work ONLY on issue #{issue_num}")
+            base_lines.append(f"Required branch name: fix/issue-{issue_num}")
+            base_lines.append(f"Required PR title: \"fix: resolve issue #{issue_num}\"")
+            base_lines.append(f"Required PR body: Must include 'Closes #{issue_num}'")
+            base_lines.append("")
+    else:
+        # Non-assignment mode: agent discovers issues but MUST still follow workflow
+        base_lines.append("NOTE: If working on a GitHub issue:")
+        base_lines.append("- Discover issues with: gh issue list")
+        base_lines.append("- Choose ONE issue per iteration")
+        base_lines.append("- Follow the workflow above for that ONE issue")
+        base_lines.append("- Do NOT batch multiple issues in one commit or PR")
+        base_lines.append("")
+
+    base_lines.append("=" * 80)
+    base_lines.append("")
+
+    # Backlog work hint (after ADEV enforcement)
+    if backlog_work_hint:
         base_lines.append("")
         base_lines.append(backlog_work_hint)
     if plan_gap_hint:
