@@ -115,6 +115,7 @@ class LearningModelTests(unittest.TestCase):
                 "Should not use observer role during adaptive cross-checking",
             )
 
+
     def test_agent_mismatch_detection_identifies_capability_issues(self):
         """Test that _is_agent_mismatch_error identifies missing commands/tools."""
         self.assertTrue(_is_agent_mismatch_error("command not found: antigravity"))
