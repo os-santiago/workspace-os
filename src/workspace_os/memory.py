@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 @dataclass(frozen=True)
@@ -174,6 +174,23 @@ class WorkspaceMemoryStore:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (cycle_id) REFERENCES cycle_runs(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS question_answer_pairs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    question_text TEXT NOT NULL,
+                    answer_text TEXT NOT NULL,
+                    task_context TEXT NOT NULL,
+                    work_item_id TEXT,
+                    agent_name TEXT,
+                    similarity_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    batch_id INTEGER,
+                    process_id INTEGER
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_qa_task_context ON question_answer_pairs(task_context);
+                CREATE INDEX IF NOT EXISTS idx_qa_similarity_hash ON question_answer_pairs(similarity_hash);
+                CREATE INDEX IF NOT EXISTS idx_qa_created_at ON question_answer_pairs(created_at);
                 """
             )
             for table in ("task_outcomes", "decision_log", "conversation_turns", "agent_launches", "feedback_events"):
@@ -1473,10 +1490,124 @@ class WorkspaceMemoryStore:
                 "context_snapshots",
                 "cycle_runs",
                 "cycle_checkpoints",
+                "question_answer_pairs",
             ):
                 row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
                 counts[table] = int(row["count"]) if row else 0
             return counts
+
+    def record_qa(
+        self,
+        question: str,
+        answer: str,
+        task_context: str,
+        work_item_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> None:
+        """Record a question-answer pair for learning and future suggestions."""
+        import hashlib
+
+        similarity_hash = hashlib.md5(question.lower().strip().encode()).hexdigest()[:16]
+
+        with self._connection() as conn:
+            batch_id = self.active_batch_id(conn)
+            process_id = self.active_process_id(conn)
+
+            conn.execute(
+                """
+                INSERT INTO question_answer_pairs
+                (question_text, answer_text, task_context, work_item_id, agent_name,
+                 similarity_hash, created_at, batch_id, process_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    question.strip(),
+                    answer.strip(),
+                    task_context.strip(),
+                    work_item_id,
+                    agent_name,
+                    similarity_hash,
+                    _utc_now(),
+                    batch_id,
+                    process_id,
+                ),
+            )
+            conn.commit()
+
+    def get_similar_questions(
+        self,
+        task_context: str,
+        limit: int = 5,
+    ) -> list[dict[str, str]]:
+        """Find questions from similar task contexts."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT question_text, answer_text, task_context, agent_name, created_at, similarity_hash
+                FROM question_answer_pairs
+                WHERE task_context LIKE ?
+                   OR similarity_hash IN (
+                       SELECT similarity_hash
+                       FROM question_answer_pairs
+                       WHERE task_context LIKE ?
+                   )
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (f"%{task_context}%", f"%{task_context}%", limit * 3),
+            )
+            return [
+                {
+                    "question": str(row["question_text"]),
+                    "answer": str(row["answer_text"]),
+                    "context": str(row["task_context"]),
+                    "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def get_qa_for_work_item(self, work_item_id: str) -> list[dict[str, str]]:
+        """Get all Q&A pairs for a specific work item."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT question_text, answer_text, task_context, agent_name, created_at
+                FROM question_answer_pairs
+                WHERE work_item_id = ?
+                ORDER BY created_at ASC
+                """,
+                (work_item_id,),
+            )
+            return [
+                {
+                    "question": str(row["question_text"]),
+                    "answer": str(row["answer_text"]),
+                    "context": str(row["task_context"]),
+                    "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def qa_metrics(self) -> dict[str, int]:
+        """Get Q&A metrics."""
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(DISTINCT task_context) as unique_contexts,
+                    COUNT(DISTINCT similarity_hash) as unique_questions
+                FROM question_answer_pairs
+                """
+            ).fetchone()
+
+            return {
+                "total": int(row["total"]) if row else 0,
+                "unique_contexts": int(row["unique_contexts"]) if row else 0,
+                "unique_questions": int(row["unique_questions"]) if row else 0,
+            }
 
     @contextmanager
     def _connection(self):
