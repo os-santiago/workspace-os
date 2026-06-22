@@ -289,7 +289,19 @@ def _choose_work_agents(
     profile = load_profile(memory_store)
     learning = build_workspace_learning_model(memory_store, profile)
     preferred = learning.primary_agent_bias or profile.primary_agent
-    pair = choose_work_agent_pair(rng=rng, preferred_primary=preferred, learning_bias=learning.primary_agent_bias)
+
+    # Extract task hint from active cycle objective for task-aware routing
+    task_hint = None
+    active = memory_store.active_cycle()
+    if active:
+        task_hint = active.get("objective")
+
+    pair = choose_work_agent_pair(
+        rng=rng,
+        preferred_primary=preferred,
+        learning_bias=learning.primary_agent_bias,
+        task_hint=task_hint
+    )
     if pair[0] == pair[1] and len(available_work_agents()) > 1:
         return _cycle_agents_for_iteration(iteration_number - 1)
     return pair
