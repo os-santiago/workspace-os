@@ -41,7 +41,7 @@ jobs:
           echo "## Pip-Audit Scan Results" >> $GITHUB_STEP_SUMMARY
           pip-audit --format json --output pip-audit-report.json || true
           pip-audit --format markdown >> $GITHUB_STEP_SUMMARY || true
-          VULN_COUNT=$(jq '.dependencies | length' pip-audit-report.json 2>/dev/null || echo 0)
+          VULN_COUNT=$(jq '[.dependencies[] | select(.vulns | length > 0)] | length' pip-audit-report.json 2>/dev/null || echo 0)
           echo "vulnerabilities=$VULN_COUNT" >> $GITHUB_OUTPUT
 
       - name: Run Safety check
