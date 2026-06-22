@@ -239,3 +239,98 @@ class TestCrossCheckRouting:
         )
         # Task-aware routing is off, so cross-check can't operate
         assert primary == 'antigravity'
+
+
+class TestValidateAgentAssignment:
+    def test_unsupported_agent(self):
+        from workspace_os.agent_policy import validate_agent_assignment
+
+        result = validate_agent_assignment('invalid_agent')
+        assert not result.is_valid
+        assert result.suggested_agent is None
+        assert "not supported" in result.reason
+        assert result.confidence == 1.0
+
+    def test_valid_agent_no_hints(self):
+        from workspace_os.agent_policy import validate_agent_assignment
+
+        result = validate_agent_assignment('opencode')
+        assert result.is_valid
+        assert result.suggested_agent is None
+        assert "valid" in result.reason
+        assert result.confidence == 1.0
+
+    def test_task_capability_mismatch(self):
+        from workspace_os.agent_policy import validate_agent_assignment
+
+        # Task suggests 'opencode' but assigning 'claude'
+        result = validate_agent_assignment(
+            'claude',
+            task_hint='refactor the auth module'
+        )
+        assert result.is_valid  # Still valid but flagged
+        assert result.suggested_agent == 'opencode'
+        assert "suggest" in result.reason.lower()
+        assert result.confidence == 0.6
+
+    def test_learning_bias_mismatch(self):
+        from workspace_os.agent_policy import validate_agent_assignment
+
+        # Learning model suggests 'claude' but assigning 'opencode'
+        result = validate_agent_assignment(
+            'opencode',
+            learning_bias='claude'
+        )
+        assert result.is_valid  # Still valid but learning model suggests different
+        assert result.suggested_agent == 'claude'
+        assert "learning model" in result.reason.lower()
+        assert result.confidence == 0.65
+
+    def test_all_checks_pass(self):
+        from workspace_os.agent_policy import validate_agent_assignment
+
+        # Perfect alignment: opencode for refactor task
+        result = validate_agent_assignment(
+            'opencode',
+            task_hint='refactor code',
+            learning_bias='opencode'
+        )
+        assert result.is_valid
+        assert result.suggested_agent is None
+        assert result.confidence == 1.0
+
+
+class TestRoutingDecisionLogging:
+    @patch.dict(os.environ, {'WOS_ROUTING_LOG': 'true'})
+    def test_logging_enabled(self, capsys):
+        from workspace_os.agent_policy import _log_routing_decision
+
+        _log_routing_decision(
+            primary='opencode',
+            task_hint='refactor code',
+            learning_bias='opencode',
+            task_suggestion='opencode',
+            preferred_primary=None,
+            routing_reason='learning_bias'
+        )
+
+        captured = capsys.readouterr()
+        assert '[ROUTING LOG]' in captured.err
+        assert 'opencode' in captured.err
+        assert 'refactor code' in captured.err
+
+    @patch.dict(os.environ, {'WOS_ROUTING_LOG': 'false'})
+    def test_logging_disabled(self, capsys):
+        from workspace_os.agent_policy import _log_routing_decision
+
+        _log_routing_decision(
+            primary='opencode',
+            task_hint='refactor code',
+            learning_bias=None,
+            task_suggestion=None,
+            preferred_primary=None,
+            routing_reason='random'
+        )
+
+        captured = capsys.readouterr()
+        assert '[ROUTING LOG]' not in captured.err

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import random
 import shutil
@@ -138,16 +139,20 @@ def choose_work_agent_pair(
     bias = normalize_agent_name(learning_bias) or normalize_agent_name(task_suggestion) or normalize_agent_name(preferred_primary)
 
     # Learning bias takes precedence (65% weight)
+    routing_reason = ""
     if learning_bias and normalize_agent_name(learning_bias) in available and rng.random() < 0.65:
         primary = normalize_agent_name(learning_bias)
+        routing_reason = "learning_bias"
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (learning_bias)")
     elif bias in available:
         primary = bias
+        routing_reason = f"bias={bias}"
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (bias={bias})")
     else:
         primary = rng.choice(available)
+        routing_reason = "random"
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (random)")
 
@@ -165,6 +170,16 @@ def choose_work_agent_pair(
             if routing_debug:
                 print(f"[ROUTING DEBUG] cross_check: swapped {original_primary} -> {primary} based on task analysis")
 
+    # Log routing decision for learning
+    _log_routing_decision(
+        primary=primary,
+        task_hint=task_hint,
+        learning_bias=learning_bias,
+        task_suggestion=task_suggestion,
+        preferred_primary=preferred_primary,
+        routing_reason=routing_reason,
+    )
+
     secondary_candidates = [agent for agent in available if agent != primary]
     if not secondary_candidates:
         return primary, primary
@@ -177,3 +192,127 @@ def choose_work_agent_pair(
 
 def work_agent_pool_label() -> str:
     return ", ".join(available_work_agents())
+
+
+def _log_routing_decision(
+    primary: str,
+    task_hint: str | None,
+    learning_bias: str | None,
+    task_suggestion: str | None,
+    preferred_primary: str | None,
+    routing_reason: str,
+) -> None:
+    """
+    Log routing decision for learning and debugging.
+
+    Logs to environment-controlled output (WOS_ROUTING_LOG).
+    """
+    routing_log_enabled = os.environ.get("WOS_ROUTING_LOG", "").lower() in ("true", "1", "yes")
+    if not routing_log_enabled:
+        return
+
+    import json
+    import sys
+    from datetime import datetime, timezone
+
+    log_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "primary_agent": primary,
+        "task_hint": task_hint,
+        "learning_bias": learning_bias,
+        "task_suggestion": task_suggestion,
+        "preferred_primary": preferred_primary,
+        "routing_reason": routing_reason,
+    }
+
+    log_file = os.environ.get("WOS_ROUTING_LOG_FILE")
+    if log_file:
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry) + "\n")
+        except Exception as e:
+            print(f"[ROUTING LOG] Failed to write to {log_file}: {e}", file=sys.stderr)
+    else:
+        print(f"[ROUTING LOG] {json.dumps(log_entry)}", file=sys.stderr)
+
+
+@dataclass(frozen=True)
+class AgentRoutingValidation:
+    """Result of agent routing validation."""
+    is_valid: bool
+    suggested_agent: str | None
+    reason: str
+    confidence: float  # 0.0 to 1.0
+
+
+def validate_agent_assignment(
+    agent: str,
+    task_hint: str | None = None,
+    learning_bias: str | None = None,
+) -> AgentRoutingValidation:
+    """
+    Pre-validate agent assignment before task delegation.
+
+    Checks:
+    1. Agent is available and supported
+    2. Task type matches agent capabilities (if task_hint provided)
+    3. Learning model bias alignment (if learning_bias provided)
+
+    Args:
+        agent: Proposed agent for assignment
+        task_hint: Optional task description for capability matching
+        learning_bias: Optional learning model suggested agent
+
+    Returns:
+        AgentRoutingValidation with validation result and suggestions
+    """
+    normalized = normalize_agent_name(agent)
+
+    # Check 1: Agent is supported and available
+    if normalized is None:
+        return AgentRoutingValidation(
+            is_valid=False,
+            suggested_agent=None,
+            reason=f"Agent '{agent}' is not supported. Available: {work_agent_pool_label()}",
+            confidence=1.0,
+        )
+
+    if not agent_is_available(normalized):
+        available = list(available_work_agents())
+        fallback = available[0] if available else None
+        return AgentRoutingValidation(
+            is_valid=False,
+            suggested_agent=fallback,
+            reason=f"Agent '{normalized}' is not available on this system",
+            confidence=1.0,
+        )
+
+    # Check 2: Task-capability matching (if task hint provided)
+    task_suggested = _suggest_agent_from_task(task_hint) if task_hint else None
+    if task_suggested and task_suggested != normalized:
+        # Soft warning: task type suggests different agent
+        return AgentRoutingValidation(
+            is_valid=True,  # Still valid, but flag the mismatch
+            suggested_agent=task_suggested,
+            reason=f"Task keywords suggest '{task_suggested}' but '{normalized}' assigned",
+            confidence=0.6,  # Medium confidence warning
+        )
+
+    # Check 3: Learning model alignment (if learning bias provided)
+    if learning_bias:
+        bias_normalized = normalize_agent_name(learning_bias)
+        if bias_normalized and bias_normalized != normalized:
+            return AgentRoutingValidation(
+                is_valid=True,  # Still valid, but learning model suggests different agent
+                suggested_agent=bias_normalized,
+                reason=f"Learning model suggests '{bias_normalized}' but '{normalized}' assigned",
+                confidence=0.65,  # Confidence from learning bias weight
+            )
+
+    # All checks passed
+    return AgentRoutingValidation(
+        is_valid=True,
+        suggested_agent=None,
+        reason=f"Agent '{normalized}' is valid for this task",
+        confidence=1.0,
+    )

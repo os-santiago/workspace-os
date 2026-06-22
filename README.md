@@ -86,12 +86,26 @@ It should connect the core repositories, expose workspace status, support librar
 Progress toward the UI is tracked in `docs/product/roadmap.md`.
 The canonical product plan lives in `docs/product/product-plan.md`.
 
+## Key Features
+
+### Agent Routing Validation
+
+Workspace OS includes intelligent agent routing validation to ensure work is delegated to the most appropriate agent:
+
+- **Pre-assignment validation** - Validates agent capabilities before task delegation
+- **Task-aware routing** - Keyword matching to agent specializations (opencode, claude, antigravity)
+- **Learning model integration** - Adapts routing based on historical feedback
+- **Structured logging** - Audit trail for routing decisions
+
+See [Agent Routing Validation](docs/features/agent-routing-validation.md) for details.
+
 ## Documentation
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - 5-minute quickstart for new users
 - [Product Vision](docs/product/vision.md) - Goals, outcomes, and success criteria
 - [Roadmap](docs/product/roadmap.md) - Implementation stages and current progress
 - [Architecture Overview](docs/architecture/overview.md) - System design and boundaries
+- [Agent Routing Validation](docs/features/agent-routing-validation.md) - Intelligent agent routing
 - [Examples](examples/README.md) - Usage patterns and demo scripts
 
 ## Local Usage
