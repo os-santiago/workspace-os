@@ -189,6 +189,63 @@ def _extract_task_type(task_name: str) -> str:
     return "general"
 
 
+def _is_agent_mismatch_error(error_msg: str) -> bool:
+    """
+    Determine if an error indicates agent capability mismatch.
+
+    Returns True only when there's evidence the agent lacks required capabilities,
+    not for generic failures (network, timeout, bugs, test failures, etc.).
+
+    Args:
+        error_msg: Error message from failed task
+
+    Returns:
+        True if error suggests wrong agent selection, False otherwise
+    """
+    if not error_msg:
+        return False
+
+    error_lower = error_msg.lower()
+
+    # Capability mismatch indicators
+    capability_issues = [
+        "command not found",
+        "executable not found",
+        "not installed",
+        "missing dependency",
+        "unsupported operation",
+        "agent does not support",
+        "capability not available",
+        "tool not found",
+        "unknown command",
+    ]
+
+    # Generic failures that aren't routing issues - these take precedence
+    generic_failures = [
+        "network error",
+        "timeout",
+        "timed out",
+        "connection refused",
+        "out of memory",
+        "killed by signal",
+        "syntax error",
+        "assertion failed",
+        "test failed",
+        "assertion error",
+        "traceback",  # Python stack traces indicate code bugs, not agent issues
+        "compilation failed",
+        "build failed",
+        "lint error",
+    ]
+
+    has_capability_issue = any(indicator in error_lower for indicator in capability_issues)
+    has_generic_failure = any(failure in error_lower for failure in generic_failures)
+
+    # Only classify as agent capability error if we have capability indicators
+    # and no generic failure markers
+    return has_capability_issue and not has_generic_failure
+
+
 def recommend_agent_for_task(task_type: str, memory_store: WorkspaceMemoryStore) -> str | None:
     """
     Recommend the best agent for a given task type based on historical performance.
@@ -237,7 +294,10 @@ def update_agent_performance_from_queue(
             if not success:
                 # Record negative feedback for failed tasks
                 error_tags = set()
-                if task.error:
+
+                # Only tag as wrong_agent if there's evidence of agent capability mismatch
+                # Not all failures indicate wrong agent selection (network, timeout, actual bugs, etc.)
+                if task.error and _is_agent_mismatch_error(task.error):
                     error_tags.add("wrong_agent")
 
                 try:
