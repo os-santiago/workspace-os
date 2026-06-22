@@ -1474,7 +1474,8 @@ class WorkspaceMemoryStore:
                 "cycle_runs",
                 "cycle_checkpoints",
             ):
-                row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
+                # Table name from hardcoded allowlist, not user input - safe from SQL injection
+                row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()  # nosec B608
                 counts[table] = int(row["count"]) if row else 0
             return counts
 
