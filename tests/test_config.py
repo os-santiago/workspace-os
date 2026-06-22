@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from workspace_os.config import load_sources, load_workspace_memory_path, load_knowledge_base_root, load_workspace_root
+from workspace_os.config import load_sources, load_workspace_memory_path, load_knowledge_base_root, load_workspace_root, load_allowed_commands
 
 
 class ConfigTests(unittest.TestCase):
@@ -157,6 +157,90 @@ class ConfigTests(unittest.TestCase):
             memory_path = load_workspace_memory_path(config)
 
         self.assertEqual((root / "state" / "memory.sqlite3").resolve(), memory_path)
+
+    def test_load_allowed_commands_returns_default_whitelist_when_not_configured(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(json.dumps({"sources": []}), encoding="utf-8")
+
+            commands = load_allowed_commands(config)
+
+        self.assertIsInstance(commands, list)
+        self.assertIn("git status", commands)
+        self.assertIn("pytest", commands)
+        self.assertIn("ruff check", commands)
+
+    def test_load_allowed_commands_loads_custom_commands_from_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(
+                json.dumps({
+                    "sources": [],
+                    "allowed_commands": ["npm test", "cargo build", "go test"]
+                }),
+                encoding="utf-8",
+            )
+
+            commands = load_allowed_commands(config)
+
+        self.assertEqual(["npm test", "cargo build", "go test"], commands)
+
+    def test_load_allowed_commands_strips_whitespace_from_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(
+                json.dumps({
+                    "sources": [],
+                    "allowed_commands": ["  git status  ", "npm test"]
+                }),
+                encoding="utf-8",
+            )
+
+            commands = load_allowed_commands(config)
+
+        self.assertEqual(["git status", "npm test"], commands)
+
+    def test_load_allowed_commands_rejects_non_list_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(
+                json.dumps({
+                    "sources": [],
+                    "allowed_commands": "git status"
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "must be a list"):
+                load_allowed_commands(config)
+
+    def test_load_allowed_commands_rejects_empty_string_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(
+                json.dumps({
+                    "sources": [],
+                    "allowed_commands": ["git status", "", "npm test"]
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "entry #2 must be a non-empty string"):
+                load_allowed_commands(config)
+
+    def test_load_allowed_commands_rejects_non_string_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "workspace.sources.json"
+            config.write_text(
+                json.dumps({
+                    "sources": [],
+                    "allowed_commands": ["git status", 123, "npm test"]
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "entry #2 must be a non-empty string"):
+                load_allowed_commands(config)
 
 
 if __name__ == "__main__":

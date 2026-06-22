@@ -8,9 +8,11 @@ from workspace_os.memory import WorkspaceMemoryStore
 
 
 class AgentAdapterTests(unittest.TestCase):
-    def test_build_agent_command_uses_allowlisted_args(self):
+    def test_build_agent_command_no_dangerous_permissions(self):
+        """Security fix: dangerous permission flags must be removed."""
         codex = build_agent_command("codex", Path("workspace"), "Do the task.")
         claude = build_agent_command("claude", Path("workspace"), "Do the task.")
+        opencode = build_agent_command("opencode", Path("workspace"), "Do the task.")
 
         # Clear mock and test with direct antigravity command
         original_mock = os.environ.pop("WOS_ANTIGRAVITY_COMMAND", None)
@@ -23,7 +25,9 @@ class AgentAdapterTests(unittest.TestCase):
                 os.environ["WOS_ANTIGRAVITY_COMMAND"] = original_mock
 
         self.assertEqual(["codex", "exec"], codex[:2])
-        self.assertIn("--allow-dangerously-skip-permissions", claude)
+        # Security requirement: dangerous flags must NOT be present
+        self.assertNotIn("--allow-dangerously-skip-permissions", claude)
+        self.assertNotIn("--dangerously-skip-permissions", opencode)
         self.assertIn("--add-dir", claude)
 
     def test_launch_agent_records_memory(self):

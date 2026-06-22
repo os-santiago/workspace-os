@@ -146,6 +146,67 @@ def load_workspace_memory_path(config_path: Path) -> Path:
     return (workspace_root / ".workspace-os" / "workspace-memory.sqlite3").resolve()
 
 
+def load_allowed_commands(config_path: Path) -> list[str]:
+    """Load the list of allowed commands from config.
+
+    Returns a list of command patterns that agents can execute without permission prompts.
+    If no allowed_commands is specified in config, returns a safe default whitelist.
+    """
+    resolved_config = config_path.expanduser().resolve()
+    payload = _load_payload(resolved_config)
+
+    raw_commands = payload.get("allowed_commands")
+    if raw_commands is None:
+        # Safe default whitelist for common read-only and safe commands
+        return _get_default_allowed_commands()
+
+    if not isinstance(raw_commands, list):
+        raise ValueError("Config field 'allowed_commands' must be a list.")
+
+    commands: list[str] = []
+    for index, raw in enumerate(raw_commands):
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"Allowed command entry #{index + 1} must be a non-empty string.")
+        commands.append(raw.strip())
+
+    return commands
+
+
+def _get_default_allowed_commands() -> list[str]:
+    """Return a curated list of safe, common commands for agent execution."""
+    return [
+        # Git read-only operations
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "git branch",
+        "git remote",
+        "git ls-files",
+        "git blame",
+        # File operations (read-only)
+        "ls",
+        "cat",
+        "find",
+        "grep",
+        "rg",
+        "head",
+        "tail",
+        "wc",
+        # Development tools (read-only)
+        "npm list",
+        "pip list",
+        "python --version",
+        "node --version",
+        "pytest --collect-only",
+        # Build/test (safe, non-destructive)
+        "pytest",
+        "ruff check",
+        "mypy",
+        "black --check",
+    ]
+
+
 def _required_string(raw: dict[str, object], field: str, index: int) -> str:
     value = raw.get(field)
     if not isinstance(value, str) or not value.strip():
