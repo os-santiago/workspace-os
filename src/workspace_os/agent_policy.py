@@ -6,7 +6,12 @@ import random
 import shutil
 
 
-SUPPORTED_PRIMARY_AGENTS: tuple[str, ...] = ("opencode", "claude", "antigravity", "codex")
+SUPPORTED_PRIMARY_AGENTS: tuple[str, ...] = (
+    "opencode",
+    "claude",
+    "antigravity",
+    "codex",
+)
 SUPPORTED_WORK_AGENTS: tuple[str, ...] = ("opencode", "claude", "antigravity")
 
 
@@ -23,10 +28,19 @@ def normalize_agent_name(agent: str | None) -> str | None:
 # Do NOT set this during testing to allow tests to control agent availability
 def _is_testing() -> bool:
     import sys
-    return "pytest" in sys.modules or "unittest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or any("pytest" in arg for arg in sys.argv)
+
+    return (
+        "pytest" in sys.modules
+        or "unittest" in sys.modules
+        or "PYTEST_CURRENT_TEST" in os.environ
+        or any("pytest" in arg for arg in sys.argv)
+    )
+
 
 if not os.environ.get("WOS_ANTIGRAVITY_COMMAND") and not _is_testing():
-    os.environ["WOS_ANTIGRAVITY_COMMAND"] = 'python -c "import sys; print(\'Antigravity swarm agent executing...\'); sys.exit(0)"'
+    os.environ["WOS_ANTIGRAVITY_COMMAND"] = (
+        "python -c \"import sys; print('Antigravity swarm agent executing...'); sys.exit(0)\""
+    )
 
 
 def agent_is_available(agent: str) -> bool:
@@ -38,12 +52,18 @@ def agent_is_available(agent: str) -> bool:
         if command:
             return True
         return shutil.which("antigravity") is not None
-    return shutil.which(normalized) is not None or shutil.which(f"{normalized}.cmd") is not None or shutil.which(f"{normalized}.ps1") is not None
+    return (
+        shutil.which(normalized) is not None
+        or shutil.which(f"{normalized}.cmd") is not None
+        or shutil.which(f"{normalized}.ps1") is not None
+    )
 
 
 def available_work_agents() -> tuple[str, ...]:
     if _is_testing():
-        available = [agent for agent in SUPPORTED_WORK_AGENTS if agent_is_available(agent)]
+        available = [
+            agent for agent in SUPPORTED_WORK_AGENTS if agent_is_available(agent)
+        ]
         if available:
             return tuple(available)
         return ("opencode", "claude")
@@ -68,24 +88,45 @@ def _suggest_agent_from_task(task_hint: str | None) -> str | None:
 
     # opencode: refactoring, cleanup, mechanical changes
     opencode_keywords = (
-        "refactor", "cleanup", "rename", "delete", "format",
-        "lint", "remove", "move", "fix typo", "mechanical"
+        "refactor",
+        "cleanup",
+        "rename",
+        "delete",
+        "format",
+        "lint",
+        "remove",
+        "move",
+        "fix typo",
+        "mechanical",
     )
     if any(keyword in task_lower for keyword in opencode_keywords):
         return "opencode"
 
     # claude: analysis, planning, reasoning, cross-checking
     claude_keywords = (
-        "analyze", "review", "plan", "design", "explain",
-        "cross-check", "verify", "evaluate", "investigate"
+        "analyze",
+        "review",
+        "plan",
+        "design",
+        "explain",
+        "cross-check",
+        "verify",
+        "evaluate",
+        "investigate",
     )
     if any(keyword in task_lower for keyword in claude_keywords):
         return "claude"
 
     # antigravity: architectural work, gap discovery, leverage analysis
     antigravity_keywords = (
-        "gap", "architectural", "leverage", "discover",
-        "audit", "assess", "strategic", "opportunity"
+        "gap",
+        "architectural",
+        "leverage",
+        "discover",
+        "audit",
+        "assess",
+        "strategic",
+        "opportunity",
     )
     if any(keyword in task_lower for keyword in antigravity_keywords):
         return "antigravity"
@@ -128,24 +169,46 @@ def choose_work_agent_pair(
     available = list(available_work_agents())
 
     # Task-aware routing (controlled by env var, default enabled)
-    task_aware_enabled = os.environ.get("WOS_TASK_AWARE_ROUTING", "true").lower() in ("true", "1", "yes")
-    task_suggestion = _suggest_agent_from_task(task_hint) if task_aware_enabled else None
-    routing_debug = os.environ.get("WOS_ROUTING_DEBUG", "").lower() in ("true", "1", "yes")
+    task_aware_enabled = os.environ.get("WOS_TASK_AWARE_ROUTING", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    task_suggestion = (
+        _suggest_agent_from_task(task_hint) if task_aware_enabled else None
+    )
+    routing_debug = os.environ.get("WOS_ROUTING_DEBUG", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
     if routing_debug:
         print(f"[ROUTING DEBUG] task_hint={task_hint!r} suggestion={task_suggestion} cross_check={cross_check} confidence={learning_confidence:.2f}")
 
     # Priority: learning_bias (65%) > task_suggestion > preferred_primary > random
-    bias = normalize_agent_name(learning_bias) or normalize_agent_name(task_suggestion) or normalize_agent_name(preferred_primary)
+    bias = (
+        normalize_agent_name(learning_bias)
+        or normalize_agent_name(task_suggestion)
+        or normalize_agent_name(preferred_primary)
+    )
 
     # Learning bias takes precedence (65% weight)
     routing_reason = ""
-    if learning_bias and normalize_agent_name(learning_bias) in available and rng.random() < 0.65:
-        primary = normalize_agent_name(learning_bias)
+    primary: str
+    if (
+        learning_bias
+        and normalize_agent_name(learning_bias) in available
+        and rng.random() < 0.65
+    ):
+        normalized_bias = normalize_agent_name(learning_bias)
+        assert normalized_bias is not None  # type guard: validated above
+        primary = normalized_bias
         routing_reason = "learning_bias"
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (learning_bias)")
     elif bias in available:
+        assert bias is not None  # type guard: in available means not None
         primary = bias
         routing_reason = f"bias={bias}"
         if routing_debug:
@@ -207,7 +270,11 @@ def _log_routing_decision(
 
     Logs to environment-controlled output (WOS_ROUTING_LOG).
     """
-    routing_log_enabled = os.environ.get("WOS_ROUTING_LOG", "").lower() in ("true", "1", "yes")
+    routing_log_enabled = os.environ.get("WOS_ROUTING_LOG", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
     if not routing_log_enabled:
         return
 
@@ -239,6 +306,7 @@ def _log_routing_decision(
 @dataclass(frozen=True)
 class AgentRoutingValidation:
     """Result of agent routing validation."""
+
     is_valid: bool
     suggested_agent: str | None
     reason: str

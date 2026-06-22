@@ -3,6 +3,7 @@ Test agent routing and task-aware agent selection.
 
 Comprehensive tests for task-aware routing logic in agent_policy.py.
 """
+
 import os
 import random
 from unittest.mock import patch
@@ -15,31 +16,31 @@ from workspace_os.agent_policy import (
 
 class TestSuggestAgentFromTask:
     def test_opencode_keywords(self):
-        assert _suggest_agent_from_task('refactor the auth module') == 'opencode'
-        assert _suggest_agent_from_task('cleanup unused imports') == 'opencode'
-        assert _suggest_agent_from_task('rename variable xyz') == 'opencode'
-        assert _suggest_agent_from_task('delete deprecated function') == 'opencode'
+        assert _suggest_agent_from_task("refactor the auth module") == "opencode"
+        assert _suggest_agent_from_task("cleanup unused imports") == "opencode"
+        assert _suggest_agent_from_task("rename variable xyz") == "opencode"
+        assert _suggest_agent_from_task("delete deprecated function") == "opencode"
 
     def test_claude_keywords(self):
-        assert _suggest_agent_from_task('analyze the performance') == 'claude'
-        assert _suggest_agent_from_task('review this code') == 'claude'
-        assert _suggest_agent_from_task('plan the migration') == 'claude'
+        assert _suggest_agent_from_task("analyze the performance") == "claude"
+        assert _suggest_agent_from_task("review this code") == "claude"
+        assert _suggest_agent_from_task("plan the migration") == "claude"
 
     def test_antigravity_keywords(self):
-        assert _suggest_agent_from_task('discover gaps') == 'antigravity'
-        assert _suggest_agent_from_task('architectural assessment') == 'antigravity'
-        assert _suggest_agent_from_task('audit security') == 'antigravity'
+        assert _suggest_agent_from_task("discover gaps") == "antigravity"
+        assert _suggest_agent_from_task("architectural assessment") == "antigravity"
+        assert _suggest_agent_from_task("audit security") == "antigravity"
 
     def test_no_match(self):
-        assert _suggest_agent_from_task('implement feature X') is None
-        assert _suggest_agent_from_task('') is None
+        assert _suggest_agent_from_task("implement feature X") is None
+        assert _suggest_agent_from_task("") is None
 
     def test_none_input(self):
         assert _suggest_agent_from_task(None) is None
 
     def test_case_insensitive(self):
-        assert _suggest_agent_from_task('REFACTOR module') == 'opencode'
-        assert _suggest_agent_from_task('Analyze DATA') == 'claude'
+        assert _suggest_agent_from_task("REFACTOR module") == "opencode"
+        assert _suggest_agent_from_task("Analyze DATA") == "claude"
 
 
 class TestChooseWorkAgentPair:
@@ -47,35 +48,35 @@ class TestChooseWorkAgentPair:
         rng = random.Random(123)
         primary, _ = choose_work_agent_pair(
             rng=rng,
-            learning_bias='claude',
-            task_hint='refactor code',
+            learning_bias="claude",
+            task_hint="refactor code",
         )
-        assert primary == 'claude', 'learning_bias should influence selection'
+        assert primary == "claude", "learning_bias should influence selection"
 
     def test_task_hint_used_when_no_bias(self):
         rng = random.Random(42)
         primary, _ = choose_work_agent_pair(
             rng=rng,
-            task_hint='refactor auth module',
+            task_hint="refactor auth module",
         )
-        assert primary == 'opencode'
+        assert primary == "opencode"
 
-    @patch.dict(os.environ, {'WOS_TASK_AWARE_ROUTING': 'false'})
+    @patch.dict(os.environ, {"WOS_TASK_AWARE_ROUTING": "false"})
     def test_routing_disabled(self):
         rng = random.Random(42)
         primary, _ = choose_work_agent_pair(
             rng=rng,
-            preferred_primary='antigravity',
-            task_hint='refactor code',
+            preferred_primary="antigravity",
+            task_hint="refactor code",
         )
-        assert primary == 'antigravity'
+        assert primary == "antigravity"
 
-    @patch.dict(os.environ, {'WOS_ROUTING_DEBUG': 'true'})
+    @patch.dict(os.environ, {"WOS_ROUTING_DEBUG": "true"})
     def test_debug_logging(self, capsys):
         rng = random.Random(42)
-        choose_work_agent_pair(rng=rng, task_hint='analyze code')
+        choose_work_agent_pair(rng=rng, task_hint="analyze code")
         out = capsys.readouterr()
-        assert '[ROUTING DEBUG]' in out.out
+        assert "[ROUTING DEBUG]" in out.out
 
     def test_cross_check_disabled_by_default(self):
         """Cross-check should not trigger without explicit flag."""
@@ -161,13 +162,13 @@ class TestChooseWorkAgentPair:
 
 class TestNormalizeAgentName:
     def test_valid_agents(self):
-        assert normalize_agent_name('OPENCODE') == 'opencode'
-        assert normalize_agent_name('Claude') == 'claude'
-        assert normalize_agent_name('  antigravity  ') == 'antigravity'
+        assert normalize_agent_name("OPENCODE") == "opencode"
+        assert normalize_agent_name("Claude") == "claude"
+        assert normalize_agent_name("  antigravity  ") == "antigravity"
 
     def test_invalid_agents(self):
-        assert normalize_agent_name('invalid') is None
-        assert normalize_agent_name('') is None
+        assert normalize_agent_name("invalid") is None
+        assert normalize_agent_name("") is None
 
     def test_none(self):
         assert normalize_agent_name(None) is None
@@ -245,7 +246,7 @@ class TestValidateAgentAssignment:
     def test_unsupported_agent(self):
         from workspace_os.agent_policy import validate_agent_assignment
 
-        result = validate_agent_assignment('invalid_agent')
+        result = validate_agent_assignment("invalid_agent")
         assert not result.is_valid
         assert result.suggested_agent is None
         assert "not supported" in result.reason
@@ -254,7 +255,7 @@ class TestValidateAgentAssignment:
     def test_valid_agent_no_hints(self):
         from workspace_os.agent_policy import validate_agent_assignment
 
-        result = validate_agent_assignment('opencode')
+        result = validate_agent_assignment("opencode")
         assert result.is_valid
         assert result.suggested_agent is None
         assert "valid" in result.reason
@@ -265,11 +266,10 @@ class TestValidateAgentAssignment:
 
         # Task suggests 'opencode' but assigning 'claude'
         result = validate_agent_assignment(
-            'claude',
-            task_hint='refactor the auth module'
+            "claude", task_hint="refactor the auth module"
         )
         assert result.is_valid  # Still valid but flagged
-        assert result.suggested_agent == 'opencode'
+        assert result.suggested_agent == "opencode"
         assert "suggest" in result.reason.lower()
         assert result.confidence == 0.6
 
@@ -277,12 +277,9 @@ class TestValidateAgentAssignment:
         from workspace_os.agent_policy import validate_agent_assignment
 
         # Learning model suggests 'claude' but assigning 'opencode'
-        result = validate_agent_assignment(
-            'opencode',
-            learning_bias='claude'
-        )
+        result = validate_agent_assignment("opencode", learning_bias="claude")
         assert result.is_valid  # Still valid but learning model suggests different
-        assert result.suggested_agent == 'claude'
+        assert result.suggested_agent == "claude"
         assert "learning model" in result.reason.lower()
         assert result.confidence == 0.65
 
@@ -291,9 +288,7 @@ class TestValidateAgentAssignment:
 
         # Perfect alignment: opencode for refactor task
         result = validate_agent_assignment(
-            'opencode',
-            task_hint='refactor code',
-            learning_bias='opencode'
+            "opencode", task_hint="refactor code", learning_bias="opencode"
         )
         assert result.is_valid
         assert result.suggested_agent is None
@@ -301,36 +296,36 @@ class TestValidateAgentAssignment:
 
 
 class TestRoutingDecisionLogging:
-    @patch.dict(os.environ, {'WOS_ROUTING_LOG': 'true'})
+    @patch.dict(os.environ, {"WOS_ROUTING_LOG": "true"})
     def test_logging_enabled(self, capsys):
         from workspace_os.agent_policy import _log_routing_decision
 
         _log_routing_decision(
-            primary='opencode',
-            task_hint='refactor code',
-            learning_bias='opencode',
-            task_suggestion='opencode',
+            primary="opencode",
+            task_hint="refactor code",
+            learning_bias="opencode",
+            task_suggestion="opencode",
             preferred_primary=None,
-            routing_reason='learning_bias'
+            routing_reason="learning_bias",
         )
 
         captured = capsys.readouterr()
-        assert '[ROUTING LOG]' in captured.err
-        assert 'opencode' in captured.err
-        assert 'refactor code' in captured.err
+        assert "[ROUTING LOG]" in captured.err
+        assert "opencode" in captured.err
+        assert "refactor code" in captured.err
 
-    @patch.dict(os.environ, {'WOS_ROUTING_LOG': 'false'})
+    @patch.dict(os.environ, {"WOS_ROUTING_LOG": "false"})
     def test_logging_disabled(self, capsys):
         from workspace_os.agent_policy import _log_routing_decision
 
         _log_routing_decision(
-            primary='opencode',
-            task_hint='refactor code',
+            primary="opencode",
+            task_hint="refactor code",
             learning_bias=None,
             task_suggestion=None,
             preferred_primary=None,
-            routing_reason='random'
+            routing_reason="random",
         )
 
         captured = capsys.readouterr()
-        assert '[ROUTING LOG]' not in captured.err
+        assert "[ROUTING LOG]" not in captured.err
