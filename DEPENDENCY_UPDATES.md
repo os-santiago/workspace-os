@@ -1,0 +1,15 @@
+aiohttp==3.14.1
+ansible==12.2.0
+ansible-core==2.19.11
+black==26.3.1
+cryptography==48.0.1
+fastapi==0.138.0
+pillow==12.2.0
+pytest==9.0.3
+pytest-asyncio==0.23.6
+pytest-cov==5.0.0
+python-dotenv==1.2.2
+requests==2.33.0
+requests-oauthlib==2.0.0
+sentry-sdk==2.8.0
+starlette==1.3.1
