@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
+import hmac
 import json
 import os
 import shlex
@@ -189,6 +191,9 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
+                return
+            if parsed.path == "/api/github-webhook":
+                self._send_json(_github_webhook_payload(self, payload, memory_path=memory_path))
                 return
 
         def log_message(self, format: str, *args: object) -> None:
@@ -629,6 +634,93 @@ def _context_snapshot_markdown_payload(
         f"- summary={snapshot['summary']}",
     ]
     return {"ok": True, "text": "\n".join(lines) + "\n"}
+
+
+def _github_webhook_payload(
+    handler: BaseHTTPRequestHandler,
+    payload: dict[str, object],
+    memory_path: Path | None = None,
+) -> dict[str, object]:
+    """Handle GitHub webhook events for wos-review label."""
+    signature = handler.headers.get("X-Hub-Signature-256", "")
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "").encode("utf-8")
+
+    if secret and signature:
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        expected = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return {"ok": False, "error": "Invalid webhook signature"}
+
+    action = _string_payload(payload, "action")
+    issue = payload.get("issue", {})
+    if not isinstance(issue, dict):
+        return {"ok": False, "error": "No issue in payload"}
+
+    issue_number = issue.get("number")
+    issue_title = issue.get("title", "")
+    labels = issue.get("labels", [])
+
+    has_wos_review = any(
+        isinstance(label, dict) and label.get("name") == "wos-review"
+        for label in labels
+    )
+
+    if not has_wos_review:
+        return {"ok": True, "message": "Issue does not have wos-review label, skipping"}
+
+    if action not in {"labeled", "opened"}:
+        return {"ok": True, "message": f"Action {action} does not trigger WOS review"}
+
+    if memory_path:
+        from workspace_os.batch import start_batch
+        store = WorkspaceMemoryStore(memory_path)
+        store.ensure_schema()
+
+        batch_label = f"wos-review-{issue_number}"
+        batch_objective = f"Review and resolve GitHub issue #{issue_number}: {issue_title}"
+
+        try:
+            batch_id = start_batch(
+                store,
+                label=batch_label,
+                objective=batch_objective,
+            )
+
+            _send_discord_notification(
+                severity="INFO",
+                title=f"WOS Review Triggered: Issue #{issue_number}",
+                message=f"Batch {batch_id} started for: {issue_title}",
+                details=f"Action: {action}, Labels: wos-review",
+            )
+
+            return {
+                "ok": True,
+                "batch_id": batch_id,
+                "issue_number": issue_number,
+                "message": f"WOS batch {batch_id} started for issue #{issue_number}",
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to start batch: {e}"}
+
+    return {"ok": False, "error": "Memory store not available"}
+
+
+def _send_discord_notification(severity: str, title: str, message: str, details: str = "") -> None:
+    """Send Discord notification using homedir-discord-alert.sh script."""
+    alert_script = os.environ.get("DISCORD_ALERT_SCRIPT", "/usr/local/bin/homedir-discord-alert.sh")
+    if not Path(alert_script).exists():
+        return
+
+    try:
+        subprocess.run(
+            [alert_script, severity, title, message, details],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
 
 
 def _delegate_launch_payload(
