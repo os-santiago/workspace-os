@@ -87,6 +87,77 @@ class TestChooseWorkAgentPair:
         assert '[ROUTING DEBUG]' in out.out
 
 
+class TestCrossCheckRouting:
+    """Test cross-check validation of agent selection (Issue #97)."""
+
+    def test_cross_check_swaps_when_task_suggests_secondary(self):
+        """When cross_check=True and task suggests secondary agent, swap primary/secondary."""
+        rng = random.Random(42)
+        primary, secondary = choose_work_agent_pair(
+            rng=rng,
+            learning_bias='claude',
+            task_hint='refactor auth module',
+            cross_check=True,
+        )
+        assert primary == 'opencode', f"Expected opencode primary for refactor task, got {primary}"
+
+    def test_cross_check_replaces_primary_when_mismatch_detected(self):
+        """When cross_check=True and task suggests different agent, replace primary."""
+        rng = random.Random(42)
+        primary, secondary = choose_work_agent_pair(
+            rng=rng,
+            preferred_primary='antigravity',
+            task_hint='cleanup unused imports',
+            cross_check=True,
+        )
+        assert primary == 'opencode', f"Expected opencode for cleanup task, got {primary}"
+
+    def test_cross_check_respects_learning_bias_when_matching(self):
+        """When cross_check=True and learning bias matches task, keep it."""
+        rng = random.Random(42)
+        primary, secondary = choose_work_agent_pair(
+            rng=rng,
+            learning_bias='claude',
+            task_hint='analyze performance',
+            cross_check=True,
+        )
+        assert primary == 'claude'
+
+    def test_cross_check_disabled_no_swap(self):
+        """When cross_check=False, don't validate/swap agents."""
+        rng = random.Random(42)
+        primary, _ = choose_work_agent_pair(
+            rng=rng,
+            learning_bias='claude',
+            task_hint='refactor auth module',
+            cross_check=False,
+        )
+        assert primary in ('claude', 'opencode')
+
+    def test_cross_check_no_task_hint_no_swap(self):
+        """When cross_check=True but no task_hint, no validation occurs."""
+        rng = random.Random(42)
+        primary, secondary = choose_work_agent_pair(
+            rng=rng,
+            learning_bias='claude',
+            task_hint=None,
+            cross_check=True,
+        )
+        assert primary == 'claude'
+
+    @patch.dict(os.environ, {'WOS_TASK_AWARE_ROUTING': 'false'})
+    def test_cross_check_disabled_when_task_aware_off(self):
+        """When task-aware routing disabled, cross_check has no effect."""
+        rng = random.Random(42)
+        primary, _ = choose_work_agent_pair(
+            rng=rng,
+            preferred_primary='antigravity',
+            task_hint='refactor code',
+            cross_check=True,
+        )
+        assert primary == 'antigravity'
+
+
 class TestNormalizeAgentName:
     def test_valid_agents(self):
         assert normalize_agent_name('OPENCODE') == 'opencode'
