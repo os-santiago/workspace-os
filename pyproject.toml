@@ -78,10 +78,10 @@ directory = "htmlcov"
 output = "coverage.xml"
 
 [tool.mutmut]
-paths_to_mutate = "src/workspace_os/"
+source_paths = "src/workspace_os/"
 backup = false
 runner = "python -m pytest -x --tb=line -q"
-tests_dir = "tests/"
+pytest_add_cli_args_test_selection = ["tests/"]
 dict_synonyms = "Struct, NamedStruct"
 
 [tool.bandit]
