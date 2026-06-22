@@ -581,13 +581,12 @@ def _build_cycle_work_prompt(
     if recent_work:
         base_lines.append("")
         base_lines.append("Recent team activity:")
+        base_lines.extend(f"- {work}" for work in recent_work)
+
     if learning_context:
         base_lines.append("")
         base_lines.append("Team Learning:")
         base_lines.append(learning_context)
-
-
-        base_lines.extend(f"- {work}" for work in recent_work)
 
     base_lines.extend(
         [
