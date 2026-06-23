@@ -305,6 +305,7 @@ def _choose_work_agents(
         learning_bias=learning.primary_agent_bias,
         task_hint=task_hint,
         cross_check=cross_check,
+        learning_confidence=learning.confidence,
     )
     if pair[0] == pair[1] and len(available_work_agents()) > 1:
         return _cycle_agents_for_iteration(iteration_number - 1)

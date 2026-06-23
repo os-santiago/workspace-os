@@ -32,7 +32,6 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             "opencode/deepseek-v4-flash-free",
             "--dir",
             str(workspace_root),
-            "--dangerously-skip-permissions",
             *args,
             prompt,
         ]
@@ -53,7 +52,6 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
     if normalized_agent == "claude":
         return [
             "claude",
-            "--allow-dangerously-skip-permissions",
             "--add-dir",
             str(workspace_root),
             "-p",

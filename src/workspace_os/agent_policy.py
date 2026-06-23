@@ -97,6 +97,8 @@ def choose_work_agent_pair(
     preferred_primary: str | None = None,
     learning_bias: str | None = None,
     task_hint: str | None = None,
+    cross_check: bool = False,
+    learning_confidence: float = 0.0,
 ) -> tuple[str, str]:
     """
     Choose primary and secondary agents for a work item.
@@ -107,11 +109,16 @@ def choose_work_agent_pair(
     3. preferred_primary - explicit preference
     4. random - fallback
 
+    With cross_check enabled and high confidence (>=0.7), validates the primary
+    agent choice against task complexity and swaps if mismatch detected.
+
     Args:
         rng: Random number generator for reproducibility
         preferred_primary: Explicitly preferred primary agent
         learning_bias: Agent suggested by learning model (takes 65% precedence)
         task_hint: Task description for keyword-based routing
+        cross_check: Enable second-pass validation of agent selection
+        learning_confidence: Confidence score from learning model (0.0-1.0)
 
     Returns:
         Tuple of (primary_agent, secondary_agent)
@@ -125,7 +132,7 @@ def choose_work_agent_pair(
     routing_debug = os.environ.get("WOS_ROUTING_DEBUG", "").lower() in ("true", "1", "yes")
 
     if routing_debug:
-        print(f"[ROUTING DEBUG] task_hint={task_hint!r} suggestion={task_suggestion}")
+        print(f"[ROUTING DEBUG] task_hint={task_hint!r} suggestion={task_suggestion} cross_check={cross_check} confidence={learning_confidence:.2f}")
 
     # Priority: learning_bias (65%) > task_suggestion > preferred_primary > random
     bias = normalize_agent_name(learning_bias) or normalize_agent_name(task_suggestion) or normalize_agent_name(preferred_primary)
@@ -143,6 +150,20 @@ def choose_work_agent_pair(
         primary = rng.choice(available)
         if routing_debug:
             print(f"[ROUTING DEBUG] selected primary={primary} (random)")
+
+    # Cross-check routing: validate primary agent against task complexity
+    # when confidence is high (>=0.7) and cross_check is enabled
+    if cross_check and learning_confidence >= 0.7 and task_suggestion and task_suggestion != primary:
+        if routing_debug:
+            print(f"[ROUTING DEBUG] cross_check triggered: task suggests {task_suggestion}, but selected {primary}")
+
+        # Task suggestion disagrees with primary choice - validate the mismatch
+        if task_suggestion in available:
+            # Swap to task suggestion as it's likely more appropriate
+            original_primary = primary
+            primary = task_suggestion
+            if routing_debug:
+                print(f"[ROUTING DEBUG] cross_check: swapped {original_primary} -> {primary} based on task analysis")
 
     secondary_candidates = [agent for agent in available if agent != primary]
     if not secondary_candidates:
