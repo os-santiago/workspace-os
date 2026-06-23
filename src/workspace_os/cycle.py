@@ -296,11 +296,15 @@ def _choose_work_agents(
     if active:
         task_hint = active.get("objective")
 
+    # Enable cross-check validation when learning model recommends it (issue #97)
+    cross_check = learning.detail_level_hint == "cross_check"
+
     pair = choose_work_agent_pair(
         rng=rng,
         preferred_primary=preferred,
         learning_bias=learning.primary_agent_bias,
-        task_hint=task_hint
+        task_hint=task_hint,
+        cross_check=cross_check,
     )
     if pair[0] == pair[1] and len(available_work_agents()) > 1:
         return _cycle_agents_for_iteration(iteration_number - 1)
