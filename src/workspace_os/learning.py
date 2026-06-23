@@ -311,3 +311,95 @@ def update_agent_performance_from_queue(
                 except Exception:
                     # Gracefully handle feedback recording errors
                     pass
+
+
+@dataclass(frozen=True)
+class ProactiveQuestionSuggestion:
+    question: str
+    context: str
+    previous_answer: str
+    frequency: int
+    relevance_score: float
+
+    def render_summary(self) -> str:
+        return f"Q: {self.question} (asked {self.frequency}x, relevance={self.relevance_score:.2f})"
+
+
+def suggest_questions_for_work(
+    memory_store: WorkspaceMemoryStore,
+    task_context: str,
+    limit: int = 3,
+) -> list[ProactiveQuestionSuggestion]:
+    """
+    Suggest proactive questions based on historical Q&A from similar work.
+
+    Finds similar past work items, identifies commonly asked questions,
+    and surfaces them to agents before they ask.
+
+    Args:
+        memory_store: Memory store with historical Q&A data
+        task_context: Description of the current work
+        limit: Maximum number of suggestions to return
+
+    Returns:
+        List of proactive question suggestions ordered by relevance
+    """
+    similar_qa = memory_store.get_similar_questions(task_context, limit=20)
+
+    if not similar_qa:
+        return []
+
+    # Group by question and count frequency
+    question_groups: dict[str, list[dict[str, str]]] = {}
+    for qa in similar_qa:
+        q_normalized = qa["question"].lower().strip()
+        if q_normalized not in question_groups:
+            question_groups[q_normalized] = []
+        question_groups[q_normalized].append(qa)
+
+    # Score and rank questions
+    suggestions = []
+    for question_norm, qa_list in question_groups.items():
+        frequency = len(qa_list)
+        original_question = qa_list[0]["question"]
+        most_recent_answer = qa_list[0]["answer"]
+        most_recent_context = qa_list[0]["context"]
+
+        relevance_score = float(frequency)
+
+        suggestions.append(
+            ProactiveQuestionSuggestion(
+                question=original_question,
+                context=most_recent_context,
+                previous_answer=most_recent_answer,
+                frequency=frequency,
+                relevance_score=relevance_score,
+            )
+        )
+
+    # Sort by relevance score descending
+    suggestions.sort(key=lambda s: (-s.relevance_score, -s.frequency))
+
+    return suggestions[:limit]
+
+
+def format_proactive_questions(suggestions: list[ProactiveQuestionSuggestion]) -> str:
+    """
+    Format proactive question suggestions for agent prompt.
+
+    Args:
+        suggestions: List of question suggestions
+
+    Returns:
+        Formatted string for inclusion in agent prompt
+    """
+    if not suggestions:
+        return ""
+
+    lines = ["Proactive Questions (from similar work):"]
+    for i, suggestion in enumerate(suggestions, 1):
+        lines.append(f"{i}. {suggestion.question}")
+        if suggestion.frequency > 1:
+            lines.append(f"   (Asked {suggestion.frequency}x in similar tasks)")
+
+    return "\n".join(lines)
