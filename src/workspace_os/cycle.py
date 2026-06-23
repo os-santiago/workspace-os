@@ -579,8 +579,81 @@ def _build_cycle_work_prompt(
     try:
         knowledge_base = create_shared_knowledge_base(memory_store.path.parent)
         learning_context = get_learning_context_for_agent(knowledge_base, "agent", role, limit=3)
-    except Exception:
-        pass
+
+        # Phase 1: Informative learning mode - show detected patterns
+        antipatterns = knowledge_base.get_patterns_by_type("antipattern")
+        best_practices = knowledge_base.get_patterns_by_type("best_practice")
+        success_patterns = knowledge_base.get_patterns_by_type("success")
+
+        if antipatterns or best_practices or success_patterns:
+            learning_info = ["\n=== LEARNING SYSTEM STATUS ==="]
+
+            if antipatterns:
+                learning_info.append(f"\n🔴 Detected Antipatterns ({len(antipatterns)}):")
+                for ap in sorted(antipatterns, key=lambda x: x.confidence, reverse=True)[:5]:
+                    learning_info.append(
+                        f"  - {ap.description} "
+                        f"(freq={ap.frequency}, confidence={ap.confidence:.2f})"
+                    )
+
+            if success_patterns:
+                learning_info.append(f"\n🟢 Success Patterns ({len(success_patterns)}):")
+                for sp in sorted(success_patterns, key=lambda x: x.confidence, reverse=True)[:3]:
+                    learning_info.append(
+                        f"  - {sp.description} "
+                        f"(freq={sp.frequency}, confidence={sp.confidence:.2f})"
+                    )
+
+            if best_practices:
+                learning_info.append(f"\n✅ Best Practices ({len(best_practices)}):")
+                for bp in sorted(best_practices, key=lambda x: x.confidence, reverse=True)[:3]:
+                    learning_info.append(
+                        f"  - {bp.description} "
+                        f"(freq={bp.frequency}, confidence={bp.confidence:.2f})"
+                    )
+
+            # Show learning status
+            learning_enabled = os.environ.get("WOS_ENABLE_LEARNING", "").lower() == "true"
+            if learning_enabled:
+                learning_info.append("\n🟢 Auto-application: ENABLED (patterns will influence agent behavior)")
+            else:
+                learning_info.append("\n⚪ Auto-application: DISABLED (set WOS_ENABLE_LEARNING=true to activate)")
+                learning_info.append("   Patterns are being detected and logged for review.")
+
+            learning_info.append("=" * 35)
+
+            # Print to console for visibility
+            print("\n".join(learning_info))
+
+            # Apply patterns if enabled
+            if learning_enabled:
+                pattern_guidance = []
+
+                if antipatterns:
+                    high_confidence_antipatterns = [
+                        ap for ap in antipatterns
+                        if ap.confidence >= 0.80  # Only apply high-confidence patterns
+                    ]
+                    if high_confidence_antipatterns:
+                        pattern_guidance.append("\n⚠️ ANTIPATTERNS TO AVOID:")
+                        for ap in high_confidence_antipatterns[:3]:
+                            pattern_guidance.append(f"  - {ap.description}")
+
+                if best_practices:
+                    high_confidence_bp = [
+                        bp for bp in best_practices
+                        if bp.confidence >= 0.80
+                    ]
+                    if high_confidence_bp:
+                        pattern_guidance.append("\n✅ BEST PRACTICES TO FOLLOW:")
+                        for bp in high_confidence_bp[:3]:
+                            pattern_guidance.append(f"  - {bp.description}")
+
+                if pattern_guidance:
+                    learning_context += "\n\n" + "\n".join(pattern_guidance)
+
+    except Exception as e:
+        print(f"[learning] Warning: Failed to load learning context: {e}")
 
     # Add recent work context from other agents (squad awareness)
     if recent_work:
