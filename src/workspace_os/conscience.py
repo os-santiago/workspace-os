@@ -1,3 +1,6 @@
+# Copyright 2026 Sergio Canales
+# SPDX-License-Identifier: Apache-2.0
+
 """Operational Conscience Engine primitives for the Workspace OS stack.
 
 ADEV is the upstream principle layer, OCE is the decision model, and WOS is the

@@ -8,10 +8,31 @@ version = "0.1.0"
 description = "Local-first controller for an AI-assisted workspace."
 requires-python = ">=3.11"
 readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Sergio Canales", email = "sergio.canales.e@gmail.com"}
+]
+keywords = ["ai", "development", "automation", "workflow", "agents", "multi-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "rich>=13.0.0",
     "pyyaml>=6.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/os-santiago/workspace-os"
+Documentation = "https://github.com/os-santiago/workspace-os/tree/main/docs"
+Repository = "https://github.com/os-santiago/workspace-os"
+Issues = "https://github.com/os-santiago/workspace-os/issues"
 
 [project.optional-dependencies]
 dev = [

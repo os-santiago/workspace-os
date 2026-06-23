@@ -1,6 +1,3 @@
-# Copyright 2026 Sergio Canales
-# SPDX-License-Identifier: Apache-2.0
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,16 +25,19 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
     args = list(extra_args or [])
     normalized_agent = normalize_agent_name(agent) or agent
     if normalized_agent == "opencode":
-        return [
+        cmd = [
             "opencode",
             "run",
             "--model",
             "opencode/deepseek-v4-flash-free",
             "--dir",
             str(workspace_root),
-            *args,
-            prompt,
         ]
+        # Only add dangerous flag if explicitly enabled via env var (not recommended)
+        if os.environ.get("WOS_ALLOW_DANGEROUS_PERMISSIONS") == "1":
+            cmd.append("--dangerously-skip-permissions")
+        cmd.extend([*args, prompt])
+        return cmd
     if normalized_agent == "codex":
         return [
             "codex",
@@ -53,14 +53,17 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             prompt,
         ]
     if normalized_agent == "claude":
-        return [
+        cmd = [
             "claude",
             "--add-dir",
             str(workspace_root),
             "-p",
-            *args,
-            prompt,
         ]
+        # Only add dangerous flag if explicitly enabled via env var (not recommended)
+        if os.environ.get("WOS_ALLOW_DANGEROUS_PERMISSIONS") == "1":
+            cmd.insert(1, "--allow-dangerously-skip-permissions")
+        cmd.extend([*args, prompt])
+        return cmd
     if normalized_agent == "antigravity":
         template = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
         if template:
