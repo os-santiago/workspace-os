@@ -371,8 +371,8 @@ def _assign_issue_to_work_item(
     """Assign a specific issue to a work item, avoiding duplicates.
 
     Returns the assigned issue or None if all issues are assigned.
-    Prioritizes unstarted issues, but allows work stealing from in-progress queue
-    if no fresh work is available (maximizes throughput).
+    Prioritizes unstarted issues, but allows LIMITED work stealing from in-progress queue
+    if no fresh work is available (FinOps: prevents excessive duplicate work).
     """
     if not available_issues:
         return None
@@ -385,15 +385,27 @@ def _assign_issue_to_work_item(
             in_progress_issues.add(issue_number)
             return issue
 
-    # Second pass: work stealing - allow multiple agents on same issue if queue is dry
-    # This prevents idle agents when issue count < worker count
+    # Second pass: LIMITED work stealing - ONLY if issue pool is genuinely small
+    # FinOps: Don't create 64 work items for 1 issue - cap at 3 concurrent per issue
+    max_concurrent_per_issue = int(os.environ.get("WOS_MAX_CONCURRENT_PER_ISSUE", "3"))
+
+    # Count how many times each issue is already in progress
+    issue_counts = {}
+    for issue_num in in_progress_issues:
+        issue_counts[issue_num] = issue_counts.get(issue_num, 0) + 1
+
     for issue in available_issues:
         issue_number = int(issue["number"])
-        if issue_number not in assigned_issues:
-            assigned_issues.add(issue_number)
-            in_progress_issues.add(issue_number)
-            return issue
+        current_count = issue_counts.get(issue_number, 0)
 
+        # Only allow work stealing if under the concurrent limit
+        if current_count < max_concurrent_per_issue:
+            if issue_number not in assigned_issues:
+                assigned_issues.add(issue_number)
+                in_progress_issues.add(issue_number)
+                return issue
+
+    # No assignable work available
     return None
 
 
@@ -1252,6 +1264,10 @@ def run_cycle_work_window_continuous(
     last_checkpoint_at = time.perf_counter()
     # Configure via environment variables to allow fine-tuning of quality vs speed
     checkpoint_interval_seconds = float(os.environ.get("WOS_CHECKPOINT_INTERVAL_SECONDS", 300.0))  # Default: 5 minutes
+
+    # FinOps: Idle timeout tracking
+    idle_start_time = None
+    max_idle_seconds = float(os.environ.get("WOS_MAX_IDLE_SECONDS", 300.0))  # Default: 5 minutes
     # Scale workers to enable 32 parallel agents for high-throughput issue resolution
     # Testing uses minimal workers; production defaults to 32 for maximum throughput
     default_workers = len(available_work_agents()) if _is_testing() else 32
@@ -1561,6 +1577,50 @@ def run_cycle_work_window_continuous(
                     )
 
 
+            # FinOps: Early exit if no work available
+            # Check if there are assignable issues before queuing more work
+            if enable_issue_assignment and available_issues:
+                assignable_count = sum(
+                    1 for issue in available_issues
+                    if int(issue["number"]) not in assigned_issues
+                )
+
+                # Early exit condition: no assignable issues and queue is empty
+                if assignable_count == 0 and len(pending_futures) == 0:
+                    wall_elapsed = time.perf_counter() - wall_started_at
+                    time_remaining = (deadline - now_fn()).total_seconds() if isinstance(deadline - now_fn(), timedelta) else (deadline - now_fn())
+                    print(f"\n[cycle] ✓ FinOps Early Exit: All issues processed")
+                    print(f"[cycle]   Elapsed: {wall_elapsed:.0f}s ({wall_elapsed/60:.1f} min)")
+                    print(f"[cycle]   Saved: {time_remaining:.0f}s ({time_remaining/60:.1f} min)")
+                    print(f"[cycle]   Work items: {completed_work_items} completed, 0 queued")
+                    print(f"[cycle]   Token savings: ~{int(time_remaining/60 * 2) * 5000:,} tokens")
+                    break
+
+                # Warn if running low on assignable work
+                if assignable_count < max_workers and len(pending_futures) > 0:
+                    print(f"[cycle] ⚠️  Running low on assignable work: {assignable_count} issues available, {len(pending_futures)} in progress")
+
+            # FinOps: Idle timeout detection
+            # If queue is empty (no pending work) for too long, exit to save resources
+            if len(pending_futures) == 0:
+                if idle_start_time is None:
+                    idle_start_time = time.perf_counter()
+                    print(f"[cycle] ⚠️  Queue empty - entering idle state (max {max_idle_seconds:.0f}s)")
+
+                idle_duration = time.perf_counter() - idle_start_time
+                if idle_duration > max_idle_seconds:
+                    wall_elapsed = time.perf_counter() - wall_started_at
+                    time_remaining = (deadline - now_fn()).total_seconds() if isinstance(deadline - now_fn(), timedelta) else (deadline - now_fn())
+                    print(f"\n[cycle] ✓ FinOps Idle Timeout: No work for {idle_duration:.0f}s")
+                    print(f"[cycle]   Elapsed: {wall_elapsed:.0f}s ({wall_elapsed/60:.1f} min)")
+                    print(f"[cycle]   Saved: {time_remaining:.0f}s ({time_remaining/60:.1f} min)")
+                    print(f"[cycle]   Work items: {completed_work_items} completed")
+                    print(f"[cycle]   Reason: Queue empty, no assignable issues")
+                    break
+            else:
+                # Reset idle timer when work is queued
+                idle_start_time = None
+
             # Batch-assign issues and queue new work items for all completed futures
             # This reduces idle time when multiple futures complete simultaneously
             if now_fn() < deadline and completed_futures:
@@ -1795,6 +1855,43 @@ def run_cycle_work_window_continuous(
         min_duration = min(work_item_durations)
         max_duration = max(work_item_durations)
         print(f"[cycle]   Work item duration: avg={avg_duration:.1f}s, min={min_duration:.1f}s, max={max_duration:.1f}s")
+
+    # FinOps Economics Report
+    wall_elapsed_minutes = (wall_ended_at - wall_started_at) / 60.0
+    planned_duration_minutes = duration_minutes
+    tokens_per_work_item = 5000  # Estimated average
+    total_estimated_tokens = completed_work_items * tokens_per_work_item
+
+    # Calculate efficiency: issues resolved vs work items
+    # If we completed 10 issues with 15 work items = 66.7% efficiency
+    # If we completed 1 issue with 64 work items = 1.6% efficiency
+    unique_issues_count = len(assigned_issues) if enable_issue_assignment else completed_work_items
+    efficiency_pct = (unique_issues_count / completed_work_items * 100.0) if completed_work_items > 0 else 0.0
+
+    print(f"\n[cycle] FinOps Economics:")
+    print(f"[cycle]   Duration: {wall_elapsed_minutes:.1f} / {planned_duration_minutes:.1f} min ({wall_elapsed_minutes/planned_duration_minutes*100:.0f}%)")
+    print(f"[cycle]   Unique issues: {unique_issues_count}")
+    print(f"[cycle]   Work items: {completed_work_items}")
+    print(f"[cycle]   Efficiency: {efficiency_pct:.1f}% (issues/work_items)")
+    print(f"[cycle]   Est. tokens: ~{total_estimated_tokens:,}")
+
+    # Calculate savings if early exit
+    if wall_elapsed_minutes < planned_duration_minutes:
+        time_saved_minutes = planned_duration_minutes - wall_elapsed_minutes
+        # Estimate work items that would have been created if we hadn't exited early
+        # Based on observed throughput
+        throughput_items_per_min = completed_work_items / wall_elapsed_minutes if wall_elapsed_minutes > 0 else 0
+        avoided_work_items = int(throughput_items_per_min * time_saved_minutes)
+        tokens_saved = avoided_work_items * tokens_per_work_item
+
+        print(f"[cycle]   Time saved: {time_saved_minutes:.1f} min (early exit)")
+        print(f"[cycle]   Tokens saved: ~{tokens_saved:,} (avoided {avoided_work_items} redundant work items)")
+        print(f"[cycle]   Cost saved: ~${tokens_saved * 0.00001:.2f} (est.)")
+
+    # Warn if efficiency is low (likely duplicate work)
+    if efficiency_pct < 50.0 and completed_work_items > 10:
+        print(f"[cycle]   ⚠️  LOW EFFICIENCY: {efficiency_pct:.0f}% - possible duplicate work on same issues")
+        print(f"[cycle]   Consider: WOS_MAX_CONCURRENT_PER_ISSUE (current: {os.environ.get('WOS_MAX_CONCURRENT_PER_ISSUE', '3')})")
 
     # Clean up old queue entries to prevent unbounded growth
     removed_count = queue_tracker.clear_completed(keep_recent=100)
