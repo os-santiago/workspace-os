@@ -1511,7 +1511,7 @@ class WorkspaceMemoryStore:
         """Record a question-answer pair for learning and future suggestions."""
         import hashlib
 
-        similarity_hash = hashlib.md5(question.lower().strip().encode()).hexdigest()[:16]
+        similarity_hash = hashlib.md5(question.lower().strip().encode(), usedforsecurity=False).hexdigest()[:16]  # nosec B324
 
         with self._connection() as conn:
             batch_id = self.active_batch_id(conn)
