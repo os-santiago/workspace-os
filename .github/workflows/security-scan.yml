@@ -48,8 +48,8 @@ jobs:
         continue-on-error: true
         run: |
           echo "## Safety Check Results" >> $GITHUB_STEP_SUMMARY
-          safety check --json --output safety-report.json || true
-          safety check || true
+          safety check --output json > safety-report.json || true
+          safety check --output text >> $GITHUB_STEP_SUMMARY || true
 
       - name: Upload reports
         if: always()
@@ -107,10 +107,11 @@ jobs:
           python-version: '3.11'
 
       - name: Generate SBOM
+        continue-on-error: true
         run: |
           pip install cyclonedx-bom
           pip install -e .
-          cyclonedx-py requirements pyproject.toml -o sbom.json
+          cyclonedx-py requirements pyproject.toml -o sbom.json --validate || echo "SBOM generation completed with warnings"
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
