@@ -3,9 +3,9 @@ import unittest
 from pathlib import Path
 import tempfile
 
+from workspace_os.agent_adapter import build_agent_command
 from workspace_os.config import Source
 from workspace_os.web_server import (
-    _agent_command,
     _analysis_markdown_payload,
     _analysis_payload,
     _capture_preview_payload,
@@ -243,12 +243,12 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("top_missing_context=missing_workspace", markdown["text"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
-        command = _agent_command("opencode", Path("workspace"), "Do the task.")
+        command = build_agent_command("opencode", Path("workspace"), "Do the task.")
 
         self.assertEqual(command[:2], ["opencode", "run"])
         self.assertIn("--model", command)
         self.assertIn("opencode/deepseek-v4-flash-free", command)
-        self.assertIn("--dangerously-skip-permissions", command)
+        self.assertNotIn("--dangerously-skip-permissions", command)
 
     def test_delegate_launch_passes_conscience_to_launcher(self):
         captured = {}
