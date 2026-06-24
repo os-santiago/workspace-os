@@ -29,6 +29,7 @@ from workspace_os.collaborative_learning import (
     get_learning_context_for_agent,
     PatternExtractor,
 )
+from workspace_os.debug_logger import create_debug_logger, OperationType
 import subprocess
 
 
@@ -862,6 +863,7 @@ def run_cycle_window(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     sleep_fn: Callable[[float], None] | None = None,
 ) -> CycleRunResult:
@@ -876,6 +878,11 @@ def run_cycle_window(
     wall_started_at = time.perf_counter()
     deadline = started_at + timedelta(minutes=duration_minutes)
     active = memory_store.active_cycle()
+
+    # Initialize debug logger
+    workspace_root = _workspace_root_for_sources(sources)
+    cycle_label_for_log = label or (active["label"] if active else "unlabeled")
+    debug_logger = create_debug_logger(workspace_root, cycle_label_for_log, enabled=debug)
     started_cycle = False
     if active is None:
         if not label or not label.strip() or not objective or not objective.strip():
@@ -901,6 +908,12 @@ def run_cycle_window(
             cycle_id=cycle_id,
             created_at=now_fn().isoformat(),
         )
+        debug_logger.info(
+            OperationType.CHECKPOINT,
+            f"Checkpoint recorded: {checkpoint_label}",
+            passed=evaluation.overall_ok(),
+            iteration=iteration_number,
+        )
         iteration_results.append(
             CycleIterationResult(
                 iteration_number=iteration_number,
@@ -910,6 +923,11 @@ def run_cycle_window(
             )
         )
         if stop_on_failure and not evaluation.overall_ok():
+            debug_logger.warn(
+                OperationType.CHECKPOINT,
+                "Stopping cycle due to checkpoint failure",
+                checkpoint_label=checkpoint_label,
+            )
             break
 
         current_time = now_fn()
@@ -929,6 +947,9 @@ def run_cycle_window(
     wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    # Finalize debug logging and print summary
+    debug_logger.finalize()
 
     report = memory_store.cycle_report(cycle_id)
     if report is None:
@@ -972,6 +993,7 @@ def run_cycle_work_window(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
     rng: random.Random | None = None,
@@ -992,6 +1014,12 @@ def run_cycle_work_window(
         started_cycle = True
     else:
         cycle_id = int(active["id"])
+
+    # Initialize debug logger
+    workspace_root = _workspace_root_for_sources(sources)
+    cycle_label_for_log = label or (active["label"] if active else "unlabeled")
+    debug_logger = create_debug_logger(workspace_root, cycle_label_for_log, enabled=debug)
+    debug_logger.info(OperationType.OTHER, f"Cycle work window started (sequential): duration={duration_minutes}min label={cycle_label_for_log}")
 
     iteration_results: list[CycleIterationResult] = []
     iteration_number = 1
@@ -1154,6 +1182,7 @@ def run_cycle_work_window_continuous(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
     rng: random.Random | None = None,
@@ -1191,6 +1220,12 @@ def run_cycle_work_window_continuous(
         started_cycle = True
     else:
         cycle_id = int(active["id"])
+
+    # Initialize debug logger
+    workspace_root = _workspace_root_for_sources(sources)
+    cycle_label_for_log = label or (active["label"] if active else "unlabeled")
+    debug_logger = create_debug_logger(workspace_root, cycle_label_for_log, enabled=debug)
+    debug_logger.info(OperationType.OTHER, f"Cycle work window started (continuous): duration={duration_minutes}min label={cycle_label_for_log}")
 
     # Configuration: Allow scaling refetch pool size via environment variable
     # Default: 4x max_workers (historical value that reduces starvation)
@@ -1746,6 +1781,9 @@ def run_cycle_work_window_continuous(
     wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    # Finalize debug logging and print summary
+    debug_logger.finalize()
 
     # Final queue utilization report
     final_snapshot = queue_tracker.snapshot()
