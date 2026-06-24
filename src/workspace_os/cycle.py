@@ -972,6 +972,7 @@ def run_cycle_work_window(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
     rng: random.Random | None = None,
@@ -979,9 +980,16 @@ def run_cycle_work_window(
     if duration_minutes < 0:
         raise ValueError("Cycle duration must be at least 0 minutes.")
 
+    # Initialize debug logger if enabled
+    from workspace_os.debug_logging import DebugLogger
+    debug_logger = DebugLogger(enabled=debug, stream_to_stdout=debug) if debug else DebugLogger(enabled=False)
+
     now_fn = now_fn or (lambda: datetime.now(timezone.utc))
     started_at = now_fn()
     wall_started_at = time.perf_counter()
+
+    if debug:
+        debug_logger.info(f"Starting cycle work window (sequential): duration={duration_minutes:.1f}min", operation_type="cycle_start")
     deadline = started_at + timedelta(minutes=duration_minutes)
     active = memory_store.active_cycle()
     started_cycle = False
@@ -1021,6 +1029,12 @@ def run_cycle_work_window(
             futures = []
             for agent in available_agents:
                 role = "primary"
+                if debug:
+                    debug_logger.log_work_item_assignment(
+                        work_item_id=str(iteration_number),
+                        agent_name=agent,
+                        role=role,
+                    )
                 futures.append(
                     (
                         agent,
@@ -1036,6 +1050,17 @@ def run_cycle_work_window(
                     )
                 )
             results = [(agent, fut.result()) for agent, fut in futures]
+
+            if debug:
+                for agent, res in results:
+                    duration = float(getattr(res, "duration_seconds", 0.0))
+                    debug_logger.log_work_item_complete(
+                        work_item_id=str(iteration_number),
+                        outcome="success",
+                        duration_seconds=duration,
+                        agent_name=agent,
+                        role="primary",
+                    )
 
         iteration_active = sum(float(getattr(res, "duration_seconds", 0.0)) for agent, res in results)
         total_agent_active += iteration_active
@@ -1085,6 +1110,21 @@ def run_cycle_work_window(
             cycle_id=cycle_id,
             created_at=now_fn().isoformat(),
         )
+
+        if debug:
+            passed = evaluation_after.overall_ok()
+            failing_checks = []
+            for cat in ("health", "stability", "security", "quality"):
+                for check in getattr(evaluation_after, cat):
+                    if not check.passed:
+                        failing_checks.append(f"{cat}:{check.name}")
+            reason = "all checks passed" if passed else f"failing: {', '.join(failing_checks)}"
+            debug_logger.log_checkpoint(
+                checkpoint_id=checkpoint_id,
+                passed=passed,
+                reason=reason,
+                iteration=iteration_number,
+            )
         iteration_results.append(
             CycleIterationResult(
                 iteration_number=iteration_number,
@@ -1111,6 +1151,13 @@ def run_cycle_work_window(
     wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    # Close debug logger and write summary
+    if debug:
+        debug_logger.info("Cycle work window complete (sequential)", operation_type="cycle_end")
+        total_cycle_duration = wall_ended_at - wall_started_at
+        debug_logger.get_summary(total_duration=total_cycle_duration)
+        debug_logger.close()
 
     report = memory_store.cycle_report(cycle_id)
     if report is None:
@@ -1154,6 +1201,7 @@ def run_cycle_work_window_continuous(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
     rng: random.Random | None = None,
@@ -1178,9 +1226,16 @@ def run_cycle_work_window_continuous(
     print_config_banner()
     validate_config()
 
+    # Initialize debug logger if enabled
+    from workspace_os.debug_logging import DebugLogger
+    debug_logger = DebugLogger(enabled=debug, stream_to_stdout=debug) if debug else DebugLogger(enabled=False)
+
     now_fn = now_fn or (lambda: datetime.now(timezone.utc))
     started_at = now_fn()
     wall_started_at = time.perf_counter()
+
+    if debug:
+        debug_logger.info(f"Starting cycle work window: duration={duration_minutes:.1f}min", operation_type="cycle_start")
     deadline = started_at + timedelta(minutes=duration_minutes)
     active = memory_store.active_cycle()
     started_cycle = False
@@ -1327,6 +1382,15 @@ def run_cycle_work_window_continuous(
             )
             task_id = f"cycle-work-{work_item_number}-{role}"
 
+            # Debug log: work item assignment
+            if debug:
+                debug_logger.log_work_item_assignment(
+                    work_item_id=str(work_item_number),
+                    agent_name=agent_type,
+                    role=role,
+                    issue_number=int(assigned_issue["number"]) if assigned_issue else None,
+                )
+
             # Enqueue in agent tracker
             queue_tracker.enqueue(
                 task_id=task_id,
@@ -1398,6 +1462,17 @@ def run_cycle_work_window_continuous(
                 if elapsed_since_queue_log >= queue_log_interval_seconds:
                     snapshot = queue_tracker.snapshot()
                     utilization_pct = (snapshot.running_count / max_workers * 100) if max_workers > 0 else 0
+
+                    # Debug log: queue state
+                    if debug:
+                        debug_logger.log_queue_state(
+                            queue_depth=len(pending_futures),
+                            active_workers=snapshot.running_count,
+                            pending_items=snapshot.pending_count,
+                            utilization_pct=utilization_pct,
+                            completed_count=snapshot.completed_count,
+                            failed_count=snapshot.failed_count,
+                        )
 
                     # Squad-aware logging if enabled
                     if os.environ.get("WOS_DISABLE_SQUAD_LEAD", "").lower() != "true":
@@ -1502,6 +1577,16 @@ def run_cycle_work_window_continuous(
                         f"in {duration:.1f}s"
                     )
 
+                    # Debug log: work item completion
+                    if debug:
+                        debug_logger.log_work_item_complete(
+                            work_item_id=str(work_info['work_item_number']),
+                            outcome="success",
+                            duration_seconds=duration,
+                            agent_name=work_info['agent_type'],
+                            role=work_info['role'],
+                        )
+
                     # Update squad context with recent work summary
                     work_summary = (
                         f"{work_info['agent_type']} ({work_info['role']}) completed "
@@ -1524,6 +1609,18 @@ def run_cycle_work_window_continuous(
                         f"[cycle] Failed work item {work_info['work_item_number']} "
                         f"({work_info['role']}/{work_info['agent_type']}): {e}"
                     )
+
+                    # Debug log: work item failure
+                    if debug:
+                        duration = time.perf_counter() - work_info["started_at"]
+                        debug_logger.log_work_item_complete(
+                            work_item_id=str(work_info['work_item_number']),
+                            outcome="failure",
+                            duration_seconds=duration,
+                            agent_name=work_info['agent_type'],
+                            role=work_info['role'],
+                            error=str(e),
+                        )
 
 
             # Batch-assign issues and queue new work items for all completed futures
@@ -1691,6 +1788,24 @@ def run_cycle_work_window_continuous(
                         cycle_id=cycle_id,
                         created_at=now_fn().isoformat(),
                     )
+
+                    # Debug log: checkpoint recorded
+                    if debug:
+                        passed = evaluation_after.overall_ok()
+                        failing_checks = []
+                        for cat in ("health", "stability", "security", "quality"):
+                            for check in getattr(evaluation_after, cat):
+                                if not check.passed:
+                                    failing_checks.append(f"{cat}:{check.name}")
+                        reason = "all checks passed" if passed else f"failing: {', '.join(failing_checks)}"
+                        debug_logger.log_checkpoint(
+                            checkpoint_id=checkpoint_id,
+                            passed=passed,
+                            reason=reason,
+                            completed_items=completed_work_items,
+                            iteration=checkpoint_counter,
+                        )
+
                     # Update agent performance learning from queue tracker
                     if os.environ.get("WOS_DISABLE_SQUAD_LEAD", "").lower() != "true":
                         from workspace_os.learning import update_agent_performance_from_queue
@@ -1746,6 +1861,13 @@ def run_cycle_work_window_continuous(
     wall_ended_at = time.perf_counter()
     if started_cycle:
         stop_cycle(memory_store, ended_at=ended_at.isoformat())
+
+    # Close debug logger and write summary
+    if debug:
+        debug_logger.info("Cycle work window complete", operation_type="cycle_end")
+        total_cycle_duration = wall_ended_at - wall_started_at
+        debug_logger.get_summary(total_duration=total_cycle_duration)
+        debug_logger.close()
 
     # Final queue utilization report
     final_snapshot = queue_tracker.snapshot()

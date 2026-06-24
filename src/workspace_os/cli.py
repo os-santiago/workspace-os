@@ -402,6 +402,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_work.add_argument("--note", default="", help="Optional checkpoint note prefix.")
     cycle_work.add_argument("--stop-on-failure", action="store_true", help="Stop after the first failing checkpoint.")
     cycle_work.add_argument("--sequential", action="store_true", help="Use sequential mode (default is continuous for better throughput).")
+    cycle_work.add_argument("--debug", action="store_true", help="Enable detailed debug logging with operation timing and agent assignment tracking.")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
@@ -1194,6 +1195,7 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
                 objective=args.objective,
                 note=args.note,
                 stop_on_failure=args.stop_on_failure,
+                debug=getattr(args, 'debug', False),
             )
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
