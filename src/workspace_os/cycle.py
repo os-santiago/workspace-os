@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import logging
 import os
 import random
 from pathlib import Path
+import sys
 import time
 import tempfile
 from collections.abc import Callable
@@ -30,6 +32,45 @@ from workspace_os.collaborative_learning import (
     PatternExtractor,
 )
 import subprocess
+
+
+def _setup_debug_logger(enabled: bool, log_dir: Path | None = None) -> logging.Logger:
+    """Setup debug logger for detailed cycle tracing."""
+    logger = logging.getLogger("workspace_os.cycle.debug")
+    logger.handlers.clear()
+
+    if not enabled:
+        logger.setLevel(logging.CRITICAL + 1)  # Disable all logging
+        return logger
+
+    logger.setLevel(logging.DEBUG)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.DEBUG)
+    console_formatter = logging.Formatter(
+        '[%(asctime)s] [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+
+    # File handler if log_dir provided
+    if log_dir:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_file = log_dir / f"cycle-{timestamp}.log"
+        file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        file_formatter = logging.Formatter(
+            '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+        logger.info(f"Debug log file: {log_file}")
+
+    return logger
 
 
 @dataclass(frozen=True)
@@ -972,6 +1013,7 @@ def run_cycle_work_window(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
     rng: random.Random | None = None,
@@ -979,10 +1021,16 @@ def run_cycle_work_window(
     if duration_minutes < 0:
         raise ValueError("Cycle duration must be at least 0 minutes.")
 
+    # Setup debug logger
+    log_dir = Path(".workspace-os/debug-logs") if debug else None
+    logger = _setup_debug_logger(debug, log_dir)
+    logger.info(f"Starting cycle work window: duration={duration_minutes}min, label={label}, objective={objective}")
+
     now_fn = now_fn or (lambda: datetime.now(timezone.utc))
     started_at = now_fn()
     wall_started_at = time.perf_counter()
     deadline = started_at + timedelta(minutes=duration_minutes)
+    logger.debug(f"Cycle started_at={started_at.isoformat()}, deadline={deadline.isoformat()}")
     active = memory_store.active_cycle()
     started_cycle = False
     if active is None:
@@ -1000,9 +1048,17 @@ def run_cycle_work_window(
     rng = rng or random.Random()
     while True:
         if now_fn() >= deadline:
+            logger.info(f"Deadline reached. Stopping cycle. Total iterations: {iteration_number - 1}")
             break
 
+        logger.info(f"=== Starting iteration {iteration_number} ===")
+        iter_start = time.perf_counter()
+
         evaluation_before = run_cycle_evaluation(sources, memory_store)
+        logger.debug(f"Evaluation before: health={all(c.passed for c in evaluation_before.health)}, "
+                     f"stability={all(c.passed for c in evaluation_before.stability)}, "
+                     f"security={all(c.passed for c in evaluation_before.security)}, "
+                     f"quality={all(c.passed for c in evaluation_before.quality)}")
         workspace_name = _work_workspace_name(sources)
         work_prompt = _build_cycle_work_prompt(
             sources,
@@ -1015,8 +1071,10 @@ def run_cycle_work_window(
         available_agents = list(available_work_agents())
         primary_agent = available_agents[0] if available_agents else "opencode"
         secondary_agent = available_agents[1] if len(available_agents) > 1 else "claude"
+        logger.info(f"Available agents: {available_agents}, primary={primary_agent}")
 
         executor = agent_runner or run_agent
+        logger.debug(f"Delegating work to {len(available_agents)} agents in parallel")
         with ThreadPoolExecutor(max_workers=len(available_agents)) as pool:
             futures = []
             for agent in available_agents:
@@ -1040,14 +1098,20 @@ def run_cycle_work_window(
         iteration_active = sum(float(getattr(res, "duration_seconds", 0.0)) for agent, res in results)
         total_agent_active += iteration_active
         total_delegations += len(available_agents)
+        logger.debug(f"Agent execution completed. Active time: {iteration_active:.2f}s, Total delegations so far: {total_delegations}")
 
         evaluation_after = run_cycle_evaluation(sources, memory_store)
+        logger.debug(f"Evaluation after: health={all(c.passed for c in evaluation_after.health)}, "
+                     f"stability={all(c.passed for c in evaluation_after.stability)}, "
+                     f"security={all(c.passed for c in evaluation_after.security)}, "
+                     f"quality={all(c.passed for c in evaluation_after.quality)}")
 
         # WSOS-101: Auto-healing loop
         max_attempts = 3
         attempt = 0
         while not evaluation_after.overall_ok() and attempt < max_attempts:
             attempt += 1
+            logger.info(f"Auto-healing attempt {attempt}/{max_attempts} triggered")
             failing_details = []
             for category in ("health", "stability", "security", "quality"):
                 for check in getattr(evaluation_after, category):
@@ -1103,7 +1167,12 @@ def run_cycle_work_window(
                 ),
             )
         )
+        iter_end = time.perf_counter()
+        iter_duration = iter_end - iter_start
+        logger.info(f"Iteration {iteration_number} completed: checkpoint_id={checkpoint_id}, "
+                    f"duration={iter_duration:.2f}s, evaluation_ok={evaluation_after.overall_ok()}")
         if stop_on_failure and not evaluation_after.overall_ok():
+            logger.info("Stopping cycle due to evaluation failure")
             break
         iteration_number += 1
 
@@ -1118,6 +1187,17 @@ def run_cycle_work_window(
     logical_duration_seconds = max(0.0, (ended_at - started_at).total_seconds())
     wall_clock_duration_seconds = max(0.0, wall_ended_at - wall_started_at)
     idle_ratio = 0.0 if logical_duration_seconds <= 0 else min(1.0, max(0.0, (logical_duration_seconds - total_agent_active) / logical_duration_seconds))
+
+    # Log summary
+    logger.info("=== Cycle Work Window Summary ===")
+    logger.info(f"Total iterations: {len(iteration_results)}")
+    logger.info(f"Total delegations: {total_delegations}")
+    logger.info(f"Logical duration: {logical_duration_seconds:.2f}s")
+    logger.info(f"Wall clock duration: {wall_clock_duration_seconds:.2f}s")
+    logger.info(f"Total agent active time: {total_agent_active:.2f}s")
+    logger.info(f"Idle ratio: {idle_ratio:.2%}")
+    logger.info(f"Average time per delegation: {total_agent_active / total_delegations if total_delegations > 0 else 0:.2f}s")
+
     return CycleRunResult(
         cycle_id=cycle_id,
         started_cycle=started_cycle,
@@ -1154,6 +1234,7 @@ def run_cycle_work_window_continuous(
     objective: str | None = None,
     note: str | None = None,
     stop_on_failure: bool = False,
+    debug: bool = False,
     now_fn: Callable[[], datetime] | None = None,
     agent_runner: Callable[..., object] | None = None,
     rng: random.Random | None = None,
@@ -1173,6 +1254,11 @@ def run_cycle_work_window_continuous(
     if duration_minutes < 0:
         raise ValueError("Cycle duration must be at least 0 minutes.")
 
+    # Setup debug logger
+    log_dir = Path(".workspace-os/debug-logs") if debug else None
+    logger = _setup_debug_logger(debug, log_dir)
+    logger.info(f"Starting continuous cycle work window: duration={duration_minutes}min, label={label}, objective={objective}")
+
     # Show configuration banner
     from workspace_os.defaults import print_config_banner, validate_config
     print_config_banner()
@@ -1182,6 +1268,7 @@ def run_cycle_work_window_continuous(
     started_at = now_fn()
     wall_started_at = time.perf_counter()
     deadline = started_at + timedelta(minutes=duration_minutes)
+    logger.debug(f"Cycle started_at={started_at.isoformat()}, deadline={deadline.isoformat()}")
     active = memory_store.active_cycle()
     started_cycle = False
     if active is None:
@@ -1237,7 +1324,10 @@ def run_cycle_work_window_continuous(
     # Pre-fetch available issues for assignment (optimizes throughput)
     # Scale initial pool to support max_workers * 4 to reduce early starvation
     initial_pool_size = max(200, max_workers * refetch_multiplier)
+    logger.info(f"Configuration: max_workers={max_workers}, checkpoint_interval={checkpoint_interval_seconds}s, "
+                f"min_items_per_checkpoint={min_items_per_checkpoint}")
     available_issues = _fetch_available_issues(sources, limit=initial_pool_size)
+    logger.info(f"Fetched {len(available_issues)} initial issues for assignment")
     assigned_issues: set[int] = set()  # Issues that have been assigned at least once
     in_progress_issues: set[int] = set()  # Issues currently being worked on
     enable_issue_assignment = bool(os.environ.get("WOS_ENABLE_ISSUE_ASSIGNMENT", "true").lower() in ("true", "1", "yes"))
@@ -1486,6 +1576,8 @@ def run_cycle_work_window_continuous(
                     work_item_durations.append(duration)
                     total_agent_active += float(getattr(result, "duration_seconds", duration))
                     completed_work_items += 1
+                    logger.debug(f"Work item {work_info['work_item_number']} completed by agent {work_info['agent']}: "
+                                 f"duration={duration:.2f}s, issue={work_info.get('assigned_issue_number', 'n/a')}")
 
                     # Record successful completion in queue tracker
                     completed_metadata = queue_tracker.complete(work_info["task_id"], returncode=0, duration_seconds=duration)
@@ -1778,6 +1870,20 @@ def run_cycle_work_window_continuous(
     # Queue utilization ratio: how well we kept the queue full (close to 1 = good)
     queue_utilization_ratio = max_queue_depth / float(max_workers) if max_queue_depth > 0 else 0.0
     avg_work_item_duration_seconds = sum(work_item_durations) / len(work_item_durations) if work_item_durations else 0.0
+
+    # Log summary
+    logger.info("=== Continuous Cycle Work Window Summary ===")
+    logger.info(f"Total work items: {work_item_number - 1}")
+    logger.info(f"Completed work items: {completed_work_items}")
+    logger.info(f"Total delegations: {total_delegations}")
+    logger.info(f"Logical duration: {logical_duration_seconds:.2f}s")
+    logger.info(f"Wall clock duration: {wall_clock_duration_seconds:.2f}s")
+    logger.info(f"Total agent active time: {total_agent_active:.2f}s")
+    logger.info(f"Idle ratio: {idle_ratio:.2%}")
+    logger.info(f"Queue utilization: {queue_utilization_ratio:.2%}")
+    logger.info(f"Max queue depth: {max_queue_depth}")
+    logger.info(f"Average work item duration: {avg_work_item_duration_seconds:.2f}s")
+
     return CycleRunResult(
         cycle_id=cycle_id,
         started_cycle=started_cycle,
