@@ -1386,6 +1386,13 @@ def run_cycle_work_window_continuous(
                 completed_futures = list(as_completed(pending_futures.keys(), timeout=1.0))
             except TimeoutError:
                 # No futures completed within timeout, continue waiting
+                # Check for stuck agents (no completion in 60+ seconds)
+                current_time = time.perf_counter()
+                for fut, info in pending_futures.items():
+                    elapsed = current_time - info["started_at"]
+                    if elapsed > 60.0 and elapsed % 30.0 < 1.0:  # Log every 30s after 60s
+                        print(f"[cycle] ⚠️  Agent {info['agent_type']} stuck on work item #{info['work_item_number']} for {elapsed:.0f}s")
+
                 # Use timeout period to log queue state periodically AND proactively refetch issues
                 elapsed_since_queue_log = time.perf_counter() - last_queue_log_at
                 if elapsed_since_queue_log >= queue_log_interval_seconds:

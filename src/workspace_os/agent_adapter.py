@@ -28,6 +28,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
     args = list(extra_args or [])
     normalized_agent = normalize_agent_name(agent) or agent
     if normalized_agent == "opencode":
+        # OpenCode - enable autonomous mode for WOS
         return [
             "opencode",
             "run",
@@ -35,6 +36,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             "opencode/deepseek-v4-flash-free",
             "--dir",
             str(workspace_root),
+            "--auto-approve",  # Enable unattended execution
             *args,
             prompt,
         ]
@@ -53,10 +55,99 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             prompt,
         ]
     if normalized_agent == "claude":
+        # Enable unattended execution for WOS cycles
+        # Comprehensive SDLC command whitelist
+        allowed_tools = [
+            # Git operations
+            "Bash(git *)",
+            "Bash(gh *)",
+
+            # File operations
+            "Bash(ls *)",
+            "Bash(cat *)",
+            "Bash(head *)",
+            "Bash(tail *)",
+            "Bash(find *)",
+            "Bash(grep *)",
+            "Bash(wc *)",
+            "Bash(diff *)",
+            "Bash(sort *)",
+            "Bash(uniq *)",
+
+            # Directory operations
+            "Bash(cd *)",
+            "Bash(pwd *)",
+            "Bash(mkdir *)",
+            "Bash(tree *)",
+
+            # Text processing
+            "Bash(sed *)",
+            "Bash(awk *)",
+            "Bash(cut *)",
+
+            # Package managers
+            "Bash(npm *)",
+            "Bash(yarn *)",
+            "Bash(pip *)",
+            "Bash(poetry *)",
+            "Bash(cargo *)",
+            "Bash(go *)",
+
+            # Build tools
+            "Bash(make *)",
+            "Bash(cmake *)",
+            "Bash(mvn *)",
+            "Bash(gradle *)",
+
+            # Testing
+            "Bash(pytest *)",
+            "Bash(jest *)",
+            "Bash(mocha *)",
+            "Bash(cargo test *)",
+            "Bash(go test *)",
+
+            # Linting/Formatting
+            "Bash(eslint *)",
+            "Bash(prettier *)",
+            "Bash(black *)",
+            "Bash(ruff *)",
+            "Bash(mypy *)",
+            "Bash(pylint *)",
+
+            # File editing tools
+            "Edit",
+            "Write",
+            "Read",
+            "Glob",
+            "Grep",
+            "NotebookEdit",
+
+            # Process management
+            "Bash(ps *)",
+            "Bash(kill *)",
+            "Bash(pkill *)",
+
+            # Network/API (safe read-only)
+            "Bash(curl *)",
+            "Bash(wget *)",
+
+            # Docker (if needed)
+            "Bash(docker ps *)",
+            "Bash(docker logs *)",
+            "Bash(docker inspect *)",
+
+            # System info
+            "Bash(which *)",
+            "Bash(env *)",
+            "Bash(echo *)",
+            "Bash(printenv *)",
+        ]
         return [
             "claude",
             "--add-dir",
             str(workspace_root),
+            "--allowedTools",
+            " ".join(allowed_tools),
             "-p",
             *args,
             prompt,
@@ -115,14 +206,22 @@ def run_agent(
     hardened_prompt = build_hardened_delegate_prompt(agent, workspace_name, workspace_root, prompt)
     command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _run_process
-    started_at = time.perf_counter()
 
     log_dir = Path("C:/Users/sergi/.openclaw/logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{task}.log"
 
+    # Enhanced observability: Log agent start
+    print(f"[agent] START {agent} | task={task} | log={log_file}")
+    started_at = time.perf_counter()
+
     completed = start_process(_prepare_command(command), workspace_root, log_file)
     duration_seconds = max(0.0, time.perf_counter() - started_at)
+
+    # Enhanced observability: Log agent completion with status
+    status = "✓" if completed == 0 else "✗"
+    print(f"[agent] {status} END {agent} | task={task} | duration={duration_seconds:.1f}s | exit={completed}")
+
     memory_store.record_agent_launch(agent, task, workspace_name)
     return AgentExecutionResult(agent=agent, command=tuple(command), returncode=int(completed), duration_seconds=duration_seconds)
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from workspace_os.capture import build_capture_draft
+from workspace_os.agent_adapter import build_agent_command
 from workspace_os.agent_policy import normalize_agent_name
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
@@ -674,7 +675,7 @@ def _delegate_launch_payload(
         workspace_root,
         prompt,
     )
-    command = _agent_command(agent, workspace_root, hardened_prompt)
+    command = build_agent_command(agent, workspace_root, hardened_prompt)
     start_process = launcher or _launch_process
     pid = start_process(command, workspace_root)
     return {
@@ -707,40 +708,6 @@ def _build_delegate_prompt(task: str, brief: str, conscience: ConscienceDecision
             ]
         )
     )
-
-
-def _agent_command(agent: str, workspace_root: Path, prompt: str) -> list[str]:
-    if agent == "opencode":
-        return [
-            "opencode",
-            "run",
-            "--model",
-            "opencode/deepseek-v4-flash-free",
-            "--dir",
-            str(workspace_root),
-            "--dangerously-skip-permissions",
-            "--prompt",
-            prompt,
-        ]
-    if agent == "codex":
-        return [
-            "codex",
-            "exec",
-            "--cd",
-            str(workspace_root),
-            "--skip-git-repo-check",
-            "--sandbox",
-            "workspace-write",
-            "--ask-for-approval",
-            "on-request",
-            prompt,
-        ]
-    if agent == "antigravity":
-        command = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
-        if command:
-            return shlex.split(command.format(workspace_root=str(workspace_root), prompt=prompt, workspace=workspace_root.name))
-        return ["antigravity", "run", "--workspace", str(workspace_root), "--prompt", prompt]
-    return ["claude", "-p", prompt]
 
 
 def _launch_process(command: list[str], cwd: Path) -> int:
