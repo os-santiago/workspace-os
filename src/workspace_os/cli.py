@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import sys
 
+from workspace_os.ai_code_review import review_directory, generate_review_report
 from workspace_os.capture import build_capture_draft, write_capture
 from workspace_os.batch import batch_summary, current_batch_report, current_process_report, process_summary, start_batch, start_process, stop_batch, stop_process
 from workspace_os.classification import classify_content
@@ -60,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         return _classify(args.value, args.path)
     if args.command == "validate":
         return _validate(sources, args.skip_housekeeping, args.skip_smoke_queries)
+    if args.command == "review":
+        return _review(sources, args.output, args.severity_threshold)
     if args.command == "capture":
         return _capture(sources, args.capture_type, args.title, args.text, args.file, args.write)
     if args.command == "promote":
@@ -157,6 +161,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--skip-smoke-queries",
         action="store_true",
         help="Skip representative user query smoke checks.",
+    )
+
+    review_parser = subparsers.add_parser(
+        "review",
+        help="Run AI-powered code review on workspace sources.",
+    )
+    review_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Write review report to file.",
+    )
+    review_parser.add_argument(
+        "--severity-threshold",
+        choices=["low", "medium", "high", "critical"],
+        default="medium",
+        help="Minimum severity to report (default: medium).",
     )
 
     capture_parser = subparsers.add_parser(
@@ -524,6 +544,65 @@ def _validate(sources: list[Source], skip_housekeeping: bool, skip_smoke_queries
         state = "PASS" if result.passed else "FAIL"
         print(f"{state} {result.name}: {result.detail}")
     return 1 if validation_failed(results) else 0
+
+
+def _review(sources: list[Source], output: Path | None, severity_threshold: str) -> int:
+    """Run AI-powered code review on workspace sources."""
+    severity_levels = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+    threshold = severity_levels.get(severity_threshold, 1)
+
+    all_results = []
+
+    for source in sources:
+        if not hasattr(source, 'path'):
+            continue
+
+        source_path = Path(source.path)
+        if not source_path.exists():
+            continue
+
+        src_dir = source_path / "src"
+        if not src_dir.exists():
+            continue
+
+        print(f"Reviewing {source.name}...")
+        results = review_directory(src_dir, extensions=('.py',))
+        all_results.extend(results)
+
+    if not all_results:
+        print("No Python files found to review.")
+        return 0
+
+    # Filter by severity threshold
+    filtered_results = []
+    for result in all_results:
+        filtered_issues = tuple(
+            issue for issue in result.issues
+            if severity_levels.get(issue.severity, 0) >= threshold
+        )
+        if filtered_issues:
+            filtered_results.append(replace(result, issues=filtered_issues))
+
+    # Generate report
+    report = generate_review_report(tuple(filtered_results) if filtered_results else all_results)
+
+    if output:
+        output.write_text(report, encoding="utf-8")
+        print(f"\nReport written to {output}")
+    else:
+        print(report)
+
+    # Return non-zero if any critical or high severity issues found
+    has_critical = any(
+        any(issue.severity == "critical" for issue in result.issues)
+        for result in all_results
+    )
+    has_high = any(
+        any(issue.severity == "high" for issue in result.issues)
+        for result in all_results
+    )
+
+    return 1 if (has_critical or has_high) else 0
 
 
 def _capture(

@@ -1,0 +1,15 @@
+{
+  "workspace_root": ".",
+  "memory_db": "~/.workspace-os/global-memory.sqlite3",
+  "sources": [
+    {
+      "name": "workspace-os",
+      "type": "github",
+      "owner": "os-santiago",
+      "repository": "workspace-os",
+      "responsibility": "WOS development - multi-agent orchestration platform",
+      "path": ".",
+      "search": true
+    }
+  ]
+}

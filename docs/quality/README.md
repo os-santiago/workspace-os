@@ -4,6 +4,7 @@
 
 Workspace OS includes comprehensive quality assurance tools integrated into the checkpoint system:
 
+- **AI Code Review**: Automated code quality analysis with AI-powered static analysis
 - **Code Coverage**: Automated tracking with pytest-cov
 - **Security Scanning**: Static analysis with Bandit
 - **Quality Gates**: Enforce standards on every checkpoint
@@ -24,6 +25,9 @@ This installs:
 ### Run Quality Checks
 
 ```bash
+# Run AI code review
+workspace review
+
 # Run tests with coverage
 pytest --cov=src/workspace_os --cov-report=html
 
@@ -40,8 +44,9 @@ Every checkpoint validates:
 
 1. **Compilation**: Python syntax and imports
 2. **Tests**: All tests pass
-3. **Coverage**: ≥80% code coverage (configurable)
-4. **Security**: No medium/high severity issues
+3. **AI Code Review**: No critical issues, ≤3 high-severity issues
+4. **Coverage**: ≥80% code coverage (configurable)
+5. **Security**: No medium/high severity issues
 
 ## Configuration
 
@@ -60,6 +65,7 @@ Edit `config/quality.json`:
 
 ## Documentation
 
+- [AI Code Review](../features/ai-code-review.md) - Automated quality analysis
 - [Coverage Tracking](./coverage.md) - Detailed coverage guide
 - [Security Scanning](./security.md) - Bandit integration
 - [Quality Gates](./gates.md) - Checkpoint enforcement

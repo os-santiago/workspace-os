@@ -99,6 +99,18 @@ Workspace OS includes intelligent agent routing validation to ensure work is del
 
 See [Agent Routing Validation](docs/features/agent-routing-validation.md) for details.
 
+### AI-Powered Code Review
+
+Automated code quality analysis with AI-powered static analysis:
+
+- **Code smell detection** - Long functions, magic numbers, duplicate code
+- **Complexity metrics** - Cyclomatic complexity analysis with configurable thresholds
+- **Naming conventions** - PEP 8 compliance checking
+- **Documentation completeness** - Public API documentation requirements
+- **Performance anti-patterns** - Inefficient patterns and algorithm issues
+
+See [AI Code Review](docs/features/ai-code-review.md) for details.
+
 ## Documentation
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - 5-minute quickstart for new users
@@ -106,6 +118,7 @@ See [Agent Routing Validation](docs/features/agent-routing-validation.md) for de
 - [Roadmap](docs/product/roadmap.md) - Implementation stages and current progress
 - [Architecture Overview](docs/architecture/overview.md) - System design and boundaries
 - [Agent Routing Validation](docs/features/agent-routing-validation.md) - Intelligent agent routing
+- [AI Code Review](docs/features/ai-code-review.md) - Automated code quality analysis
 - [Examples](examples/README.md) - Usage patterns and demo scripts
 
 ## Local Usage
@@ -182,6 +195,30 @@ Run mutation tests:
 ```
 
 See [docs/testing/mutation-testing.md](docs/testing/mutation-testing.md) for detailed information.
+
+### AI-Powered Code Review
+
+Automated code quality analysis with AI-powered static analysis:
+
+```bash
+# Run AI code review on all workspace sources
+workspace review
+
+# Filter by severity threshold
+workspace review --severity-threshold high
+
+# Save report to file
+workspace review --output code-review-report.md
+```
+
+The AI code reviewer checks for:
+- **Code smells**: Long functions, magic numbers, duplicate code
+- **Complexity metrics**: Cyclomatic complexity analysis
+- **Naming conventions**: PEP 8 compliance
+- **Documentation**: Missing or insufficient docstrings
+- **Performance anti-patterns**: String concatenation in loops, inefficient patterns
+
+See [docs/features/ai-code-review.md](docs/features/ai-code-review.md) for detailed information.
 
 ## Agent Routing
 

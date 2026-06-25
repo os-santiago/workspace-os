@@ -1616,7 +1616,7 @@ def run_cycle_work_window_continuous(
                 if assignable_count == 0 and len(pending_futures) == 0:
                     wall_elapsed = time.perf_counter() - wall_started_at
                     time_remaining = (deadline - now_fn()).total_seconds() if isinstance(deadline - now_fn(), timedelta) else (deadline - now_fn())
-                    print(f"\n[cycle] ✓ FinOps Early Exit: All issues processed")
+                    print("\n[cycle] ✓ FinOps Early Exit: All issues processed")
                     print(f"[cycle]   Elapsed: {wall_elapsed:.0f}s ({wall_elapsed/60:.1f} min)")
                     print(f"[cycle]   Saved: {time_remaining:.0f}s ({time_remaining/60:.1f} min)")
                     print(f"[cycle]   Work items: {completed_work_items} completed, 0 queued")
@@ -1642,7 +1642,7 @@ def run_cycle_work_window_continuous(
                     print(f"[cycle]   Elapsed: {wall_elapsed:.0f}s ({wall_elapsed/60:.1f} min)")
                     print(f"[cycle]   Saved: {time_remaining:.0f}s ({time_remaining/60:.1f} min)")
                     print(f"[cycle]   Work items: {completed_work_items} completed")
-                    print(f"[cycle]   Reason: Queue empty, no assignable issues")
+                    print("[cycle]   Reason: Queue empty, no assignable issues")
                     break
             else:
                 # Reset idle timer when work is queued
@@ -1913,7 +1913,7 @@ def run_cycle_work_window_continuous(
 
     # Final queue utilization report
     final_snapshot = queue_tracker.snapshot()
-    print(f"\n[cycle] Final queue summary:")
+    print("\n[cycle] Final queue summary:")
     print(f"[cycle]   Total work items: {completed_work_items}")
     print(f"[cycle]   Completed: {final_snapshot.completed_count}, Failed: {final_snapshot.failed_count}")
     if work_item_durations:
@@ -1934,7 +1934,7 @@ def run_cycle_work_window_continuous(
     unique_issues_count = len(assigned_issues) if enable_issue_assignment else completed_work_items
     efficiency_pct = (unique_issues_count / completed_work_items * 100.0) if completed_work_items > 0 else 0.0
 
-    print(f"\n[cycle] FinOps Economics:")
+    print("\n[cycle] FinOps Economics:")
     print(f"[cycle]   Duration: {wall_elapsed_minutes:.1f} / {planned_duration_minutes:.1f} min ({wall_elapsed_minutes/planned_duration_minutes*100:.0f}%)")
     print(f"[cycle]   Unique issues: {unique_issues_count}")
     print(f"[cycle]   Work items: {completed_work_items}")
@@ -2446,7 +2446,6 @@ def _run_ai_code_review_check(source_path: Path) -> CycleCheckResult:
 
 def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = False) -> list[CycleCheckResult]:
     import subprocess
-    import re
 
     results = []
 
