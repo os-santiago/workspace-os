@@ -30,6 +30,7 @@ from workspace_os.collaborative_learning import (
     PatternExtractor,
 )
 from workspace_os.debug_logger import create_debug_logger, OperationType
+from workspace_os.ai_code_review import review_directory
 import subprocess
 
 
@@ -2233,6 +2234,13 @@ def _run_quality_checks(sources: list[Source], memory_store: WorkspaceMemoryStor
                 continue
             results.append(CycleCheckResult(name, True, "Expected operational guidance present."))
         results.extend(_run_compilation_and_test_checks(sources, skip_tests=skip_tests))
+
+        # Add AI code review check for workspace sources
+        for source in sources:
+            if hasattr(source, 'path') and Path(source.path).exists():
+                ai_review_result = _run_ai_code_review_check(Path(source.path))
+                results.append(ai_review_result)
+
         return tuple(results)
 
 
@@ -2381,6 +2389,59 @@ def _run_bandit_security_check(source_path: Path) -> CycleCheckResult:
         return CycleCheckResult("quality:bandit", True, "Bandit not installed, skipped")
     except Exception as e:
         return CycleCheckResult("quality:bandit", True, f"Skipped bandit check: {e}")
+
+
+def _run_ai_code_review_check(source_path: Path) -> CycleCheckResult:
+    """Run AI-powered code review on source code."""
+    try:
+        src_dir = source_path / "src"
+        if not src_dir.exists():
+            return CycleCheckResult(
+                "quality:ai-review",
+                True,
+                "Skipped: no src directory found"
+            )
+
+        # Review all Python files in src/
+        review_results = review_directory(src_dir, extensions=('.py',))
+
+        if not review_results:
+            return CycleCheckResult(
+                "quality:ai-review",
+                True,
+                "No Python files found to review"
+            )
+
+        # Aggregate results
+        total_files = len(review_results)
+        passed_files = sum(1 for r in review_results if r.passed)
+        total_issues = sum(len(r.issues) for r in review_results)
+        critical_issues = sum(
+            sum(1 for i in r.issues if i.severity == "critical")
+            for r in review_results
+        )
+        high_issues = sum(
+            sum(1 for i in r.issues if i.severity == "high")
+            for r in review_results
+        )
+
+        # Determine pass/fail: fail if any critical or >10% high issues
+        passed = critical_issues == 0 and high_issues <= max(3, total_files // 10)
+
+        detail = (
+            f"Reviewed {total_files} files: "
+            f"{passed_files} passed, {total_issues} issues "
+            f"(Critical: {critical_issues}, High: {high_issues})"
+        )
+
+        return CycleCheckResult("quality:ai-review", passed, detail)
+
+    except Exception as e:
+        return CycleCheckResult(
+            "quality:ai-review",
+            True,
+            f"Skipped: {e}"
+        )
 
 
 def _run_compilation_and_test_checks(sources: list[Source], skip_tests: bool = False) -> list[CycleCheckResult]:
