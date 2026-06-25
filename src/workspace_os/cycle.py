@@ -367,15 +367,23 @@ def _assign_issue_to_work_item(
     available_issues: list[dict[str, object]],
     assigned_issues: set[int],
     in_progress_issues: set[int],
-) -> dict[str, object] | None:
+    complexity_cache: dict[int, object] | None = None,
+) -> tuple[dict[str, object] | None, object | None]:
     """Assign a specific issue to a work item, avoiding duplicates.
 
-    Returns the assigned issue or None if all issues are assigned.
+    Returns (assigned_issue, complexity_classification) or (None, None) if all issues are assigned.
     Prioritizes unstarted issues, but allows LIMITED work stealing from in-progress queue
     if no fresh work is available (FinOps: prevents excessive duplicate work).
+
+    The complexity_classification is from issue_complexity.ComplexityClassification and indicates
+    whether this issue should use the complex workflow (MODERATE/COMPLEX) or standard flow (SIMPLE).
     """
     if not available_issues:
-        return None
+        return None, None
+
+    # Initialize complexity cache if not provided
+    if complexity_cache is None:
+        complexity_cache = {}
 
     # First pass: find unstarted issue (not assigned, not in progress)
     for issue in available_issues:
@@ -383,7 +391,14 @@ def _assign_issue_to_work_item(
         if issue_number not in assigned_issues and issue_number not in in_progress_issues:
             assigned_issues.add(issue_number)
             in_progress_issues.add(issue_number)
-            return issue
+
+            # Detect complexity for routing decision
+            if issue_number not in complexity_cache:
+                from workspace_os.issue_complexity import classify_issue
+
+                complexity_cache[issue_number] = classify_issue(issue)
+
+            return issue, complexity_cache[issue_number]
 
     # Second pass: LIMITED work stealing - ONLY if issue pool is genuinely small
     # FinOps: Don't create 64 work items for 1 issue - cap at 3 concurrent per issue
@@ -403,10 +418,17 @@ def _assign_issue_to_work_item(
             if issue_number not in assigned_issues:
                 assigned_issues.add(issue_number)
                 in_progress_issues.add(issue_number)
-                return issue
+
+                # Detect complexity for routing decision
+                if issue_number not in complexity_cache:
+                    from workspace_os.issue_complexity import classify_issue
+
+                    complexity_cache[issue_number] = classify_issue(issue)
+
+                return issue, complexity_cache[issue_number]
 
     # No assignable work available
-    return None
+    return None, None
 
 
 def _build_cycle_work_prompt(
@@ -1351,7 +1373,11 @@ def run_cycle_work_window_continuous(
                         if generated_count > 0:
                             print(f"[cycle] Seeding: generated {generated_count} issues from backlog (pool now {len(available_issues)} total)")
                             cached_unassigned_count += generated_count
-                assigned_issue = _assign_issue_to_work_item(work_item_number, available_issues, assigned_issues, in_progress_issues)
+                # Complexity cache to avoid re-classifying same issue
+                complexity_cache = {}
+                assigned_issue, issue_complexity = _assign_issue_to_work_item(
+                    work_item_number, available_issues, assigned_issues, in_progress_issues, complexity_cache
+                )
                 if assigned_issue:
                     cached_unassigned_count -= 1  # Decrement cache after assignment
 
@@ -1643,16 +1669,44 @@ def run_cycle_work_window_continuous(
                 # Pre-assign all issues for this batch to avoid one-by-one assignment overhead
                 if available_issues and enable_issue_assignment:
                     for _ in range(new_work_count):
-                        next_assigned_issue = _assign_issue_to_work_item(work_item_number + len(batch_assigned_issues), available_issues, assigned_issues, in_progress_issues)
-                        batch_assigned_issues.append(next_assigned_issue)
+                        next_assigned_issue, next_complexity = _assign_issue_to_work_item(
+                            work_item_number + len(batch_assigned_issues),
+                            available_issues,
+                            assigned_issues,
+                            in_progress_issues,
+                            complexity_cache
+                        )
+                        batch_assigned_issues.append((next_assigned_issue, next_complexity))
                         if next_assigned_issue:
                             cached_unassigned_count -= 1
                 else:
-                    batch_assigned_issues = [None] * new_work_count
+                    batch_assigned_issues = [(None, None)] * new_work_count
 
                 # Queue all new work items in parallel
                 for i in range(new_work_count):
-                    assigned_issue = batch_assigned_issues[i] if i < len(batch_assigned_issues) else None
+                    assigned_issue, issue_complexity = batch_assigned_issues[i] if i < len(batch_assigned_issues) else (None, None)
+
+                    # Check if should use complex workflow
+                    workflow_result = None
+                    if assigned_issue and issue_complexity:
+                        from workspace_os.workflow_integration import should_use_complex_workflow, execute_complex_workflow_for_issue
+
+                        if should_use_complex_workflow(issue_complexity):
+                            try:
+                                workflow_result = execute_complex_workflow_for_issue(
+                                    issue_data=assigned_issue,
+                                    complexity=issue_complexity,
+                                    workspace_name=workspace_name,
+                                    workspace_root=workspace_root,
+                                    memory_store=memory_store,
+                                    agent_type="claude",
+                                    agent_runner=executor,
+                                    enable_user_approval=True
+                                )
+                            except KeyboardInterrupt:
+                                # User cancelled during approval - skip this issue
+                                print(f"[cycle] Skipping issue #{assigned_issue['number']} - user cancelled workflow")
+                                continue
 
                     # Extract task hint from assigned issue or objective
                     task_hint = None
@@ -1664,7 +1718,9 @@ def run_cycle_work_window_continuous(
                     agent_type, role = _choose_continuous_work_item(
                         work_item_number, memory_store, rng, queue_tracker, task_hint=task_hint
                     )
-                    work_prompt = _build_cycle_work_prompt(
+
+                    # Build work prompt (potentially enhanced with workflow results)
+                    base_work_prompt = _build_cycle_work_prompt(
                         sources,
                         memory_store,
                         workspace_name=workspace_name,
@@ -1675,6 +1731,15 @@ def run_cycle_work_window_continuous(
                         role=role,
                         recent_work=recent_work_context if recent_work_context else None,
                     )
+
+                    # Enhance with workflow results if available
+                    if workflow_result:
+                        from workspace_os.workflow_integration import build_enhanced_work_prompt_with_workflow
+                        work_prompt = {}
+                        for key, prompt_text in base_work_prompt.items():
+                            work_prompt[key] = build_enhanced_work_prompt_with_workflow(prompt_text, workflow_result)
+                    else:
+                        work_prompt = base_work_prompt
                     next_task_id = f"cycle-work-{work_item_number}-{role}"
 
                     # Enqueue in agent tracker
