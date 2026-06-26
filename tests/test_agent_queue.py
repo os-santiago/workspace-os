@@ -81,3 +81,23 @@ def test_agent_queue_clear_completed(temp_memory):
 
     snapshot = tracker.snapshot()
     assert snapshot.completed_count == 100
+
+
+def test_agent_queue_utilization_report(temp_memory):
+    tracker = AgentQueueTracker(temp_memory, max_parallel=2)
+    tracker.enqueue("task-1", "opencode", "homedir", "Task 1")
+    tracker.start("task-1")
+    tracker.complete("task-1", returncode=0, duration_seconds=4.0)
+    tracker.enqueue("task-2", "claude", "workspace-os", "Task 2")
+    tracker.start("task-2")
+
+    report = tracker.utilization_report()
+
+    assert report.max_parallel == 2
+    assert report.observed_peak_parallel >= 1
+    assert report.recommended_max_parallel >= 1
+    assert len(report.hourly_totals) == 24
+    assert report.agent_summaries
+    assert any(summary.agent == "opencode" for summary in report.agent_summaries)
+    assert "Agent Utilization Report" in report.render()
+    assert "Recommended max workers" in report.render()

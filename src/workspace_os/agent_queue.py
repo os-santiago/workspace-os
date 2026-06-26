@@ -89,6 +89,88 @@ class AgentQueueSnapshot:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class AgentUtilizationSummary:
+    agent: str
+    task_count: int
+    queued_count: int
+    running_count: int
+    completed_count: int
+    failed_count: int
+    active_seconds: float
+    observed_span_seconds: float
+    utilization_ratio: float
+    peak_concurrent: int
+    hourly_activity: tuple[int, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agent": self.agent,
+            "task_count": self.task_count,
+            "queued_count": self.queued_count,
+            "running_count": self.running_count,
+            "completed_count": self.completed_count,
+            "failed_count": self.failed_count,
+            "active_seconds": self.active_seconds,
+            "observed_span_seconds": self.observed_span_seconds,
+            "utilization_ratio": self.utilization_ratio,
+            "peak_concurrent": self.peak_concurrent,
+            "hourly_activity": list(self.hourly_activity),
+        }
+
+
+@dataclass(frozen=True)
+class AgentUtilizationReport:
+    timestamp: str
+    max_parallel: int
+    observed_peak_parallel: int
+    recommended_max_parallel: int
+    overall_utilization_ratio: float
+    idle_ratio: float
+    window_start: str | None
+    window_end: str | None
+    hourly_totals: tuple[int, ...]
+    agent_summaries: tuple[AgentUtilizationSummary, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "timestamp": self.timestamp,
+            "max_parallel": self.max_parallel,
+            "observed_peak_parallel": self.observed_peak_parallel,
+            "recommended_max_parallel": self.recommended_max_parallel,
+            "overall_utilization_ratio": self.overall_utilization_ratio,
+            "idle_ratio": self.idle_ratio,
+            "window_start": self.window_start,
+            "window_end": self.window_end,
+            "hourly_totals": list(self.hourly_totals),
+            "agent_summaries": [summary.to_dict() for summary in self.agent_summaries],
+        }
+
+    def render(self) -> str:
+        lines = [
+            f"Agent Utilization Report @ {self.timestamp}",
+            f"Configured max parallel: {self.max_parallel}",
+            f"Observed peak parallel: {self.observed_peak_parallel}",
+            f"Recommended max workers: {self.recommended_max_parallel}",
+            f"Overall utilization: {self.overall_utilization_ratio:.2f}",
+            f"Idle ratio: {self.idle_ratio:.2f}",
+            f"Window: {self.window_start or 'n/a'} -> {self.window_end or 'n/a'}",
+        ]
+        if self.hourly_totals:
+            lines.append("")
+            lines.append("Hourly totals:")
+            lines.append(_render_hour_header())
+            lines.append(f"total  {_render_hour_heatmap(self.hourly_totals)}")
+        if self.agent_summaries:
+            lines.append("")
+            lines.append("Agent heatmaps:")
+            lines.append(_render_hour_header())
+            for summary in self.agent_summaries:
+                label = summary.agent[:5].ljust(5)
+                lines.append(f"{label} {_render_hour_heatmap(summary.hourly_activity)} | util={summary.utilization_ratio:.2f} peak={summary.peak_concurrent}")
+        return "\n".join(lines) + "\n"
+
+
 class AgentQueueTracker:
     def __init__(self, memory_root: Path, max_parallel: int = 2):
         self.memory_root = memory_root
@@ -165,6 +247,135 @@ class AgentQueueTracker:
     def recent_tasks(self, limit: int = 20) -> tuple[AgentTaskTrace, ...]:
         tasks = self._load_all_tasks()
         return tuple(tasks[-limit:]) if tasks else ()
+
+    def utilization_report(self) -> AgentUtilizationReport:
+        tasks = self._load_all_tasks()
+        now = datetime.now(timezone.utc)
+        if not tasks:
+            return AgentUtilizationReport(
+                timestamp=self._now_iso(),
+                max_parallel=self.max_parallel,
+                observed_peak_parallel=0,
+                recommended_max_parallel=self.max_parallel,
+                overall_utilization_ratio=0.0,
+                idle_ratio=1.0,
+                window_start=None,
+                window_end=None,
+                hourly_totals=tuple(0 for _ in range(24)),
+                agent_summaries=(),
+            )
+
+        window_start: datetime | None = None
+        window_end: datetime | None = None
+        hourly_totals = [0 for _ in range(24)]
+        by_agent: dict[str, list[AgentTaskTrace]] = {}
+        events: list[tuple[datetime, int]] = []
+        total_active_seconds = 0.0
+
+        for task in tasks:
+            by_agent.setdefault(task.agent, []).append(task)
+            started = _parse_datetime(task.started_at) or _parse_datetime(task.queued_at)
+            ended = _parse_datetime(task.completed_at)
+            if ended is None and task.state == AgentTaskState.RUNNING:
+                ended = now
+            if started is None:
+                started = ended
+            if started is None:
+                continue
+            if ended is None:
+                ended = started
+
+            hour = started.hour
+            hourly_totals[hour] += 1
+
+            if window_start is None or started < window_start:
+                window_start = started
+            if window_end is None or ended > window_end:
+                window_end = ended
+
+            events.append((started, 1))
+            events.append((ended, -1))
+
+            if ended >= started:
+                total_active_seconds += (ended - started).total_seconds()
+
+        observed_peak = _peak_concurrency(events)
+        window_seconds = 0.0
+        if window_start is not None and window_end is not None:
+            window_seconds = max(0.0, (window_end - window_start).total_seconds())
+        capacity_seconds = window_seconds * max(self.max_parallel, 1)
+        overall_utilization = 0.0 if capacity_seconds <= 0 else min(1.0, total_active_seconds / capacity_seconds)
+        idle_ratio = 1.0 - overall_utilization
+        recommended_max_parallel = _recommend_max_parallel(self.max_parallel, observed_peak, overall_utilization)
+
+        agent_summaries = []
+        for agent, agent_tasks in sorted(by_agent.items()):
+            agent_window_start: datetime | None = None
+            agent_window_end: datetime | None = None
+            agent_hourly = [0 for _ in range(24)]
+            agent_events: list[tuple[datetime, int]] = []
+            active_seconds = 0.0
+            counts = {
+                AgentTaskState.QUEUED: 0,
+                AgentTaskState.RUNNING: 0,
+                AgentTaskState.COMPLETED: 0,
+                AgentTaskState.FAILED: 0,
+            }
+            for task in agent_tasks:
+                counts[task.state] += 1
+                started = _parse_datetime(task.started_at) or _parse_datetime(task.queued_at)
+                ended = _parse_datetime(task.completed_at)
+                if ended is None and task.state == AgentTaskState.RUNNING:
+                    ended = now
+                if started is None:
+                    started = ended
+                if started is None:
+                    continue
+                if ended is None:
+                    ended = started
+                agent_hourly[started.hour] += 1
+                if agent_window_start is None or started < agent_window_start:
+                    agent_window_start = started
+                if agent_window_end is None or ended > agent_window_end:
+                    agent_window_end = ended
+                agent_events.append((started, 1))
+                agent_events.append((ended, -1))
+                if ended >= started:
+                    active_seconds += (ended - started).total_seconds()
+
+            agent_span_seconds = 0.0
+            if agent_window_start is not None and agent_window_end is not None:
+                agent_span_seconds = max(0.0, (agent_window_end - agent_window_start).total_seconds())
+            agent_capacity = agent_span_seconds if agent_span_seconds > 0 else 0.0
+            utilization_ratio = 0.0 if agent_capacity <= 0 else min(1.0, active_seconds / agent_capacity)
+            agent_summaries.append(
+                AgentUtilizationSummary(
+                    agent=agent,
+                    task_count=len(agent_tasks),
+                    queued_count=counts[AgentTaskState.QUEUED],
+                    running_count=counts[AgentTaskState.RUNNING],
+                    completed_count=counts[AgentTaskState.COMPLETED],
+                    failed_count=counts[AgentTaskState.FAILED],
+                    active_seconds=active_seconds,
+                    observed_span_seconds=agent_span_seconds,
+                    utilization_ratio=utilization_ratio,
+                    peak_concurrent=_peak_concurrency(agent_events),
+                    hourly_activity=tuple(agent_hourly),
+                )
+            )
+
+        return AgentUtilizationReport(
+            timestamp=self._now_iso(),
+            max_parallel=self.max_parallel,
+            observed_peak_parallel=observed_peak,
+            recommended_max_parallel=recommended_max_parallel,
+            overall_utilization_ratio=overall_utilization,
+            idle_ratio=idle_ratio,
+            window_start=window_start.isoformat() if window_start else None,
+            window_end=window_end.isoformat() if window_end else None,
+            hourly_totals=tuple(hourly_totals),
+            agent_summaries=tuple(agent_summaries),
+        )
 
     def _append_trace(self, trace: AgentTaskTrace) -> None:
         with open(self.queue_file, "a", encoding="utf-8") as f:
@@ -300,3 +511,54 @@ class AgentQueueTracker:
                 )
 
         return "\n".join(lines) + "\n"
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _peak_concurrency(events: list[tuple[datetime, int]]) -> int:
+    if not events:
+        return 0
+    current = 0
+    peak = 0
+    for when, delta in sorted(events, key=lambda item: (item[0], 0 if item[1] > 0 else 1)):
+        current += delta
+        if current > peak:
+            peak = current
+    return peak
+
+
+def _recommend_max_parallel(max_parallel: int, observed_peak_parallel: int, utilization_ratio: float) -> int:
+    if observed_peak_parallel > max_parallel:
+        return observed_peak_parallel
+    if utilization_ratio < 0.35 and max_parallel > 1:
+        return max_parallel - 1
+    if utilization_ratio > 0.85 and observed_peak_parallel >= max_parallel:
+        return max_parallel + 1
+    return max_parallel
+
+
+def _render_hour_header() -> str:
+    return "       00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23"
+
+
+def _render_hour_heatmap(values: tuple[int, ...] | list[int]) -> str:
+    palette = " .:-=+*#%@"
+    if not values:
+        return ""
+    maximum = max(values) if max(values) > 0 else 0
+    if maximum <= 0:
+        return "." * len(values)
+    chars = []
+    scale = len(palette) - 1
+    for value in values:
+        level = int(round((value / maximum) * scale))
+        level = max(0, min(scale, level))
+        chars.append(palette[level])
+    return "".join(chars)

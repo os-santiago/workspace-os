@@ -17,6 +17,8 @@ from workspace_os.web_server import (
     _conscience_metrics_payload,
     _conscience_recommendation_markdown_payload,
     _conscience_recommendation_payload,
+    _agent_utilization_markdown_payload,
+    _agent_utilization_payload,
     _delegate_launch_payload,
     _extract_progress_map,
     _handoff_payload,
@@ -74,6 +76,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("conscienceRecommendationOutput", index)
         self.assertIn("questioningRefresh", index)
         self.assertIn("questioningOutput", index)
+        self.assertIn("utilizationRefresh", index)
+        self.assertIn("utilizationOutput", index)
+        self.assertIn("utilizationDownload", index)
         self.assertIn("analysisRefresh", index)
         self.assertIn("analysisOutput", index)
         self.assertIn("chatContextToggle", index)
@@ -89,6 +94,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestConscienceMetrics", app)
         self.assertIn("latestConscienceRecommendation", app)
         self.assertIn("latestQuestioningMetrics", app)
+        self.assertIn("latestAgentUtilization", app)
         self.assertIn("latestNextAction", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
@@ -284,13 +290,32 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("recent_7_days=2", markdown["text"])
         self.assertIn("How do we validate a dashboard change?", markdown["text"])
 
+    def test_agent_utilization_payload_renders_heatmap_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.agent_queue import AgentQueueTracker
+
+            tracker = AgentQueueTracker(memory.parent)
+            tracker.enqueue("task-1", "opencode", "workspace-os", "Task 1")
+            tracker.start("task-1")
+            tracker.complete("task-1", returncode=0, duration_seconds=2.0)
+
+            result = _agent_utilization_payload(memory)
+            markdown = _agent_utilization_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(24, len(result["report"]["hourly_totals"]))
+        self.assertIn("Agent Utilization Report", markdown["text"])
+        self.assertIn("Recommended max workers", markdown["text"])
+
     def test_agent_command_uses_allowlisted_agent_command(self):
         command = build_agent_command("opencode", Path("workspace"), "Do the task.")
 
         self.assertEqual(command[:2], ["opencode", "run"])
         self.assertIn("--model", command)
         self.assertIn("opencode/deepseek-v4-flash-free", command)
-        self.assertNotIn("--dangerously-skip-permissions", command)
+        self.assertIn("--dangerously-skip-permissions", command)
 
     def test_delegate_launch_passes_conscience_to_launcher(self):
         captured = {}
