@@ -28,7 +28,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
     args = list(extra_args or [])
     normalized_agent = normalize_agent_name(agent) or agent
     if normalized_agent == "opencode":
-        # OpenCode - enable autonomous mode for WOS
+        # OpenCode - autonomous mode for WOS
         return [
             "opencode",
             "run",
@@ -36,7 +36,6 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             "opencode/deepseek-v4-flash-free",
             "--dir",
             str(workspace_root),
-            "--dangerously-skip-permissions",  # Enable unattended execution
             *args,
             prompt,
         ]
