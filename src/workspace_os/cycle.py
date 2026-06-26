@@ -843,6 +843,8 @@ def _build_cycle_work_prompt(
         prompts[f"primary:{agent}"] = role_prompt if role == "primary" else role_prompt
         prompts[f"secondary:{agent}"] = secondary_prompt
         prompts[f"{role}:{agent}"] = role_prompt
+    prompts["_questioning_phase"] = questioning_prompt.render()
+    prompts["_questioning_summary"] = questioning_prompt.render_summary()
     return prompts
 
 
@@ -882,6 +884,32 @@ def record_cycle_checkpoint(
         cycle_id=cycle_id,
         created_at=created_at,
     )
+
+
+def _record_questioning_outcome(
+    memory_store: WorkspaceMemoryStore,
+    work_prompt: dict[str, str],
+    evaluation: CycleEvaluation,
+    iteration_label: str,
+) -> None:
+    questioning_phase = work_prompt.get("_questioning_phase")
+    if not questioning_phase:
+        return
+    questioning_summary = work_prompt.get("_questioning_summary", "questions=0 learned=0 recorded=0")
+    passed = evaluation.overall_ok()
+    try:
+        memory_store.record_feedback_event(
+            request_text=questioning_phase,
+            result_text=f"{iteration_label}: {questioning_summary} | outcome={'pass' if passed else 'needs follow-up'}",
+            feedback_text="Questioning phase completed before execution and the outcome was captured for learning.",
+            status="over_expectation" if passed else "questionable",
+            reason="Questioning phase outcome recorded after execution.",
+            error_type="positive" if passed else "generic_fallback",
+            has_praise=passed,
+            has_objection=not passed,
+        )
+    except Exception:
+        pass
 
 
 def run_cycle_plan(
@@ -1198,6 +1226,7 @@ def run_cycle_work_window(
             evaluation_after = run_cycle_evaluation(sources, memory_store)
 
         checkpoint_label = _iteration_label(note, iteration_number)
+        _record_questioning_outcome(memory_store, work_prompt, evaluation_after, checkpoint_label)
         checkpoint_id = record_cycle_checkpoint(
             memory_store,
             evaluation_after,
@@ -1953,6 +1982,7 @@ def run_cycle_work_window_continuous(
                         print(f"[cycle] WARNING: Checkpoint {checkpoint_counter} has {failing_count} failing checks but auto-healing is disabled for throughput")
 
                     checkpoint_label = _iteration_label(note, checkpoint_counter)
+                    _record_questioning_outcome(memory_store, work_prompt, evaluation_after, checkpoint_label)
                     checkpoint_id = record_cycle_checkpoint(
                         memory_store,
                         evaluation_after,
