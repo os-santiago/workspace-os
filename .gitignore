@@ -56,3 +56,4 @@ pip-audit-report.json
 safety-report.json
 bandit-report.json
 sbom.json
+.workspace-os

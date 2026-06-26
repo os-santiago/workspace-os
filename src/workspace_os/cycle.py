@@ -276,6 +276,42 @@ def build_cycle_next_action(memory_store: WorkspaceMemoryStore) -> CycleNextActi
     )
 
 
+def _is_quota_error(output: str, returncode: int | None = None) -> bool:
+    """Detect if error is due to quota/rate limit exceeded.
+
+    Args:
+        output: Agent output/error message
+        returncode: Exit code (optional)
+
+    Returns:
+        True if this appears to be a quota error
+    """
+    if not output:
+        return False
+
+    output_lower = output.lower()
+
+    # Common quota/rate limit patterns
+    quota_patterns = [
+        "quota exceeded",
+        "rate limit",
+        "free usage exceeded",
+        "usage limit",
+        "retrying in",
+        "retry after",
+        "too many requests",
+        "429",  # HTTP 429 Too Many Requests
+        "quota_exceeded",
+        "rate_limit_exceeded",
+        "insufficient_quota",
+        "credits exhausted",
+        "daily limit",
+        "monthly limit",
+    ]
+
+    return any(pattern in output_lower for pattern in quota_patterns)
+
+
 def _cycle_agents_for_iteration(checkpoint_count: int) -> tuple[str, str]:
     if checkpoint_count % 2 == 1:
         return "claude", "opencode"
@@ -1564,6 +1600,22 @@ def run_cycle_work_window_continuous(
                     # CRITICAL: Check agent exit code before counting as success
                     returncode = getattr(result, 'returncode', 0)
                     if returncode != 0:
+                        # Check if failure is due to quota/rate limit
+                        output = getattr(result, 'output', '') or getattr(result, 'stderr', '')
+                        if _is_quota_error(output, returncode):
+                            # Quota exceeded - disable agent temporarily
+                            from workspace_os.agent_quota import get_quota_manager
+                            quota_manager = get_quota_manager()
+                            quota_manager.record_quota_exceeded(
+                                work_info['agent_type'],
+                                output,
+                                returncode
+                            )
+                            print(
+                                f"[cycle] ⏸️  Agent '{work_info['agent_type']}' quota exceeded - "
+                                f"temporarily disabled (will auto-resume when quota resets)"
+                            )
+
                         # Agent failed - record as failure
                         queue_tracker.fail(
                             work_info["task_id"],

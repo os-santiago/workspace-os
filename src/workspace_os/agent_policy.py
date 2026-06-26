@@ -50,6 +50,13 @@ def agent_is_available(agent: str) -> bool:
     normalized = normalize_agent_name(agent)
     if normalized is None:
         return False
+
+    # Check quota manager first - agent might be temporarily disabled
+    from workspace_os.agent_quota import get_quota_manager
+    quota_manager = get_quota_manager()
+    if not quota_manager.is_agent_available(normalized):
+        return False  # Quota exceeded - agent temporarily disabled
+
     if normalized == "antigravity":
         command = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
         if command:
