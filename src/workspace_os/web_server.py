@@ -18,6 +18,7 @@ from workspace_os.conscience_report import build_conscience_recommendation_text,
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
+from workspace_os.learning import suggest_questions_for_work
 from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
@@ -159,14 +160,14 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     filename="conscience-recommendation.md",
                 )
                 return
-            if parsed.path == "/api/conscience/recommend":
-                self._send_json(_conscience_recommendation_payload(memory_path, query))
+            if parsed.path == "/api/questioning":
+                self._send_json(_questioning_payload(memory_path, query))
                 return
-            if parsed.path == "/api/conscience/recommend.md":
+            if parsed.path == "/api/questioning.md":
                 self._send_text(
-                    _conscience_recommendation_markdown_payload(memory_path, query),
+                    _questioning_markdown_payload(memory_path, query),
                     "text/markdown; charset=utf-8",
-                    filename="conscience-recommendation.md",
+                    filename="questioning.md",
                 )
                 return
 
@@ -281,7 +282,7 @@ def _search_payload(sources: list[Source], query: dict[str, list[str]]) -> dict[
         "matches": [
             {
                 "source": match.source_name,
-                "path": str(match.path),
+                "path": match.path.as_posix(),
                 "line": match.line_number,
                 "text": sanitize_text(match.line),
             }
@@ -572,6 +573,81 @@ def _conscience_recommendation_markdown_payload(
     query: dict[str, list[str]] | None = None,
 ) -> dict[str, object]:
     return _conscience_recommendation_payload(memory_path, query)
+
+
+def _questioning_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    limit = 5
+    if query is not None:
+        limit = _int_query(query, "limit", 5)
+    context = _first(query or {}, "context")
+    if not context:
+        snapshot = store.latest_context_snapshot()
+        context = str(snapshot["summary"]) if snapshot and snapshot.get("summary") else "workspace"
+    report = {
+        "context": context,
+        "summary": store.qa_metrics(),
+        "recent": store.recent_qa_pairs(limit=limit),
+        "suggestions": [
+            {
+                "question": suggestion.question,
+                "context": suggestion.context,
+                "previous_answer": suggestion.previous_answer,
+                "frequency": suggestion.frequency,
+                "relevance_score": suggestion.relevance_score,
+            }
+            for suggestion in suggest_questions_for_work(store, context, limit=limit)
+        ],
+    }
+    return {"ok": True, "report": report}
+
+
+def _questioning_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _questioning_payload(memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load questioning metrics.")}
+    report = payload["report"]
+    summary = report["summary"]
+    lines = [
+        "Questioning dashboard:",
+        f"Context focus: {report['context']}",
+        "",
+        f"- total={summary.get('total', 0)}",
+        f"- unique_contexts={summary.get('unique_contexts', 0)}",
+        f"- unique_questions={summary.get('unique_questions', 0)}",
+        f"- recent_7_days={summary.get('recent_7_days', 0)}",
+        f"- latest_created_at={summary.get('latest_created_at') or 'n/a'}",
+        "",
+        "Recent Q&A:",
+    ]
+    recent = report.get("recent", [])
+    if recent:
+        lines.extend(
+            f"- {item['created_at']} | {item['agent']} | {item['question']} -> {item['answer']}"
+            for item in recent
+        )
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Suggestions:")
+    suggestions = report.get("suggestions", [])
+    if suggestions:
+        lines.extend(
+            f"- {item['question']} (asked {item['frequency']}x, relevance={item['relevance_score']:.2f})"
+            for item in suggestions
+        )
+    else:
+        lines.append("- no suggestions yet")
+    return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 
 def _conscience_recommendation_payload(

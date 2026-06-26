@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 import json
 import sqlite3
@@ -1594,24 +1594,54 @@ class WorkspaceMemoryStore:
                 for row in rows
             ]
 
-    def qa_metrics(self) -> dict[str, int]:
+    def qa_metrics(self) -> dict[str, int | str]:
         """Get Q&A metrics."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="microseconds")
         with self._connection() as conn:
             row = conn.execute(
                 """
                 SELECT
                     COUNT(*) as total,
                     COUNT(DISTINCT task_context) as unique_contexts,
-                    COUNT(DISTINCT similarity_hash) as unique_questions
+                    COUNT(DISTINCT similarity_hash) as unique_questions,
+                    SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as recent_7_days,
+                    MAX(created_at) as latest_created_at
                 FROM question_answer_pairs
-                """
+                """,
+                (cutoff,),
             ).fetchone()
 
             return {
                 "total": int(row["total"]) if row else 0,
                 "unique_contexts": int(row["unique_contexts"]) if row else 0,
                 "unique_questions": int(row["unique_questions"]) if row else 0,
+                "recent_7_days": int(row["recent_7_days"]) if row and row["recent_7_days"] is not None else 0,
+                "latest_created_at": str(row["latest_created_at"]) if row and row["latest_created_at"] else "",
             }
+
+    def recent_qa_pairs(self, limit: int = 5) -> list[dict[str, str]]:
+        """Get the most recent Q&A pairs for dashboarding and review."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT question_text, answer_text, task_context, work_item_id, agent_name, created_at
+                FROM question_answer_pairs
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "question": str(row["question_text"]),
+                    "answer": str(row["answer_text"]),
+                    "context": str(row["task_context"]),
+                    "work_item_id": str(row["work_item_id"]) if row["work_item_id"] else "",
+                    "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
 
     @contextmanager
     def _connection(self):

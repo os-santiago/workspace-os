@@ -43,6 +43,20 @@ class MemoryTests(unittest.TestCase):
                 secondary_agent="claude",
                 routing_reason="workspace_inventory_first",
             )
+            store.record_qa(
+                "How do we validate a dashboard change?",
+                "Run the focused pytest module and verify the rendered UI payload.",
+                "issue-80-dashboard",
+                work_item_id="issue-80",
+                agent_name="claude",
+            )
+            store.record_qa(
+                "How do we validate a dashboard change?",
+                "Run the focused pytest module and verify the rendered UI payload.",
+                "issue-80-dashboard",
+                work_item_id="issue-80",
+                agent_name="claude",
+            )
 
             stats = store.stats()
             hits = store.search("concise", limit=10)
@@ -51,6 +65,8 @@ class MemoryTests(unittest.TestCase):
             report = store.decision_metrics_summary()
             feedback_metrics = store.feedback_metrics()
             feedback_history = store.feedback_history(limit=10)
+            qa_metrics = store.qa_metrics()
+            recent_qa = store.recent_qa_pairs(limit=1)
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
@@ -58,6 +74,7 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(1, stats["conversation_turns"])
         self.assertEqual(2, stats["feedback_events"])
         self.assertEqual(1, stats["context_snapshots"])
+        self.assertEqual(2, stats["question_answer_pairs"])
         self.assertTrue(any(hit.kind == "preference" for hit in hits))
         self.assertTrue(any(hit.kind == "feedback" for hit in feedback_hits))
         self.assertIsNotNone(snapshot)
@@ -74,6 +91,13 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(1, report["routing_reason_counts"]["workspace_inventory_first"])
         self.assertEqual("missing_workspace", report["top_missing_context"])
         self.assertEqual("route_to_opencode_for_inventory", report["recommended_next_action"])
+        self.assertEqual(2, qa_metrics["total"])
+        self.assertEqual(1, qa_metrics["unique_contexts"])
+        self.assertEqual(1, qa_metrics["unique_questions"])
+        self.assertEqual(2, qa_metrics["recent_7_days"])
+        self.assertTrue(qa_metrics["latest_created_at"])
+        self.assertEqual("How do we validate a dashboard change?", recent_qa[0]["question"])
+        self.assertEqual("claude", recent_qa[0]["agent"])
 
 
 if __name__ == "__main__":
