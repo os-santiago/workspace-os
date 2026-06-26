@@ -1560,6 +1560,26 @@ def run_cycle_work_window_continuous(
                 try:
                     result = future.result()
                     duration = time.perf_counter() - work_info["started_at"]
+
+                    # CRITICAL: Check agent exit code before counting as success
+                    returncode = getattr(result, 'returncode', 0)
+                    if returncode != 0:
+                        # Agent failed - record as failure
+                        queue_tracker.fail(
+                            work_info["task_id"],
+                            error=f"Agent exited with code {returncode}"
+                        )
+
+                        print(
+                            f"[cycle] ✗ Failed work item {work_info['work_item_number']} "
+                            f"({work_info['role']}/{work_info['agent_type']}) "
+                            f"exit={returncode} duration={duration:.1f}s"
+                        )
+
+                        # Don't count as completion
+                        continue
+
+                    # Agent succeeded (exit code 0)
                     work_item_durations.append(duration)
                     total_agent_active += float(getattr(result, "duration_seconds", duration))
                     completed_work_items += 1
@@ -1574,7 +1594,7 @@ def run_cycle_work_window_continuous(
                             in_progress_issues.discard(issue_num)
 
                     print(
-                        f"[cycle] Completed work item {work_info['work_item_number']} "
+                        f"[cycle] ✓ Completed work item {work_info['work_item_number']} "
                         f"({work_info['role']}/{work_info['agent_type']}) "
                         f"in {duration:.1f}s"
                     )
@@ -1598,10 +1618,25 @@ def run_cycle_work_window_continuous(
 
                     # Log failure but continue
                     print(
-                        f"[cycle] Failed work item {work_info['work_item_number']} "
+                        f"[cycle] ✗ Failed work item {work_info['work_item_number']} "
                         f"({work_info['role']}/{work_info['agent_type']}): {e}"
                     )
 
+            # CRITICAL: Early abort if agents are failing at high rate
+            # Check after processing completed futures
+            if queue_tracker:
+                snapshot = queue_tracker.snapshot()
+                total_attempts = snapshot.completed_count + snapshot.failed_count
+
+                if total_attempts >= 10:  # Min sample size
+                    failure_rate = snapshot.failed_count / total_attempts
+
+                    if failure_rate > 0.9:  # 90%+ failures
+                        print(f"\n[cycle] 🚨 CRITICAL: {failure_rate:.0%} agent failure rate - aborting cycle")
+                        print(f"[cycle]   Completed: {snapshot.completed_count}, Failed: {snapshot.failed_count}")
+                        print(f"[cycle]   Check agent availability: workspace agents status")
+                        print(f"[cycle]   Likely cause: Agents not installed or misconfigured")
+                        break
 
             # FinOps: Early exit if no work available
             # Check if there are assignable issues before queuing more work
