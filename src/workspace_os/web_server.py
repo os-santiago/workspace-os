@@ -30,6 +30,7 @@ from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
 from workspace_os.sanitization import sanitize_text
 from workspace_os.search import search_sources
+from workspace_os.security.validator import SecurityValidator
 from workspace_os.validation import validate_workspace, validation_failed
 
 
@@ -169,6 +170,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     _questioning_markdown_payload(memory_path, query),
                     "text/markdown; charset=utf-8",
                     filename="questioning.md",
+                )
+                return
+            if parsed.path == "/api/security":
+                self._send_json(_security_payload(workspace_root, query))
+                return
+            if parsed.path == "/api/security.md":
+                self._send_text(
+                    _security_markdown_payload(workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="security.md",
                 )
                 return
             if parsed.path == "/api/agent-utilization":
@@ -657,6 +668,66 @@ def _questioning_markdown_payload(
         )
     else:
         lines.append("- no suggestions yet")
+    return {"ok": True, "text": "\n".join(lines) + "\n"}
+
+
+def _security_payload(
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if workspace_root is None:
+        return {"ok": False, "error": "Workspace root is required."}
+    validator = SecurityValidator(workspace_root)
+    summary = validator.get_vulnerability_summary()
+    report_dir = validator.report_dir
+    return {
+        "ok": True,
+        "report": {
+            "project_root": str(workspace_root),
+            "report_dir": str(report_dir),
+            "summary": summary,
+            "reports": {
+                "pip_audit": (report_dir / "pip-audit.json").exists(),
+                "safety": (report_dir / "safety.json").exists(),
+                "bandit": (report_dir / "bandit.json").exists(),
+            },
+        },
+    }
+
+
+def _security_markdown_payload(
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _security_payload(workspace_root, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load security report.")}    
+    report = payload["report"]
+    summary = report["summary"]
+    lines = [
+        "Security dashboard:",
+        f"Project root: {report['project_root']}",
+        f"Report dir: {report['report_dir']}",
+        "",
+        "Vulnerability summary:",
+        f"- critical={summary.get('critical', 0)}",
+        f"- high={summary.get('high', 0)}",
+        f"- medium={summary.get('medium', 0)}",
+        f"- low={summary.get('low', 0)}",
+        f"- total={summary.get('total', 0)}",
+        "",
+        "Bandit summary:",
+        f"- bandit_total={summary.get('bandit_total', 0)}",
+        f"- bandit_critical={summary.get('bandit_critical', 0)}",
+        f"- bandit_high={summary.get('bandit_high', 0)}",
+        f"- bandit_medium={summary.get('bandit_medium', 0)}",
+        f"- bandit_low={summary.get('bandit_low', 0)}",
+        "",
+        "Reports:",
+        f"- pip-audit={'present' if report['reports']['pip_audit'] else 'missing'}",
+        f"- safety={'present' if report['reports']['safety'] else 'missing'}",
+        f"- bandit={'present' if report['reports']['bandit'] else 'missing'}",
+    ]
     return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 

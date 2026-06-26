@@ -154,5 +154,26 @@ class SecurityValidator:
                             summary['total'] += 1
             except (json.JSONDecodeError, KeyError):
                 pass
+
+        bandit_file = self.report_dir / 'bandit.json'
+        summary.update({
+            'bandit_critical': 0,
+            'bandit_high': 0,
+            'bandit_medium': 0,
+            'bandit_low': 0,
+            'bandit_total': 0,
+        })
+        if bandit_file.exists():
+            try:
+                with open(bandit_file) as f:
+                    data = json.load(f)
+                    for result in data.get('results', []):
+                        severity = str(result.get('issue_severity', '')).lower()
+                        bandit_key = f'bandit_{severity}'
+                        if bandit_key in summary:
+                            summary[bandit_key] += 1
+                        summary['bandit_total'] += 1
+            except (json.JSONDecodeError, KeyError):
+                pass
         
         return summary

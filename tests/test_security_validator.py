@@ -26,6 +26,7 @@ def test_get_vulnerability_summary_empty():
     assert summary['high'] == 0
     assert summary['medium'] == 0
     assert summary['low'] == 0
+    assert summary['bandit_total'] == 0
 
 
 def test_validate_returns_tuple():
@@ -46,3 +47,24 @@ def test_check_exceptions_no_file():
     
     # Should pass if no exceptions file exists
     assert result is True
+
+
+def test_get_vulnerability_summary_includes_bandit_results(tmp_path):
+    validator = SecurityValidator(tmp_path)
+    report_dir = validator.report_dir
+    report_dir.mkdir(exist_ok=True)
+    (report_dir / "bandit.json").write_text(
+        """{"results": [
+            {"issue_severity": "HIGH"},
+            {"issue_severity": "MEDIUM"},
+            {"issue_severity": "LOW"}
+        ]}""",
+        encoding="utf-8",
+    )
+
+    summary = validator.get_vulnerability_summary()
+
+    assert summary["bandit_total"] == 3
+    assert summary["bandit_high"] == 1
+    assert summary["bandit_medium"] == 1
+    assert summary["bandit_low"] == 1

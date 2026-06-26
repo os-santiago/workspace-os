@@ -1,4 +1,5 @@
 import unittest
+import json
 
 from pathlib import Path
 import tempfile
@@ -19,6 +20,8 @@ from workspace_os.web_server import (
     _conscience_recommendation_payload,
     _agent_utilization_markdown_payload,
     _agent_utilization_payload,
+    _security_markdown_payload,
+    _security_payload,
     _delegate_launch_payload,
     _extract_progress_map,
     _handoff_payload,
@@ -79,6 +82,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("utilizationRefresh", index)
         self.assertIn("utilizationOutput", index)
         self.assertIn("utilizationDownload", index)
+        self.assertIn("securityRefresh", index)
+        self.assertIn("securityOutput", index)
+        self.assertIn("securityDownload", index)
         self.assertIn("analysisRefresh", index)
         self.assertIn("analysisOutput", index)
         self.assertIn("chatContextToggle", index)
@@ -95,6 +101,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestConscienceRecommendation", app)
         self.assertIn("latestQuestioningMetrics", app)
         self.assertIn("latestAgentUtilization", app)
+        self.assertIn("latestSecurity", app)
         self.assertIn("latestNextAction", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
@@ -308,6 +315,39 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(24, len(result["report"]["hourly_totals"]))
         self.assertIn("Agent Utilization Report", markdown["text"])
         self.assertIn("Recommended max workers", markdown["text"])
+
+    def test_security_payload_renders_bandit_report_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports_dir = root / ".security-reports"
+            reports_dir.mkdir()
+            (reports_dir / "pip-audit.json").write_text(
+                json.dumps({
+                    "dependencies": [
+                        {"vulnerabilities": [{"severity": "high"}, {"severity": "low"}]},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            (reports_dir / "bandit.json").write_text(
+                json.dumps({
+                    "results": [
+                        {"issue_severity": "HIGH", "issue_text": "SQL injection"},
+                        {"issue_severity": "MEDIUM", "issue_text": "Hardcoded password"},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+
+            result = _security_payload(root)
+            markdown = _security_markdown_payload(root)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(2, result["report"]["summary"]["total"])
+        self.assertEqual(2, result["report"]["summary"]["bandit_total"])
+        self.assertIn("Security dashboard", markdown["text"])
+        self.assertIn("bandit_total=2", markdown["text"])
+        self.assertIn("pip-audit=present", markdown["text"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
         command = build_agent_command("opencode", Path("workspace"), "Do the task.")
