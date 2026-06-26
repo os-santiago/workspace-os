@@ -2077,7 +2077,11 @@ def _choose_continuous_work_item(
         )
 
     # Fallback: simple round-robin (original behavior)
-    agents = ["opencode", "claude", "antigravity"]
+    # Use validated agents (not hardcoded)
+    agents = list(available_work_agents())
+    if not agents:
+        # Ultimate fallback if no agents available
+        agents = ["claude"]
     agent = agents[(work_item_number - 1) % len(agents)]
     role = "primary"
     return agent, role
