@@ -62,18 +62,12 @@ def agent_is_available(agent: str) -> bool:
         return shutil.which("antigravity") is not None
 
     if normalized == "opencode":
-        # OpenCode requires project-specific configuration
-        # Check if binary exists
-        if not (shutil.which("opencode") or shutil.which("opencode.cmd")):
-            return False
-
-        # Auto-enable if opencode.json exists in current directory
-        from pathlib import Path
-        if Path("opencode.json").exists():
-            return True
-
-        # Otherwise check environment variable
-        return os.environ.get("WOS_ENABLE_OPENCODE", "").lower() in ("true", "1", "yes")
+        # OpenCode works without config file - just needs the binary
+        # Enable if binary exists (command will handle config internally)
+        return (
+            shutil.which("opencode") is not None
+            or shutil.which("opencode.cmd") is not None
+        )
 
     return (
         shutil.which(normalized) is not None
