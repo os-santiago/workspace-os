@@ -361,6 +361,33 @@ class CycleTests(unittest.TestCase):
             self.assertIn("Questioning phase:", primary_prompt)
             self.assertIn("Clarifying questions:", primary_prompt)
 
+    def test_questioning_outcome_is_recorded_after_execution(self):
+        from workspace_os.cycle import CycleCheckResult, CycleEvaluation, _record_questioning_outcome
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = WorkspaceMemoryStore(root / "memory.sqlite3")
+            store.ensure_schema()
+            work_prompt = {
+                "_questioning_phase": "Questioning phase:\n- Ask up to 3 clarifying questions before executing work.",
+                "_questioning_summary": "questions=2 learned=1 recorded=1",
+            }
+            evaluation = CycleEvaluation(
+                health=(CycleCheckResult("health:workspace-input", True, "ok"),),
+                stability=(CycleCheckResult("stability:housekeeping", True, "ok"),),
+                security=(CycleCheckResult("security:malicious-agentic-refusal", True, "ok"),),
+                quality=(CycleCheckResult("quality:workspace-input", True, "ok"),),
+            )
+
+            _record_questioning_outcome(store, work_prompt, evaluation, "iteration-1")
+            feedback = store.feedback_history(limit=1)
+            total_feedback = store.feedback_metrics()["total"]
+
+        self.assertEqual(1, total_feedback)
+        self.assertTrue(feedback)
+        self.assertIn("Questioning phase", feedback[0]["request_text"])
+        self.assertIn("outcome=pass", feedback[0]["result_text"])
+
     def test_compilation_and_test_checks_parses_failures(self):
         from workspace_os.cycle import _parse_pytest_failures
         output = """
