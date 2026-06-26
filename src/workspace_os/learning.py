@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from workspace_os.agent_policy import normalize_agent_name
+from workspace_os.feedback import assess_feedback
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.profile import OperatorProfile
 
@@ -295,18 +296,32 @@ def update_agent_performance_from_queue(
                 # Record negative feedback for failed tasks
                 error_tags = set()
 
-                # Only tag as wrong_agent if there's evidence of agent capability mismatch
-                # Not all failures indicate wrong agent selection (network, timeout, actual bugs, etc.)
-                if task.error and _is_agent_mismatch_error(task.error):
+                # Classify the failure type to avoid polluting learning model
+                if not task.error:
+                    # Silent failure: agent executed but produced no error output
+                    # This indicates agent config/execution issue, NOT routing issue
+                    error_type = "silent_failure"
+                    feedback_msg = f"Agent {task.agent} silent failure (no output, returncode {task.returncode})"
+                elif _is_agent_mismatch_error(task.error):
+                    # Capability mismatch: clear evidence of wrong agent selection
                     error_tags.add("wrong_agent")
+                    error_type = "capability_mismatch"
+                    feedback_msg = f"Agent {task.agent} capability mismatch: {task.error[:100]}"
+                else:
+                    # Generic failure: network, bugs, tests, etc.
+                    error_type = "execution_failure"
+                    feedback_msg = f"Agent {task.agent} execution failure: {task.error[:100]}"
 
                 try:
-                    memory_store.record_feedback(
-                        request=f"cycle work item {task.task_id}",
-                        result=f"{task.agent} failed with returncode {task.returncode}",
-                        feedback=f"Agent {task.agent} had issues completing task",
-                        classification="questionable",
-                        error_tags=error_tags
+                    memory_store.record_feedback_event(
+                        request_text=f"cycle work item {task.task_id}",
+                        result_text=f"{task.agent} failed with returncode {task.returncode} (type: {error_type})",
+                        feedback_text=feedback_msg,
+                        status="questionable",
+                        error_type="wrong_agent" if "wrong_agent" in error_tags else "generic_fallback",
+                        reason="Agent execution failure",
+                        has_objection=True,
+                        has_praise=False
                     )
                 except Exception:
                     # Gracefully handle feedback recording errors
