@@ -98,7 +98,18 @@ At each checkpoint, WOS:
 
 **Implementation**: `update_agent_performance_from_queue()` in `learning.py`
 
-### 6. Squad-Aware Logging
+### 6. Agent Questioning Protocol
+
+Before execution, WOS inserts a questioning phase into the cycle prompt:
+
+- Agents surface up to 3 clarifying questions.
+- Questions focus on clarification, scope, edge cases, dependencies, and constraints.
+- Squad Lead context and prior Q&A can answer repeated questions from learning history.
+- New questions are recorded in the learning module so later cycles can reuse them.
+
+This keeps ambiguity visible early instead of turning into rework later.
+
+### 7. Squad-Aware Logging
 
 Enhanced logging shows team coordination:
 

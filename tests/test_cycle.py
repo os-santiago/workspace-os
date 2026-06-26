@@ -358,6 +358,8 @@ class CycleTests(unittest.TestCase):
 
             self.assertIn("Previous iteration summary:", primary_prompt)
             self.assertIn("stayed alive", primary_prompt)
+            self.assertIn("Questioning phase:", primary_prompt)
+            self.assertIn("Clarifying questions:", primary_prompt)
 
     def test_compilation_and_test_checks_parses_failures(self):
         from workspace_os.cycle import _parse_pytest_failures

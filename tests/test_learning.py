@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workspace_os.learning import _is_agent_mismatch_error, build_workspace_learning_model
+from workspace_os.learning import _is_agent_mismatch_error, build_questioning_prompt, build_workspace_learning_model
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.profile import load_profile, save_profile_key
 
@@ -140,6 +140,30 @@ class LearningModelTests(unittest.TestCase):
 
         mixed_error2 = "tool not found: test failed"
         self.assertFalse(_is_agent_mismatch_error(mixed_error2))
+
+    def test_questioning_prompt_generates_and_records_learning_cues(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+
+            prompt = build_questioning_prompt(
+                store,
+                "Objective: fix issue #81\nNeed validation and integration guidance.",
+                role="primary",
+                work_item_id="issue-81",
+                agent_name="claude",
+            )
+
+            stats = store.qa_metrics()
+            recorded = store.get_qa_for_work_item("issue-81")
+
+        self.assertLessEqual(len(prompt.questions), 3)
+        self.assertTrue(prompt.questions)
+        self.assertIn("Questioning phase:", prompt.render())
+        self.assertGreaterEqual(stats["total"], 1)
+        self.assertEqual(len(recorded), stats["total"])
+        self.assertTrue(any("issue number" in question.lower() or "source of truth" in question.lower() for question in prompt.questions))
 
 
 if __name__ == "__main__":

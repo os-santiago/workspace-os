@@ -340,6 +340,38 @@ class ProactiveQuestionSuggestion:
         return f"Q: {self.question} (asked {self.frequency}x, relevance={self.relevance_score:.2f})"
 
 
+@dataclass(frozen=True)
+class QuestioningPrompt:
+    task_context: str
+    questions: tuple[str, ...]
+    answer_hints: tuple[str, ...]
+    learned_count: int
+    recorded_count: int
+
+    def render_summary(self) -> str:
+        return f"questions={len(self.questions)} learned={self.learned_count} recorded={self.recorded_count}"
+
+    def render(self) -> str:
+        lines = [
+            "Questioning phase:",
+            "- Ask up to 3 clarifying questions before executing work.",
+            "- Categories: clarification, scope, edge cases, dependencies, constraints.",
+            "- Use Squad Lead context and learned answers when the prompt already resolves the ambiguity.",
+            "",
+            f"Task context: {self.task_context}",
+            "",
+            "Clarifying questions:",
+        ]
+        if not self.questions:
+            lines.append("- No clarifying questions needed.")
+        else:
+            for index, question in enumerate(self.questions, 1):
+                lines.append(f"{index}. {question}")
+                if index - 1 < len(self.answer_hints) and self.answer_hints[index - 1]:
+                    lines.append(f"   Squad Lead hint: {self.answer_hints[index - 1]}")
+        return "\n".join(lines)
+
+
 def suggest_questions_for_work(
     memory_store: WorkspaceMemoryStore,
     task_context: str,
@@ -418,3 +450,100 @@ def format_proactive_questions(suggestions: list[ProactiveQuestionSuggestion]) -
             lines.append(f"   (Asked {suggestion.frequency}x in similar tasks)")
 
     return "\n".join(lines)
+
+
+def build_questioning_prompt(
+    memory_store: WorkspaceMemoryStore,
+    task_context: str,
+    limit: int = 3,
+    role: str = "primary",
+    work_item_id: str | None = None,
+    agent_name: str | None = None,
+) -> QuestioningPrompt:
+    suggestions = suggest_questions_for_work(memory_store, task_context, limit=limit)
+    questions: list[str] = []
+    answer_hints: list[str] = []
+    recorded_count = 0
+
+    def add_question(question: str, answer_hint: str, learned: bool) -> None:
+        nonlocal recorded_count
+        normalized = question.lower().strip()
+        if normalized in {existing.lower().strip() for existing in questions}:
+            return
+        questions.append(question)
+        answer_hints.append(answer_hint)
+        if not learned:
+            try:
+                memory_store.record_qa(
+                    question,
+                    answer_hint,
+                    task_context,
+                    work_item_id=work_item_id,
+                    agent_name=agent_name or role,
+                )
+                recorded_count += 1
+            except Exception:
+                pass
+
+    for suggestion in suggestions[:limit]:
+        add_question(
+            suggestion.question,
+            suggestion.previous_answer or "Use the learned answer from similar work.",
+            learned=True,
+        )
+
+    heuristics = _questioning_heuristics(task_context, role)
+    for question, answer_hint in heuristics:
+        if len(questions) >= limit:
+            break
+        add_question(question, answer_hint, learned=False)
+
+    return QuestioningPrompt(
+        task_context=task_context,
+        questions=tuple(questions[:limit]),
+        answer_hints=tuple(answer_hints[:limit]),
+        learned_count=len(suggestions[:limit]),
+        recorded_count=recorded_count,
+    )
+
+
+def _questioning_heuristics(task_context: str, role: str) -> list[tuple[str, str]]:
+    context = task_context.lower()
+    role_label = {
+        "primary": "primary executor",
+        "cross-check": "cross-check reviewer",
+        "observer": "learning observer",
+    }.get(role, "executor")
+
+    heuristics = [
+        (
+            "What is the single source of truth for this task, and which repo or issue should I treat as authoritative?",
+            "Use the assigned issue, objective, and current workspace context as the source of truth.",
+        ),
+        (
+            "What acceptance criteria or validation must pass before this work is done?",
+            "Use the narrowest meaningful validation surface and confirm the requested outcome before merging.",
+        ),
+        (
+            "What dependencies, edge cases, or external constraints could block this implementation?",
+            f"Check connected services, repo state, and {role_label} concerns before executing.",
+        ),
+    ]
+
+    if "issue" in context or "#" in context:
+        heuristics[0] = (
+            "Which issue number and acceptance criteria should I optimize for first?",
+            "Treat the referenced issue and its acceptance criteria as the authoritative scope.",
+        )
+    if "validation" in context or "test" in context:
+        heuristics[1] = (
+            "Which validation command or test module is required to prove this change?",
+            "Run the narrowest meaningful test or validation command for the touched surface.",
+        )
+    if "dependency" in context or "connector" in context or "integration" in context:
+        heuristics[2] = (
+            "Which dependencies or integrations must be confirmed before implementation?",
+            "Verify the current connectors, repo state, and integration prerequisites before changing behavior.",
+        )
+
+    return heuristics[:3]
