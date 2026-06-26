@@ -63,10 +63,16 @@ def agent_is_available(agent: str) -> bool:
 
     if normalized == "opencode":
         # OpenCode requires project-specific configuration
-        # Only use if explicitly enabled via environment variable
+        # Check if binary exists
         if not (shutil.which("opencode") or shutil.which("opencode.cmd")):
             return False
-        # Disabled by default - requires per-project opencode.json setup
+
+        # Auto-enable if opencode.json exists in current directory
+        from pathlib import Path
+        if Path("opencode.json").exists():
+            return True
+
+        # Otherwise check environment variable
         return os.environ.get("WOS_ENABLE_OPENCODE", "").lower() in ("true", "1", "yes")
 
     return (
