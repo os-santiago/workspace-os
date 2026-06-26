@@ -260,6 +260,6 @@ def _init_git_repo(path: Path) -> None:
     subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "workspace@example.com"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Workspace"], cwd=path, check=True, capture_output=True)
-    (path / ".gitignore").write_text("", encoding="utf-8")
+    (path / ".gitignore").write_text(".workspace-os/\nworkspace.sources.json\n", encoding="utf-8")
     subprocess.run(["git", "add", ".gitignore"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
