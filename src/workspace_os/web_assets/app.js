@@ -13,6 +13,7 @@ const state = {
   latestNextAction: null,
   latestAnalysis: null,
   latestAgentUtilization: null,
+  latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
   latestQuestioningMetrics: null,
@@ -335,6 +336,41 @@ const renderAgentUtilization = (data = null) => {
   output.textContent = lines.join("\n").trim();
 };
 
+const renderSecurity = (data = null) => {
+  const output = qs("#securityOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load security report.";
+    return;
+  }
+  state.latestSecurity = data.report || null;
+  const report = data.report || {};
+  const summary = report.summary || {};
+  const reports = report.reports || {};
+  const lines = [
+    `Project root: ${report.project_root || "n/a"}`,
+    `Report dir: ${report.report_dir || "n/a"}`,
+    "",
+    "Vulnerabilities:",
+    `- critical=${summary.critical ?? 0}`,
+    `- high=${summary.high ?? 0}`,
+    `- medium=${summary.medium ?? 0}`,
+    `- low=${summary.low ?? 0}`,
+    `- total=${summary.total ?? 0}`,
+    "",
+    "Bandit:",
+    `- bandit_total=${summary.bandit_total ?? 0}`,
+    `- bandit_high=${summary.bandit_high ?? 0}`,
+    `- bandit_medium=${summary.bandit_medium ?? 0}`,
+    `- bandit_low=${summary.bandit_low ?? 0}`,
+    "",
+    "Reports:",
+    `- pip-audit=${reports.pip_audit ? "present" : "missing"}`,
+    `- safety=${reports.safety ? "present" : "missing"}`,
+    `- bandit=${reports.bandit ? "present" : "missing"}`,
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
 const renderAnalysis = (data = null) => {
   const output = qs("#analysisOutput");
   if (!data || !data.ok) {
@@ -418,6 +454,11 @@ const loadNextAction = async () => {
 const loadAgentUtilization = async () => {
   const data = await getJson("/api/agent-utilization");
   renderAgentUtilization(data);
+};
+
+const loadSecurity = async () => {
+  const data = await getJson("/api/security");
+  renderSecurity(data);
 };
 
 const loadAnalysis = async () => {
@@ -699,6 +740,17 @@ const init = async () => {
   qs("#utilizationDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-utilization.md";
   });
+  qs("#securityRefresh").addEventListener("click", async () => {
+    qs("#securityOutput").textContent = "Loading security report...";
+    try {
+      await loadSecurity();
+    } catch (error) {
+      qs("#securityOutput").textContent = error.message;
+    }
+  });
+  qs("#securityDownload").addEventListener("click", () => {
+    window.location.href = "/api/security.md";
+  });
   qs("#analysisRefresh").addEventListener("click", async () => {
     qs("#analysisOutput").textContent = "Loading analysis...";
     try {
@@ -731,6 +783,7 @@ const init = async () => {
   await loadAnalysis();
   await loadNextAction();
   await loadAgentUtilization();
+  await loadSecurity();
   await loadHandoff();
   await loadConscienceRecommendation();
   await loadConscienceMetrics();
