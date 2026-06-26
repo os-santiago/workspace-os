@@ -36,7 +36,7 @@ def build_agent_command(agent: str, workspace_root: Path, prompt: str, extra_arg
             "opencode/deepseek-v4-flash-free",
             "--dir",
             str(workspace_root),
-            "--auto-approve",  # Enable unattended execution
+            "--dangerously-skip-permissions",  # Enable unattended execution
             *args,
             prompt,
         ]
