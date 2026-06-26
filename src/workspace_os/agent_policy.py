@@ -63,15 +63,23 @@ def agent_is_available(agent: str) -> bool:
 
 
 def available_work_agents() -> tuple[str, ...]:
-    if _is_testing():
-        available = [
-            agent for agent in SUPPORTED_WORK_AGENTS if agent_is_available(agent)
-        ]
-        if available:
-            return tuple(available)
-        return ("opencode", "claude")
-    # Mandatorily return the 3-agent swarm as requested by the user
-    return ("opencode", "claude", "antigravity")
+    # ALWAYS validate agent availability - production and tests
+    available = [
+        agent for agent in SUPPORTED_WORK_AGENTS if agent_is_available(agent)
+    ]
+
+    if not available:
+        # Fallback: try to find ANY working agent
+        for fallback in ["claude", "opencode", "codex"]:
+            if agent_is_available(fallback):
+                print(f"[agent_policy] WARNING: No work agents available, falling back to {fallback}")
+                return (fallback,)
+
+        # Ultimate fallback: assume claude exists (most common)
+        print("[agent_policy] WARNING: No agents detected, assuming 'claude' available")
+        return ("claude",)
+
+    return tuple(available)
 
 
 def _suggest_agent_from_task(task_hint: str | None) -> str | None:
