@@ -53,8 +53,22 @@ def agent_is_available(agent: str) -> bool:
     if normalized == "antigravity":
         command = os.environ.get("WOS_ANTIGRAVITY_COMMAND", "").strip()
         if command:
-            return True
+            # Validate command is executable
+            first_part = command.split()[0] if command else ""
+            # For python -c "...", check python exists
+            if first_part in ("python", "python3"):
+                return shutil.which(first_part) is not None
+            return True  # Assume custom command is valid
         return shutil.which("antigravity") is not None
+
+    if normalized == "opencode":
+        # OpenCode requires project-specific configuration
+        # Only use if explicitly enabled via environment variable
+        if not (shutil.which("opencode") or shutil.which("opencode.cmd")):
+            return False
+        # Disabled by default - requires per-project opencode.json setup
+        return os.environ.get("WOS_ENABLE_OPENCODE", "").lower() in ("true", "1", "yes")
+
     return (
         shutil.which(normalized) is not None
         or shutil.which(f"{normalized}.cmd") is not None
