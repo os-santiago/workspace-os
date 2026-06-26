@@ -23,6 +23,7 @@ from workspace_os.conscience import REFUSE, ALLOW_WITH_LIMITS, evaluate_request
 from workspace_os.batch import start_batch, start_process
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.learning import build_questioning_prompt
 from workspace_os.validation import ValidationResult, validate_workspace
 from workspace_os.collaborative_learning import (
     create_shared_knowledge_base,
@@ -729,6 +730,31 @@ def _build_cycle_work_prompt(
     except Exception as e:
         print(f"[learning] Warning: Failed to load learning context: {e}")
 
+    questioning_context_lines = [
+        f"Objective: {objective}",
+    ]
+    if note and note.strip():
+        questioning_context_lines.append(f"Note: {note.strip()}")
+    if gh_issues_hint:
+        questioning_context_lines.append(gh_issues_hint)
+    if backlog_work_hint:
+        questioning_context_lines.append(backlog_work_hint)
+    if plan_gap_hint:
+        questioning_context_lines.append(plan_gap_hint)
+    if recent_work:
+        questioning_context_lines.extend(recent_work)
+    if journal_context_lines:
+        questioning_context_lines.extend(journal_context_lines)
+
+    questioning_prompt = build_questioning_prompt(
+        memory_store,
+        "\n".join(questioning_context_lines),
+        limit=3,
+        role=role,
+        work_item_id=f"issue-{assigned_issue['number']}" if assigned_issue and "number" in assigned_issue else None,
+        agent_name=role,
+    )
+
     # Add recent work context from other agents (squad awareness)
     if recent_work:
         base_lines.append("")
@@ -742,6 +768,8 @@ def _build_cycle_work_prompt(
 
     base_lines.extend(
         [
+            "",
+            questioning_prompt.render(),
             "",
             "Current analysis:",
             analysis_text,
