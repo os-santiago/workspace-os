@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from workspace_os.capture import build_capture_draft
 from workspace_os.agent_adapter import build_agent_command
 from workspace_os.agent_policy import normalize_agent_name
+from workspace_os.agent_queue import AgentQueueTracker
 from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
@@ -168,6 +169,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     _questioning_markdown_payload(memory_path, query),
                     "text/markdown; charset=utf-8",
                     filename="questioning.md",
+                )
+                return
+            if parsed.path == "/api/agent-utilization":
+                self._send_json(_agent_utilization_payload(memory_path, query))
+                return
+            if parsed.path == "/api/agent-utilization.md":
+                self._send_text(
+                    _agent_utilization_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="agent-utilization.md",
                 )
                 return
 
@@ -574,7 +585,6 @@ def _conscience_recommendation_markdown_payload(
 ) -> dict[str, object]:
     return _conscience_recommendation_payload(memory_path, query)
 
-
 def _questioning_payload(
     memory_path: Path | None = None,
     query: dict[str, list[str]] | None = None,
@@ -648,6 +658,28 @@ def _questioning_markdown_payload(
     else:
         lines.append("- no suggestions yet")
     return {"ok": True, "text": "\n".join(lines) + "\n"}
+
+
+def _agent_utilization_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    tracker = AgentQueueTracker(memory_path.parent)
+    report = tracker.utilization_report()
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _agent_utilization_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    tracker = AgentQueueTracker(memory_path.parent)
+    report = tracker.utilization_report()
+    return {"ok": True, "text": report.render()}
 
 
 def _conscience_recommendation_payload(

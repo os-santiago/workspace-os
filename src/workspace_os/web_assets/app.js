@@ -12,6 +12,7 @@ const state = {
   latestSuggestedActions: [],
   latestNextAction: null,
   latestAnalysis: null,
+  latestAgentUtilization: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
   latestQuestioningMetrics: null,
@@ -308,6 +309,32 @@ const renderNextAction = (data = null) => {
   output.textContent = data.text || "No next action available.";
 };
 
+const renderAgentUtilization = (data = null) => {
+  const output = qs("#utilizationOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load utilization report.";
+    return;
+  }
+  state.latestAgentUtilization = data.report || null;
+  const report = data.report || {};
+  const lines = [
+    `Configured max_parallel: ${report.max_parallel ?? 0}`,
+    `Observed peak_parallel: ${report.observed_peak_parallel ?? 0}`,
+    `Recommended max_workers: ${report.recommended_max_parallel ?? 0}`,
+    `Overall utilization: ${formatPercent(report.overall_utilization_ratio)}`,
+    `Idle ratio: ${formatPercent(report.idle_ratio)}`,
+    `Window: ${report.window_start || "n/a"} -> ${report.window_end || "n/a"}`,
+    "",
+    "Hourly totals:",
+    renderHeatmapRow(report.hourly_totals || []),
+    "",
+    "Agent heatmaps:",
+    ...((report.agent_summaries || []).map((summary) =>
+      `${String(summary.agent || "agent").slice(0, 5).padEnd(5)} ${renderHeatmapRow(summary.hourly_activity || [])} | util=${formatPercent(summary.utilization_ratio)} peak=${summary.peak_concurrent ?? 0} tasks=${summary.task_count ?? 0}`)),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
 const renderAnalysis = (data = null) => {
   const output = qs("#analysisOutput");
   if (!data || !data.ok) {
@@ -323,6 +350,29 @@ const renderKeyValueLines = (value) => {
   const entries = Object.entries(value);
   if (entries.length === 0) return ["- n/a=0"];
   return entries.map(([key, count]) => `- ${key}=${count}`);
+};
+
+const renderHeatmapRow = (values) => {
+  const palette = " .:-=+*#%@";
+  const series = Array.isArray(values) ? values : [];
+  const max = series.reduce((peak, value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > peak ? number : peak;
+  }, 0);
+  if (series.length === 0) {
+    return "".padEnd(24, ".");
+  }
+  if (max <= 0) {
+    return ".".repeat(series.length);
+  }
+  return series
+    .map((value) => {
+      const number = Number(value);
+      const ratio = Number.isFinite(number) ? number / max : 0;
+      const index = Math.max(0, Math.min(palette.length - 1, Math.round(ratio * (palette.length - 1))));
+      return palette[index];
+    })
+    .join("");
 };
 
 const formatPercent = (value) => {
@@ -363,6 +413,11 @@ const loadQuestioningMetrics = async () => {
 const loadNextAction = async () => {
   const data = await getJson("/api/next");
   renderNextAction(data);
+};
+
+const loadAgentUtilization = async () => {
+  const data = await getJson("/api/agent-utilization");
+  renderAgentUtilization(data);
 };
 
 const loadAnalysis = async () => {
@@ -633,6 +688,17 @@ const init = async () => {
       qs("#nextOutput").textContent = error.message;
     }
   });
+  qs("#utilizationRefresh").addEventListener("click", async () => {
+    qs("#utilizationOutput").textContent = "Loading utilization...";
+    try {
+      await loadAgentUtilization();
+    } catch (error) {
+      qs("#utilizationOutput").textContent = error.message;
+    }
+  });
+  qs("#utilizationDownload").addEventListener("click", () => {
+    window.location.href = "/api/agent-utilization.md";
+  });
   qs("#analysisRefresh").addEventListener("click", async () => {
     qs("#analysisOutput").textContent = "Loading analysis...";
     try {
@@ -664,6 +730,7 @@ const init = async () => {
   await loadContext();
   await loadAnalysis();
   await loadNextAction();
+  await loadAgentUtilization();
   await loadHandoff();
   await loadConscienceRecommendation();
   await loadConscienceMetrics();
