@@ -23,6 +23,8 @@ from workspace_os.web_server import (
     _handoff_markdown_payload,
     _next_action_markdown_payload,
     _next_action_payload,
+    _questioning_markdown_payload,
+    _questioning_payload,
     _promote_preview_payload,
     _recent_docs_payload,
     _recent_software_payload,
@@ -70,6 +72,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("conscienceMetricsOutput", index)
         self.assertIn("conscienceRecommendRefresh", index)
         self.assertIn("conscienceRecommendationOutput", index)
+        self.assertIn("questioningRefresh", index)
+        self.assertIn("questioningOutput", index)
         self.assertIn("analysisRefresh", index)
         self.assertIn("analysisOutput", index)
         self.assertIn("chatContextToggle", index)
@@ -84,6 +88,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestSuggestedActions", app)
         self.assertIn("latestConscienceMetrics", app)
         self.assertIn("latestConscienceRecommendation", app)
+        self.assertIn("latestQuestioningMetrics", app)
         self.assertIn("latestNextAction", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
@@ -241,6 +246,43 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("OCE recommendation", result["text"])
         self.assertIn("next_action=route_to_opencode_for_inventory", result["text"])
         self.assertIn("top_missing_context=missing_workspace", markdown["text"])
+
+    def test_questioning_payload_renders_metrics_and_recent_questions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            store.record_context_snapshot("global", "questioning-test", "issue 80 dashboard", "issue 80 dashboard")
+            store.record_qa(
+                "How do we validate a dashboard change?",
+                "Run focused tests and inspect the dashboard payload.",
+                "issue 80 dashboard",
+                work_item_id="issue-80",
+                agent_name="claude",
+            )
+            store.record_qa(
+                "How do we validate a dashboard change?",
+                "Run focused tests and inspect the dashboard payload.",
+                "issue 80 dashboard",
+                work_item_id="issue-80",
+                agent_name="claude",
+            )
+
+            result = _questioning_payload(memory, {"limit": ["1"]})
+            markdown = _questioning_markdown_payload(memory, {"limit": ["1"]})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("issue 80 dashboard", result["report"]["context"])
+        self.assertEqual(2, result["report"]["summary"]["total"])
+        self.assertEqual(1, len(result["report"]["recent"]))
+        self.assertEqual("claude", result["report"]["recent"][0]["agent"])
+        self.assertTrue(result["report"]["suggestions"])
+        self.assertIn("Questioning dashboard", markdown["text"])
+        self.assertIn("recent_7_days=2", markdown["text"])
+        self.assertIn("How do we validate a dashboard change?", markdown["text"])
 
     def test_agent_command_uses_allowlisted_agent_command(self):
         command = build_agent_command("opencode", Path("workspace"), "Do the task.")

@@ -14,6 +14,7 @@ const state = {
   latestAnalysis: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
+  latestQuestioningMetrics: null,
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
@@ -264,6 +265,39 @@ const renderConscienceRecommendation = (data = null) => {
   output.textContent = data.text || "No recommendation available.";
 };
 
+const renderQuestioningMetrics = (data = null) => {
+  const output = qs("#questioningOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load questioning metrics.";
+    return;
+  }
+  state.latestQuestioningMetrics = data.report || null;
+  const summary = data.report?.summary || {};
+  const recent = data.report?.recent || [];
+  const suggestions = data.report?.suggestions || [];
+  const lines = [
+    `Context focus: ${data.report?.context || "n/a"}`,
+    `Total Q&A: ${summary.total || 0}`,
+    `Unique contexts: ${summary.unique_contexts || 0}`,
+    `Unique questions: ${summary.unique_questions || 0}`,
+    `Recent 7 days: ${summary.recent_7_days || 0}`,
+    `Latest recorded: ${summary.latest_created_at || "n/a"}`,
+    "",
+    "Recent Q&A:",
+    ...(recent.length > 0
+      ? recent.map((item) => `- ${item.created_at} | ${item.agent} | ${item.question}`)
+      : ["- none recorded yet"]),
+    "",
+    "Question patterns:",
+    ...(suggestions.length > 0
+      ? suggestions.map(
+          (item) => `- ${item.question} (asked ${item.frequency}x, relevance=${Number(item.relevance_score || 0).toFixed(2)})`,
+        )
+      : ["- no suggestions yet"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
 const renderNextAction = (data = null) => {
   const output = qs("#nextOutput");
   if (!data || !data.ok) {
@@ -319,6 +353,11 @@ const loadConscienceMetrics = async () => {
 const loadConscienceRecommendation = async () => {
   const data = await getJson("/api/conscience/recommend?limit=10");
   renderConscienceRecommendation(data);
+};
+
+const loadQuestioningMetrics = async () => {
+  const data = await getJson("/api/questioning?limit=5");
+  renderQuestioningMetrics(data);
 };
 
 const loadNextAction = async () => {
@@ -567,6 +606,14 @@ const init = async () => {
       qs("#conscienceMetricsOutput").textContent = error.message;
     }
   });
+  qs("#questioningRefresh").addEventListener("click", async () => {
+    qs("#questioningOutput").textContent = "Loading questioning metrics...";
+    try {
+      await loadQuestioningMetrics();
+    } catch (error) {
+      qs("#questioningOutput").textContent = error.message;
+    }
+  });
   qs("#chatContextRefresh").addEventListener("click", async () => {
     qs("#chatContextOutput").textContent = "Loading context...";
     try {
@@ -620,6 +667,7 @@ const init = async () => {
   await loadHandoff();
   await loadConscienceRecommendation();
   await loadConscienceMetrics();
+  await loadQuestioningMetrics();
   renderConscience(null);
   renderConscienceActions([]);
 };
