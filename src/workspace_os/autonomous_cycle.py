@@ -101,6 +101,7 @@ class AutonomousCycleRecord:
             f"status={self.status}",
             f"branch={self.branch_name}",
             f"policy={self.policy_disposition}",
+            f"policy_reason={self.policy_reason}",
             f"risk_level={self.risk_level}",
             f"pr_number={self.pr_number or 'n/a'}",
             f"merge_status={self.merge_status or 'n/a'}",

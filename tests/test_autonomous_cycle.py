@@ -113,6 +113,23 @@ class AutonomousCycleTests(unittest.TestCase):
                 learning_signals=("validation_passed",),
                 completed=True,
             )
+            newer_cycle_id = store.start_cycle(
+                issue_number=12,
+                issue_title="Add branch cleanup docs",
+                issue_url="https://github.com/os-santiago/workspace-os/issues/12",
+                branch_name="feat/issue-12-branch-cleanup-docs-v2",
+                policy=policy,
+                validation_commands=("python -m pytest tests/test_autonomous_cycle.py -q",),
+                prompt="prompt text v2",
+            )
+            store.update_cycle(
+                newer_cycle_id,
+                AutonomousCycleStage.COMPLETED,
+                "merged",
+                "Newer cycle completed successfully.",
+                learning_signals=("merged",),
+                completed=True,
+            )
 
             record = store.get_cycle(cycle_id)
             latest = store.latest_cycle_for_issue(12)
@@ -128,9 +145,11 @@ class AutonomousCycleTests(unittest.TestCase):
         self.assertEqual("validation", record.stage)
         self.assertEqual("passed", record.status)
         self.assertEqual(("python -m pytest tests/test_autonomous_cycle.py -q",), record.validation_commands)
-        self.assertEqual(record.id, latest.id)
-        self.assertEqual(1, len(cycles))
+        self.assertEqual(newer_cycle_id, latest.id)
+        self.assertEqual("feat/issue-12-branch-cleanup-docs-v2", latest.branch_name)
+        self.assertEqual(2, len(cycles))
         self.assertIn("validation_passed", signals)
+        self.assertIn("merged", signals)
 
     def test_plan_cycle_reuses_previous_cycle_context_and_learning_signals(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
