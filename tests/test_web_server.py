@@ -276,6 +276,12 @@ Batch 02 [NEXT] Web pilot
             store = WorkspaceMemoryStore(memory)
             store.ensure_schema()
             store.record_context_snapshot("global", "questioning-test", "issue 80 dashboard", "issue 80 dashboard")
+            store.record_context_snapshot(
+                "workspace",
+                "semantic-review",
+                "Coordinate context sharing with similarity search and memory reuse.",
+                "Semantic context sharing helps reuse prior work that is not recent.",
+            )
             store.record_qa(
                 "How do we validate a dashboard change?",
                 "Run focused tests and inspect the dashboard payload.",
@@ -291,8 +297,8 @@ Batch 02 [NEXT] Web pilot
                 agent_name="claude",
             )
 
-            result = _questioning_payload(memory, {"limit": ["1"]})
-            markdown = _questioning_markdown_payload(memory, {"limit": ["1"]})
+            result = _questioning_payload(memory, {"limit": ["1"], "context": ["issue 80 dashboard"]})
+            markdown = _questioning_markdown_payload(memory, {"limit": ["1"], "context": ["issue 80 dashboard"]})
 
         self.assertTrue(result["ok"])
         self.assertEqual("issue 80 dashboard", result["report"]["context"])
@@ -300,8 +306,10 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(1, len(result["report"]["recent"]))
         self.assertEqual("claude", result["report"]["recent"][0]["agent"])
         self.assertTrue(result["report"]["suggestions"])
+        self.assertTrue(result["report"]["semantic_hits"])
         self.assertIn("Questioning dashboard", markdown["text"])
         self.assertIn("recent_7_days=2", markdown["text"])
+        self.assertIn("Semantic memory:", markdown["text"])
         self.assertIn("How do we validate a dashboard change?", markdown["text"])
         self.assertIn("Answer sources:", markdown["text"])
         self.assertIn("Question patterns:", markdown["text"])

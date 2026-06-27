@@ -132,6 +132,8 @@ workspace --config config/workspace.sources.local.json context "setting up CI/CD
 ### From evidence (scanales-kb)
 - GitHub Actions preferred for CI/CD automation
 - Pre-commit hooks reduce pipeline failures
+
+The context pack also includes semantically similar memory entries from prior work when the local memory store has relevant summaries, so older but related iterations can still influence the starting prompt.
 ```
 
 ### 4. Classify Content

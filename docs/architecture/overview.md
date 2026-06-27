@@ -139,6 +139,7 @@ Examples:
 Searches existing content before new content is added.
 
 Initial implementation should use plain text search before adding vector search.
+Semantic similarity can be layered on top of the local memory store as a deterministic, dependency-light index so the system can reuse older work summaries without requiring a remote embedding service.
 
 ### Agent Context Pack
 
@@ -148,6 +149,7 @@ Initial implementation:
 - Includes source repository state without machine-specific paths.
 - Includes an ADEV doctrine excerpt from configured doctrine sources.
 - Includes existing knowledge matches for the task topic.
+- Includes semantically similar memory entries from prior work summaries when available.
 - Redacts common secret-like assignments in emitted text.
 
 ### Content Classifier
