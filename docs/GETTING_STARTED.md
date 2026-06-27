@@ -246,7 +246,8 @@ Once comfortable with the basics, explore:
 - **Cycle Management**: `workspace cycle --help`
 - **Memory Store**: `workspace memory --help`
 - **Batch Tracking**: `workspace batch --help`
-- **Shell Mode**: `workspace shell`
+- **Shell Mode**: `workspace shell` (runs the onboarding tutorial on first use; add `--skip-onboarding` to bypass it)
+- **Onboarding**: `workspace onboarding`
 
 ## Common Patterns
 

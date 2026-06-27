@@ -277,6 +277,21 @@ Initial implementation:
 - `python -m workspace_os memory status` reports memory store location and counts.
 - `python -m workspace_os memory preference set|get` can seed and retrieve operator preferences.
 
+### WSOS-022: Create Onboarding Tutorial for First-Time Users
+
+As the operator, the system needs a first-run tutorial that explains the core WOS concepts and confirms the user understands the first workflow.
+
+Acceptance criteria:
+- Tutorial runs on first shell use or can be invoked manually.
+- Tutorial explains the stack, the librarian workflow, capture, and approval boundaries.
+- Tutorial includes a short quiz or confirmation step.
+- Experienced users can skip the tutorial.
+
+Initial implementation:
+- `python -m workspace_os onboarding` runs the interactive tutorial.
+- `python -m workspace_os shell` shows the tutorial on first run unless `--skip-onboarding` is passed.
+- The shell stores onboarding completion in persistent workspace memory.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.
