@@ -86,6 +86,16 @@ Initial scope:
 - Promote repeated lessons into durable rules, checks, tests, or backlog items.
 - Feed relevant context to agent briefs and connector workflows.
 
+### Model Provider Layer
+
+Provides an optional brain layer that WOS can use for planning, synthesis, and review when a model is configured.
+
+Initial scope:
+- Default to no-model operation when nothing is configured.
+- Support local or remote OpenAI-compatible providers through config or environment variables.
+- Route tasks by capability and fall back cleanly when a provider is missing or unavailable.
+- Keep model choice independent from agent orchestration and workspace execution.
+
 ### Autonomous Cycle Orchestrator
 
 Coordinates the first closed-loop WOS flow for a single issue: select, branch, implement, validate, open PR, and merge when policy allows.
