@@ -49,6 +49,7 @@ class AutonomousCyclePolicy:
     can_merge: bool
     confidence: float = 0.0
     validation_hint: str | None = None
+    gate_factors: tuple[str, ...] = ()
 
     def render(self) -> str:
         lines = [
@@ -63,6 +64,9 @@ class AutonomousCyclePolicy:
         ]
         if self.validation_hint:
             lines.append(f"validation_hint={self.validation_hint}")
+        if self.gate_factors:
+            lines.append("gate_factors:")
+            lines.extend(f"- {factor}" for factor in self.gate_factors)
         return "\n".join(lines) + "\n"
 
 
@@ -422,7 +426,8 @@ class AutonomousCycleOrchestrator:
         issue_title = str(issue_data.get("title", f"issue-{issue_number}"))
         branch_name = _branch_name(issue_number, issue_title)
         complexity = classify_issue(issue_data)
-        policy = self.evaluate_policy(issue_data, complexity)
+        commands = tuple(validation_commands or self._default_validation_commands())
+        policy = self.evaluate_policy(issue_data, complexity, validation_commands=commands)
         prompt = build_hardened_delegate_prompt(
             agent="claude",
             workspace_name=self.workspace_root.name,
@@ -432,7 +437,6 @@ class AutonomousCycleOrchestrator:
             tone="focused, concise, and repository-safe",
             detail_level="high",
         )
-        commands = tuple(validation_commands or self._default_validation_commands())
         notes = (
             f"complexity={complexity.level.value}",
             f"score={complexity.score:.1f}",
@@ -453,6 +457,7 @@ class AutonomousCycleOrchestrator:
         self,
         issue_data: dict[str, Any],
         complexity: ComplexityClassification | None = None,
+        validation_commands: Sequence[str] | None = None,
     ) -> AutonomousCyclePolicy:
         issue_number = int(issue_data.get("number", 0))
         title = str(issue_data.get("title", f"issue-{issue_number}"))
@@ -461,64 +466,71 @@ class AutonomousCycleOrchestrator:
         brief = " ".join([title, body, " ".join(labels)])
         decision = evaluate_request(title, brief=brief, destination="software")
         complexity = complexity or classify_issue(issue_data)
+        validation_commands = tuple(validation_commands or self._default_validation_commands())
+        gate = _assess_autonomy_gate(issue_data, complexity, validation_commands, self.workspace_root)
 
         if decision.decision == REFUSE:
             return AutonomousCyclePolicy(
                 disposition=AutonomousCycleDisposition.BLOCKED,
-                reason=decision.rationale,
+                reason=f"{decision.rationale} {gate.reason}".strip(),
                 risk_level=decision.risk_level,
                 requires_validation=False,
                 requires_human_review=True,
                 can_merge=False,
                 confidence=0.0,
                 validation_hint="Blocked by OCE policy.",
+                gate_factors=gate.factors,
             )
 
         if decision.decision in {ASK_CLARIFICATION, ESCALATE_TO_HUMAN}:
             return AutonomousCyclePolicy(
                 disposition=AutonomousCycleDisposition.HUMAN_REVIEW,
-                reason=decision.rationale,
+                reason=f"{decision.rationale} {gate.reason}".strip(),
                 risk_level=decision.risk_level,
-                requires_validation=True,
+                requires_validation=gate.requires_validation,
                 requires_human_review=True,
                 can_merge=False,
                 confidence=0.35,
-                validation_hint="Escalate to human review before branch or merge.",
+                validation_hint=gate.validation_hint,
+                gate_factors=gate.factors,
             )
 
-        if complexity.level == ComplexityLevel.COMPLEX or complexity.requires_architecture_decision:
+        if gate.disposition == AutonomousCycleDisposition.HUMAN_REVIEW:
             return AutonomousCyclePolicy(
-                disposition=AutonomousCycleDisposition.VALIDATION_ONLY,
-                reason="Complex or architectural issue; execute with validation but keep human merge gate.",
+                disposition=AutonomousCycleDisposition.HUMAN_REVIEW,
+                reason=gate.reason,
                 risk_level=decision.risk_level,
-                requires_validation=True,
+                requires_validation=False,
                 requires_human_review=True,
                 can_merge=False,
-                confidence=0.65,
-                validation_hint="Use targeted validation and request review before merge.",
+                confidence=gate.confidence,
+                validation_hint=gate.validation_hint,
+                gate_factors=gate.factors,
             )
 
-        if complexity.level == ComplexityLevel.MODERATE:
+        if gate.disposition == AutonomousCycleDisposition.VALIDATION_ONLY:
             return AutonomousCyclePolicy(
                 disposition=AutonomousCycleDisposition.VALIDATION_ONLY,
-                reason="Moderate issue; proceed only if validation passes and acceptance criteria stay narrow.",
+                reason=gate.reason,
                 risk_level=decision.risk_level,
-                requires_validation=True,
+                requires_validation=gate.requires_validation,
                 requires_human_review=True,
                 can_merge=False,
-                confidence=0.8,
-                validation_hint="Validation required before merge.",
+                confidence=gate.confidence,
+                validation_hint=gate.validation_hint,
+                gate_factors=gate.factors,
             )
 
         return AutonomousCyclePolicy(
             disposition=AutonomousCycleDisposition.SAFE_AUTONOMOUS,
-            reason="Simple issue with no elevated OCE risk.",
+            reason=gate.reason,
             risk_level=decision.risk_level,
-            requires_validation=True,
-            requires_human_review=False,
-            can_merge=True,
-            confidence=0.9,
-            validation_hint="Run the narrowest meaningful validation and merge only if it passes.",
+            requires_validation=gate.requires_validation,
+            requires_human_review=gate.requires_human_review,
+            can_merge=gate.can_merge,
+            confidence=gate.confidence,
+            validation_hint=gate.validation_hint,
+            gate_factors=gate.factors,
         )
 
     def create_cycle_record(
@@ -555,6 +567,21 @@ class AutonomousCycleOrchestrator:
             record = self.store.get_cycle(cycle_id)
             if record is None:
                 raise RuntimeError("Cycle record could not be loaded after blocking.")
+            return record
+
+        if plan.policy.disposition == AutonomousCycleDisposition.HUMAN_REVIEW:
+            self.store.update_cycle(
+                cycle_id,
+                AutonomousCycleStage.OCE_GATE,
+                "human_review_required",
+                plan.policy.reason,
+                blockers=("human_review_required",),
+                learning_signals=(f"human_review:{plan.policy.risk_level}",),
+                completed=True,
+            )
+            record = self.store.get_cycle(cycle_id)
+            if record is None:
+                raise RuntimeError("Cycle record could not be loaded after human review gate.")
             return record
 
         if not dry_run:
@@ -655,12 +682,13 @@ class AutonomousCycleOrchestrator:
                     learning_signals=("review_required",),
                 )
         else:
+            blocker = "validation_failed" if not validation_passed else "policy_requires_review"
             self.store.update_cycle(
                 cycle_id,
                 AutonomousCycleStage.REVIEW,
                 "review_required",
                 "Validation failed or policy does not allow autonomous merge.",
-                blockers=("validation_failed",) if not validation_passed else ("policy_requires_review",),
+                blockers=(blocker,),
                 learning_signals=("review_required",),
             )
 
@@ -721,6 +749,121 @@ def evaluate_autonomy(issue_data: dict[str, Any]) -> AutonomousCyclePolicy:
     store.ensure_schema()
     orchestrator = AutonomousCycleOrchestrator(workspace_root=workspace_root, memory_store=store)
     return orchestrator.evaluate_policy(issue_data)
+
+
+@dataclass(frozen=True)
+class AutonomyGateAssessment:
+    disposition: AutonomousCycleDisposition
+    reason: str
+    requires_validation: bool
+    requires_human_review: bool
+    can_merge: bool
+    confidence: float
+    validation_hint: str | None
+    factors: tuple[str, ...]
+
+
+def _assess_autonomy_gate(
+    issue_data: dict[str, Any],
+    complexity: ComplexityClassification,
+    validation_commands: Sequence[str],
+    workspace_root: Path,
+) -> AutonomyGateAssessment:
+    title = str(issue_data.get("title", ""))
+    body = str(issue_data.get("body", ""))
+    labels = [str(label.get("name", "")) for label in issue_data.get("labels", []) if isinstance(label, dict)]
+    full_text = " ".join([title, body, " ".join(labels)]).casefold()
+
+    scope_score = complexity.score
+    has_tests = _workspace_has_tests(workspace_root)
+    coverage_available = has_tests and any("pytest" in command.lower() for command in validation_commands)
+    architecture_change = complexity.requires_architecture_decision or _contains_any(
+        full_text,
+        (
+            "architecture",
+            "refactor",
+            "rewrite",
+            "migration",
+            "orchestrator",
+            "policy",
+            "routing",
+            "workflow",
+            "state",
+            "storage",
+        ),
+    )
+    cross_cutting = architecture_change or _contains_any(
+        full_text,
+        (
+            "multiple modules",
+            "cross-cutting",
+            "integration",
+            "shared",
+            "core",
+            "end to end",
+        ),
+    )
+    merge_risk = "high" if architecture_change or scope_score >= 7.0 else "medium" if scope_score >= 4.0 else "low"
+    ambiguity = "high" if complexity.has_ambiguities else "medium" if complexity.level == ComplexityLevel.MODERATE else "low"
+
+    factors = [
+        f"scope_size={_scope_label(scope_score)}",
+        f"change_surface={'cross-cutting' if cross_cutting else 'local'}",
+        f"test_coverage_available={'yes' if coverage_available else 'no'}",
+        f"merge_risk={merge_risk}",
+        f"ambiguity={ambiguity}",
+    ]
+    if architecture_change:
+        factors.append("architecture_change=yes")
+    if complexity.has_ambiguities:
+        factors.extend(f"ambiguity_detail={item}" for item in complexity.has_ambiguities[:3])
+
+    if not coverage_available and (complexity.level != ComplexityLevel.SIMPLE or architecture_change or complexity.has_ambiguities):
+        return AutonomyGateAssessment(
+            disposition=AutonomousCycleDisposition.HUMAN_REVIEW,
+            reason="Coverage is not available for a moderate or larger change, so the cycle should stop for human review.",
+            requires_validation=True,
+            requires_human_review=True,
+            can_merge=False,
+            confidence=0.45,
+            validation_hint="Add or confirm tests before mutation and merge.",
+            factors=tuple(factors),
+        )
+
+    if complexity.level == ComplexityLevel.COMPLEX or architecture_change or ambiguity == "high" and cross_cutting:
+        return AutonomyGateAssessment(
+            disposition=AutonomousCycleDisposition.VALIDATION_ONLY,
+            reason="The issue crosses architectural or shared-surface boundaries, so WOS may prepare and validate but must stop before autonomous merge.",
+            requires_validation=True,
+            requires_human_review=True,
+            can_merge=False,
+            confidence=0.65,
+            validation_hint="Run targeted validation and request review before merge.",
+            factors=tuple(factors),
+        )
+
+    if complexity.level == ComplexityLevel.MODERATE:
+        return AutonomyGateAssessment(
+            disposition=AutonomousCycleDisposition.VALIDATION_ONLY,
+            reason="The change is moderate in scope, so WOS can validate it but should keep the merge behind a review gate.",
+            requires_validation=True,
+            requires_human_review=True,
+            can_merge=False,
+            confidence=0.8,
+            validation_hint="Validation required before merge.",
+            factors=tuple(factors),
+        )
+
+    return AutonomyGateAssessment(
+        disposition=AutonomousCycleDisposition.SAFE_AUTONOMOUS,
+        reason="The issue is small, low-risk, and has enough local coverage for autonomous execution.",
+        requires_validation=True,
+        requires_human_review=False,
+        can_merge=True,
+        confidence=0.92,
+        validation_hint="Run the narrowest meaningful validation and merge only if it passes.",
+        factors=tuple(factors),
+    )
 
 
 def _record_from_row(row: sqlite3.Row) -> AutonomousCycleRecord:
@@ -794,6 +937,25 @@ def _truncate(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(0, limit - 3)] + "..."
+
+
+def _workspace_has_tests(workspace_root: Path) -> bool:
+    tests_dir = workspace_root / "tests"
+    if not tests_dir.exists() or not tests_dir.is_dir():
+        return False
+    return any(tests_dir.glob("test_*.py")) or any(tests_dir.rglob("test_*.py"))
+
+
+def _scope_label(score: float) -> str:
+    if score >= 7.0:
+        return "large"
+    if score >= 4.0:
+        return "medium"
+    return "small"
+
+
+def _contains_any(value: str, patterns: tuple[str, ...]) -> bool:
+    return any(pattern in value for pattern in patterns)
 
 
 def _utc_now() -> str:
