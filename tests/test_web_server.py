@@ -1,5 +1,7 @@
 import unittest
 import json
+import threading
+import urllib.request
 
 from pathlib import Path
 import tempfile
@@ -39,6 +41,7 @@ from workspace_os.web_server import (
     _recent_software_payload,
     _roots_markdown_payload,
     _roots_payload,
+    _build_handler,
     STATIC_ROOT,
     _write_response_body,
 )
@@ -367,6 +370,38 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Agent Performance Report", markdown["text"])
         self.assertIn("Role performance", markdown["text"])
         self.assertIn("Specialization patterns", markdown["text"])
+
+    def test_agent_performance_http_routes_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.agent_queue import AgentQueueTracker
+            from http.server import ThreadingHTTPServer
+
+            tracker = AgentQueueTracker(memory.parent)
+            tracker.enqueue("task-1", "opencode", "workspace-os", "Validate the dashboard")
+            tracker.start("task-1")
+            tracker.complete("task-1", returncode=0, duration_seconds=2.0)
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), _build_handler([], root, memory, None))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_address[1]}"
+                with urllib.request.urlopen(f"{base_url}/api/agent-performance") as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                with urllib.request.urlopen(f"{base_url}/api/agent-performance.md") as response:
+                    markdown = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Agent Performance Report", markdown)
+        self.assertIn("completed_tasks", result["report"])
 
     def test_cycle_monitor_payload_renders_active_cycle_summary(self):
         with tempfile.TemporaryDirectory() as directory:

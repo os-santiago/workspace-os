@@ -518,11 +518,13 @@ class AgentQueueTracker:
             )
 
         now = datetime.now(timezone.utc)
-        completed_tasks = [task for task in tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
-        failed_tasks = [task for task in tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
+        terminal_tasks = _performance_terminal_tasks(tasks)
+        completed_tasks = [task for task in terminal_tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
+        failed_tasks = [task for task in terminal_tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
         succeeded_count = len(completed_tasks)
         total_tasks = len(tasks)
-        success_rate = succeeded_count / total_tasks if total_tasks else 0.0
+        terminal_count = len(terminal_tasks)
+        success_rate = succeeded_count / terminal_count if terminal_count else 0.0
 
         started_values: list[datetime] = []
         completed_values: list[datetime] = []
@@ -541,7 +543,7 @@ class AgentQueueTracker:
         window_seconds = 0.0
         if window_start_dt is not None and window_end_dt is not None:
             window_seconds = max(0.0, (window_end_dt - window_start_dt).total_seconds())
-        window_days = max(1.0, window_seconds / 86400.0) if window_seconds > 0 else 1.0
+        window_days = window_seconds / 86400.0 if window_seconds > 0 else 1.0
         learning_velocity_per_day = succeeded_count / window_days if window_days > 0 else 0.0
 
         durations = [task.duration_seconds for task in completed_tasks if task.duration_seconds is not None]
@@ -559,7 +561,7 @@ class AgentQueueTracker:
         role_summaries = tuple(
             _build_role_performance_summary(role, tasks)
             for role in ("primary", "cross-check", "observer")
-            if any(_task_role(task) == role for task in tasks)
+            if any(_task_role(task) == role for task in terminal_tasks)
         )
         specialization_patterns = _collect_specialization_patterns(tasks)
 
@@ -766,14 +768,15 @@ def _render_hour_heatmap(values: tuple[int, ...] | list[int]) -> str:
 
 
 def _build_agent_performance_summary(agent: str, tasks: list[AgentTaskTrace]) -> AgentPerformanceSummary:
-    completed_tasks = [task for task in tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
-    failed_tasks = [task for task in tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
+    terminal_tasks = _performance_terminal_tasks(tasks)
+    completed_tasks = [task for task in terminal_tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
+    failed_tasks = [task for task in terminal_tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
     durations = [task.duration_seconds for task in completed_tasks if task.duration_seconds is not None]
     average_duration_seconds = sum(durations) / len(durations) if durations else 0.0
-    success_rate = len(completed_tasks) / len(tasks) if tasks else 0.0
+    success_rate = len(completed_tasks) / len(terminal_tasks) if terminal_tasks else 0.0
     role_counts = Counter(_task_role(task) for task in tasks)
     role_summaries = tuple(
-        _build_role_performance_summary(role, tasks)
+        _build_role_performance_summary(role, terminal_tasks)
         for role in ("primary", "cross-check", "observer")
         if role_counts.get(role, 0) > 0
     )
@@ -794,11 +797,12 @@ def _build_agent_performance_summary(agent: str, tasks: list[AgentTaskTrace]) ->
 
 def _build_role_performance_summary(role: str, tasks: list[AgentTaskTrace]) -> AgentRolePerformance:
     role_tasks = [task for task in tasks if _task_role(task) == role]
-    completed_tasks = [task for task in role_tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
-    failed_tasks = [task for task in role_tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
+    terminal_tasks = _performance_terminal_tasks(role_tasks)
+    completed_tasks = [task for task in terminal_tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
+    failed_tasks = [task for task in terminal_tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
     durations = [task.duration_seconds for task in completed_tasks if task.duration_seconds is not None]
     average_duration_seconds = sum(durations) / len(durations) if durations else 0.0
-    success_rate = len(completed_tasks) / len(role_tasks) if role_tasks else 0.0
+    success_rate = len(completed_tasks) / len(terminal_tasks) if terminal_tasks else 0.0
     return AgentRolePerformance(
         role=role,
         task_count=len(role_tasks),
@@ -830,9 +834,18 @@ def _task_type(task: AgentTaskTrace) -> str:
         ("performance", ("performance", "latency", "throughput", "utilization")),
         ("documentation", ("docs", "documentation", "readme", "sphinx")),
         ("learning", ("learning", "questioning", "feedback")),
-        ("routing", ("route", "routing", "agent")),
+        ("routing", ("route", "routing")),
     ]
     for label, keywords in keyword_map:
         if any(keyword in prompt for keyword in keywords):
             return label
     return "general"
+
+
+def _performance_terminal_tasks(tasks: list[AgentTaskTrace]) -> list[AgentTaskTrace]:
+    return [
+        task
+        for task in tasks
+        if task.state in (AgentTaskState.COMPLETED, AgentTaskState.FAILED)
+        or (task.returncode is not None)
+    ]
