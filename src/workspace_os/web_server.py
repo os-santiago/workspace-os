@@ -25,6 +25,11 @@ from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.learning import suggest_questions_for_work
+from workspace_os.local_metrics import (
+    build_local_metrics_report,
+    render_local_metrics_markdown,
+    render_metrics_export,
+)
 from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
@@ -212,6 +217,22 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     "text/markdown; charset=utf-8",
                     filename="agent-utilization.md",
                 )
+                return
+            if parsed.path == "/api/metrics":
+                self._send_json(_local_metrics_payload(memory_path, query))
+                return
+            if parsed.path == "/api/metrics.md":
+                self._send_text(
+                    _local_metrics_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="metrics.md",
+                )
+                return
+            if parsed.path == "/api/metrics/export":
+                exporter = _first(query, "format") or _first(query, "exporter")
+                payload = _local_metrics_export_payload(memory_path, exporter)
+                content_type = str(payload.get("content_type", "text/plain; charset=utf-8"))
+                self._send_text(payload, content_type, filename=str(payload.get("filename", "metrics-export.txt")))
                 return
 
             self.send_error(404, "Not found")
@@ -1006,6 +1027,44 @@ def _agent_utilization_markdown_payload(
     tracker = AgentQueueTracker(memory_path.parent)
     report = tracker.utilization_report()
     return {"ok": True, "text": report.render()}
+
+
+def _local_metrics_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    report = build_local_metrics_report(memory_path)
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _local_metrics_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    report = build_local_metrics_report(memory_path)
+    return {"ok": True, "text": render_local_metrics_markdown(report)}
+
+
+def _local_metrics_export_payload(
+    memory_path: Path | None = None,
+    exporter: str | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    if not exporter:
+        return {"ok": False, "text": "Export format is required."}
+    report = build_local_metrics_report(memory_path)
+    try:
+        text = render_metrics_export(report, exporter)
+    except ValueError as exc:
+        return {"ok": False, "text": str(exc)}
+    content_type = "application/json; charset=utf-8" if exporter.lower() == "grafana-json" else "text/plain; charset=utf-8"
+    filename = f"metrics.{ 'json' if exporter.lower() == 'grafana-json' else 'prometheus' }"
+    return {"ok": True, "text": text, "content_type": content_type, "filename": filename}
 
 
 def _conscience_recommendation_payload(
