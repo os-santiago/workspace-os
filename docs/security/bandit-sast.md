@@ -25,7 +25,11 @@ Bandit automatically runs during:
 
 ## Configuration
 
-Configure Bandit via `config/quality.json`:
+Configure Bandit policy via `config/quality.json`:
+
+> Note: the current cycle runner invokes Bandit with `-ll` today. These
+> settings describe the intended policy surface and should stay aligned with the
+> actual scanner call as the integration evolves.
 
 ```json
 {
@@ -43,8 +47,8 @@ Configure Bandit via `config/quality.json`:
 ### Severity Levels
 
 - `"low"` - Report all issues (noisy)
-- `"medium"` - Report medium and high (default)
-- `"high"` - Only critical issues
+- `"medium"` - Report medium and high
+- `"high"` - Highest Bandit severity level
 
 ## Installation
 
@@ -83,7 +87,7 @@ bandit -r src/
 bandit -r src/ -f json -ll
 
 # Exclude test files
-bandit -r src/ --skip B101
+bandit -r src/ -x tests/
 ```
 
 ## Suppressing False Positives
@@ -121,7 +125,7 @@ workspace cycle report --id 42
 
 Example output:
 
-```
+```text
 quality checks:
 - PASS quality:compilation: All files compiled successfully.
 - PASS quality:test-suite: Test suite passed successfully.
