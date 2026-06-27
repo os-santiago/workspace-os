@@ -1622,7 +1622,7 @@ class WorkspaceMemoryStore:
 
     def questioning_metrics(self) -> dict[str, object]:
         """Get dashboard metrics for the questioning protocol."""
-        qa_rows = self.recent_qa_pairs(limit=200)
+        qa_rows = self.all_qa_pairs()
         qa_summary = self.qa_metrics()
         source_counts = Counter(row["agent"] for row in qa_rows if row.get("agent"))
         question_counts = Counter(row["question"].casefold().strip() for row in qa_rows if row.get("question"))
@@ -1644,12 +1644,14 @@ class WorkspaceMemoryStore:
             (with_qna_feedback["positive_count"] * 6.0) + (with_qna_feedback["over_expectation_count"] * 4.0),
         )
         with_qna_success_rate = (
-            with_qna_feedback["positive_count"] / with_qna_feedback["total"]
+            (with_qna_feedback["positive_count"] + with_qna_feedback["over_expectation_count"])
+            / with_qna_feedback["total"]
             if with_qna_feedback["total"]
             else 0.0
         )
         without_qna_success_rate = (
-            without_qna_feedback["positive_count"] / without_qna_feedback["total"]
+            (without_qna_feedback["positive_count"] + without_qna_feedback["over_expectation_count"])
+            / without_qna_feedback["total"]
             if without_qna_feedback["total"]
             else 0.0
         )
@@ -1681,6 +1683,28 @@ class WorkspaceMemoryStore:
                 LIMIT ?
                 """,
                 (limit,),
+            )
+            return [
+                {
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
+                    "context": str(row["task_context"]),
+                    "work_item_id": str(row["work_item_id"]) if row["work_item_id"] else "",
+                    "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def all_qa_pairs(self) -> list[dict[str, str]]:
+        """Get all Q&A pairs for metrics and pattern analysis."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT question_text, answer_text, task_context, work_item_id, agent_name, created_at
+                FROM question_answer_pairs
+                ORDER BY created_at DESC, id DESC
+                """
             )
             return [
                 {

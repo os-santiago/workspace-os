@@ -115,6 +115,33 @@ class MemoryTests(unittest.TestCase):
         self.assertGreaterEqual(metrics["estimated_time_invested_minutes"], 0.0)
         self.assertGreaterEqual(metrics["estimated_rework_savings_minutes"], 0.0)
 
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory-large.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            for index in range(205):
+                store.record_qa(
+                    f"How do we validate item {index}?",
+                    f"Run validation step {index}.",
+                    f"bulk-context-{index}",
+                    work_item_id=f"bulk-{index}",
+                    agent_name="claude" if index % 2 == 0 else "opencode",
+                )
+            store.record_feedback_event(
+                request_text="Questioning phase: validate bulk dashboard behavior.",
+                result_text="iteration-1: questions=2 learned=1 recorded=1 | outcome=pass",
+                feedback_text="Questioning phase completed before execution and the outcome was captured for learning.",
+                status="over_expectation",
+                reason="Questioning phase outcome recorded after execution.",
+                error_type="positive",
+                has_praise=True,
+            )
+            large_metrics = store.questioning_metrics()
+
+        self.assertEqual(205, large_metrics["summary"]["total"])
+        self.assertEqual(205, sum(large_metrics["answer_sources"].values()))
+        self.assertEqual(1.0, large_metrics["with_qna"]["success_rate"])
+
 
 if __name__ == "__main__":
     unittest.main()
