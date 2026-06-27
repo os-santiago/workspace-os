@@ -305,3 +305,6 @@ Acceptance criteria:
 - Works through private network access.
 - Does not expose arbitrary command execution.
 - Provides audit logs and a kill switch.
+
+Initial design:
+- ADR 0008 defines the secure remote access model as a declarative, allowlisted supervision channel with explicit approval for mutation.
