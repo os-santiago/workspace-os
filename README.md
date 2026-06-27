@@ -151,6 +151,7 @@ python -m workspace_os --config config/workspace.sources.example.json inspect
 python -m workspace_os --config config/workspace.sources.example.json handoff
 python -m workspace_os --config config/workspace.sources.example.json memory status
 python -m workspace_os --config config/workspace.sources.example.json shell
+python -m workspace_os --config config/workspace.sources.example.json onboarding
 python -m workspace_os --config config/workspace.sources.example.json batch start --label sprint-1 --objective "keep batches large"
 python -m workspace_os --config config/workspace.sources.example.json batch report
 python -m workspace_os --config config/workspace.sources.example.json batch summary

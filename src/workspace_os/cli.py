@@ -23,6 +23,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.onboarding import run_onboarding_tutorial
 from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
@@ -87,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"conscience", "oce"}:
         return _conscience(memory_path, args.conscience_command, args)
     if args.command == "shell":
-        return _shell(sources, memory_path, args.session_id)
+        return _shell(sources, memory_path, args.session_id, args.skip_onboarding)
+    if args.command == "onboarding":
+        return _onboarding(memory_path, args.skip_onboarding)
     if args.command == "batch":
         return _batch(sources, memory_path, args.batch_command, args)
     if args.command == "process":
@@ -325,6 +328,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Open the terminal-first Workspace OS shell.",
     )
     shell_parser.add_argument("--session-id", default="shell", help="Memory session identifier.")
+    shell_parser.add_argument("--skip-onboarding", action="store_true", help="Skip the first-run onboarding tutorial.")
+
+    onboarding_parser = subparsers.add_parser(
+        "onboarding",
+        help="Run the interactive first-run onboarding tutorial.",
+    )
+    onboarding_parser.add_argument(
+        "--skip-onboarding",
+        action="store_true",
+        help="Mark onboarding complete without running the interactive tutorial.",
+    )
 
     batch_parser = subparsers.add_parser(
         "batch",
@@ -852,12 +866,30 @@ def _conscience(memory_path: Path, command: str, args: argparse.Namespace) -> in
     return 2
 
 
-def _shell(sources: list[Source], memory_path: Path, session_id: str) -> int:
-    shell = WorkspaceShell(sources=sources, memory_path=memory_path, session_id=session_id)
+def _shell(sources: list[Source], memory_path: Path, session_id: str, skip_onboarding: bool = False) -> int:
+    shell = WorkspaceShell(
+        sources=sources,
+        memory_path=memory_path,
+        session_id=session_id,
+        skip_onboarding=skip_onboarding,
+    )
     try:
         shell.cmdloop()
     except KeyboardInterrupt:
         print("")
+    return 0
+
+
+def _onboarding(memory_path: Path, skip_onboarding: bool) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    if skip_onboarding:
+        store.record_preference("onboarding_completed", "true")
+        print("Onboarding marked complete.")
+        return 0
+    result = run_onboarding_tutorial(store)
+    if result.already_completed:
+        print("Onboarding already completed.")
     return 0
 
 
