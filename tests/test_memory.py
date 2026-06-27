@@ -44,8 +44,8 @@ class MemoryTests(unittest.TestCase):
                 routing_reason="workspace_inventory_first",
             )
             store.record_qa(
-                "how do we validate a dashboard change?",
-                "run the focused pytest module and verify the rendered ui payload.",
+                "  how do we validate a dashboard change?  ",
+                "  run the focused pytest module and verify the rendered ui payload.  ",
                 "issue-80-dashboard",
                 work_item_id="issue-80",
                 agent_name="claude",
