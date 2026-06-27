@@ -348,6 +348,7 @@ class QuestioningPrompt:
     answer_hints: tuple[str, ...]
     learned_count: int
     recorded_count: int
+    question_categories: tuple[str, ...] = ()
 
     def render_summary(self) -> str:
         return f"questions={len(self.questions)} learned={self.learned_count} recorded={self.recorded_count}"
@@ -367,10 +368,102 @@ class QuestioningPrompt:
             lines.append("- No clarifying questions needed.")
         else:
             for index, question in enumerate(self.questions, 1):
+                category = self.question_categories[index - 1] if index - 1 < len(self.question_categories) else "clarification"
                 lines.append(f"{index}. {question}")
+                lines.append(f"   Category: {category}")
                 if index - 1 < len(self.answer_hints) and self.answer_hints[index - 1]:
                     lines.append(f"   Squad Lead hint: {self.answer_hints[index - 1]}")
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class QuestioningProtocol:
+    """Formulate pre-execution questions and attach learned answers."""
+
+    memory_store: WorkspaceMemoryStore
+    answer_engine: SquadLeadAnswerEngine
+
+    def formulate(
+        self,
+        task_context: str,
+        limit: int = 3,
+        role: str = "primary",
+        work_item_id: str | None = None,
+        agent_name: str | None = None,
+        issue_data: dict[str, object] | None = None,
+        code_context: str = "",
+        related_issues: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
+    ) -> QuestioningPrompt:
+        suggestions = suggest_questions_for_work(self.memory_store, task_context, limit=limit)
+        questions: list[str] = []
+        answer_hints: list[str] = []
+        categories: list[str] = []
+        recorded_count = 0
+
+        def add_question(question: str, answer_hint: str, category: str, learned: bool) -> None:
+            nonlocal recorded_count
+            normalized = question.lower().strip()
+            if normalized in {existing.lower().strip() for existing in questions}:
+                return
+            questions.append(question)
+            answer_hints.append(answer_hint)
+            categories.append(category)
+            if not learned and answer_hint:
+                try:
+                    self.memory_store.record_qa(
+                        question,
+                        answer_hint,
+                        task_context,
+                        work_item_id=work_item_id,
+                        agent_name=agent_name or role,
+                    )
+                    recorded_count += 1
+                except Exception:
+                    pass
+
+        for suggestion in suggestions[:limit]:
+            add_question(
+                suggestion.question,
+                suggestion.previous_answer or "Use the learned answer from similar work.",
+                _classify_question_category(suggestion.question),
+                learned=True,
+            )
+
+        heuristics = _questioning_heuristics(task_context, role)
+        for question, answer_hint in heuristics:
+            if len(questions) >= limit:
+                break
+            answer_draft = self.answer_engine.answer_question(
+                task_context,
+                question,
+                issue_data=issue_data,
+                code_context=code_context,
+                related_issues=related_issues,
+                work_item_id=work_item_id,
+                agent_name=agent_name or role,
+            )
+            composed_answer = answer_draft.answer
+            if answer_draft.should_escalate:
+                composed_answer = f"Escalate to human: {composed_answer}"
+            if not composed_answer:
+                composed_answer = answer_hint
+            add_question(
+                question,
+                composed_answer,
+                _classify_question_category(question),
+                learned=True,
+            )
+            if not answer_draft.cache_hit:
+                recorded_count += 1
+
+        return QuestioningPrompt(
+            task_context=task_context,
+            questions=tuple(questions[:limit]),
+            answer_hints=tuple(answer_hints[:limit]),
+            learned_count=len(suggestions[:limit]),
+            recorded_count=recorded_count,
+            question_categories=tuple(categories[:limit]),
+        )
 
 
 @dataclass(frozen=True)
@@ -609,68 +702,19 @@ def build_questioning_prompt(
     related_issues: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
 ) -> QuestioningPrompt:
     """Build the questioning phase prompt and seed it with learned answers."""
-    answer_engine = build_squad_lead_answer_engine(memory_store)
-    suggestions = suggest_questions_for_work(memory_store, task_context, limit=limit)
-    questions: list[str] = []
-    answer_hints: list[str] = []
-    recorded_count = 0
-
-    def add_question(question: str, answer_hint: str, learned: bool) -> None:
-        nonlocal recorded_count
-        normalized = question.lower().strip()
-        if normalized in {existing.lower().strip() for existing in questions}:
-            return
-        questions.append(question)
-        answer_hints.append(answer_hint)
-        if not learned:
-            if answer_hint:
-                try:
-                    memory_store.record_qa(
-                        question,
-                        answer_hint,
-                        task_context,
-                        work_item_id=work_item_id,
-                        agent_name=agent_name or role,
-                    )
-                    recorded_count += 1
-                except Exception:
-                    pass
-
-    for suggestion in suggestions[:limit]:
-        add_question(
-            suggestion.question,
-            suggestion.previous_answer or "Use the learned answer from similar work.",
-            learned=True,
-        )
-
-    heuristics = _questioning_heuristics(task_context, role)
-    for question, answer_hint in heuristics:
-        if len(questions) >= limit:
-            break
-        answer_draft = answer_engine.answer_question(
-            task_context,
-            question,
-            issue_data=issue_data,
-            code_context=code_context,
-            related_issues=related_issues,
-            work_item_id=work_item_id,
-            agent_name=agent_name or role,
-        )
-        composed_answer = answer_draft.answer
-        if answer_draft.should_escalate:
-            composed_answer = f"Escalate to human: {composed_answer}"
-        if not composed_answer:
-            composed_answer = answer_hint
-        add_question(question, composed_answer, learned=True)
-        if not answer_draft.cache_hit:
-            recorded_count += 1
-
-    return QuestioningPrompt(
-        task_context=task_context,
-        questions=tuple(questions[:limit]),
-        answer_hints=tuple(answer_hints[:limit]),
-        learned_count=len(suggestions[:limit]),
-        recorded_count=recorded_count,
+    protocol = QuestioningProtocol(
+        memory_store=memory_store,
+        answer_engine=build_squad_lead_answer_engine(memory_store),
+    )
+    return protocol.formulate(
+        task_context,
+        limit=limit,
+        role=role,
+        work_item_id=work_item_id,
+        agent_name=agent_name,
+        issue_data=issue_data,
+        code_context=code_context,
+        related_issues=related_issues,
     )
 
 
@@ -714,6 +758,19 @@ def _questioning_heuristics(task_context: str, role: str) -> list[tuple[str, str
         )
 
     return heuristics[:3]
+
+
+def _classify_question_category(question: str) -> str:
+    normalized = question.lower()
+    if "validation" in normalized or "verify" in normalized or "test" in normalized:
+        return "constraints"
+    if "dependency" in normalized or "integration" in normalized:
+        return "dependencies"
+    if "edge" in normalized or "case" in normalized:
+        return "edge_cases"
+    if "source of truth" in normalized or "issue" in normalized or "scope" in normalized:
+        return "scope"
+    return "clarification"
 
 
 def _normalize_question(question: str) -> str:
