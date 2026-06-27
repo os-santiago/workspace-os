@@ -44,15 +44,15 @@ class MemoryTests(unittest.TestCase):
                 routing_reason="workspace_inventory_first",
             )
             store.record_qa(
-                "How do we validate a dashboard change?",
-                "Run the focused pytest module and verify the rendered UI payload.",
+                "how do we validate a dashboard change?",
+                "run the focused pytest module and verify the rendered ui payload.",
                 "issue-80-dashboard",
                 work_item_id="issue-80",
                 agent_name="claude",
             )
             store.record_qa(
-                "How do we validate a dashboard change?",
-                "Run the focused pytest module and verify the rendered UI payload.",
+                "how do we validate a dashboard change?",
+                "run the focused pytest module and verify the rendered ui payload.",
                 "issue-80-dashboard",
                 work_item_id="issue-80",
                 agent_name="claude",
@@ -98,6 +98,7 @@ class MemoryTests(unittest.TestCase):
         self.assertTrue(qa_metrics["latest_created_at"])
         self.assertEqual("How do we validate a dashboard change?", recent_qa[0]["question"])
         self.assertEqual("claude", recent_qa[0]["agent"])
+        self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", recent_qa[0]["answer"])
 
 
 if __name__ == "__main__":

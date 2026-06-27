@@ -106,6 +106,7 @@ Before execution, WOS inserts a questioning phase into the cycle prompt:
 - Questions focus on clarification, scope, edge cases, dependencies, and constraints.
 - Squad Lead context and prior Q&A can answer repeated questions from learning history.
 - New questions are recorded in the learning module so later cycles can reuse them.
+- Question and answer text is normalized for display so repeated Q&A stays readable in the dashboard and prompt context.
 
 This keeps ambiguity visible early instead of turning into rework later.
 
