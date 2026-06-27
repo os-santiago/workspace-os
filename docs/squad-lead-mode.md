@@ -108,6 +108,7 @@ Before execution, WOS inserts a questioning phase into the cycle prompt:
 - New questions are recorded in the learning module so later cycles can reuse them.
 - Squad Lead now uses an answer engine that combines issue context, acceptance criteria, code context, and related issues to produce confidence-scored answers.
 - Low-confidence answers are escalated back to the operator instead of being presented as certain.
+- The questioning protocol now emits categorized questions so the prompt can distinguish scope, constraints, dependencies, edge cases, and general clarification.
 - Question and answer text is normalized for display so repeated Q&A stays readable in the dashboard and prompt context.
 
 This keeps ambiguity visible early instead of turning into rework later.

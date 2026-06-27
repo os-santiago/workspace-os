@@ -9,6 +9,7 @@ from workspace_os.learning import (
     build_questioning_prompt,
     build_squad_lead_answer_engine,
     build_workspace_learning_model,
+    QuestioningProtocol,
 )
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.profile import load_profile, save_profile_key
@@ -176,6 +177,29 @@ class LearningModelTests(unittest.TestCase):
         self.assertEqual(len(recorded), stats["total"])
         self.assertTrue(any("issue number" in question.lower() or "source of truth" in question.lower() for question in prompt.questions))
         self.assertTrue(any("acceptance criteria" in hint.lower() or "validate" in hint.lower() for hint in prompt.answer_hints))
+        self.assertTrue(prompt.question_categories)
+        self.assertIn(prompt.question_categories[0], {"scope", "constraints", "dependencies", "edge_cases", "clarification"})
+
+    def test_questioning_protocol_classifies_questions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            protocol = QuestioningProtocol(store, build_squad_lead_answer_engine(store))
+
+            prompt = protocol.formulate(
+                "Objective: implement agent questioning protocol",
+                issue_data={
+                    "number": 81,
+                    "title": "Implement Agent Questioning Protocol",
+                    "body": "## Acceptance Criteria\n- Ask up to 3 clarifying questions.\n- Integrate with Squad Lead.",
+                },
+                code_context="src/workspace_os/learning.py",
+            )
+
+        self.assertLessEqual(len(prompt.questions), 3)
+        self.assertEqual(len(prompt.questions), len(prompt.question_categories))
+        self.assertTrue(all(category in {"scope", "constraints", "dependencies", "edge_cases", "clarification"} for category in prompt.question_categories))
 
     def test_squad_lead_answer_engine_uses_issue_context_and_caches_answers(self):
         with tempfile.TemporaryDirectory() as directory:
