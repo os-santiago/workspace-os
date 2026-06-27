@@ -289,6 +289,9 @@ Acceptance criteria:
 - Captures metadata and links, not document contents unless explicitly allowed.
 - Does not store sensitive content in Git.
 
+Initial design:
+- ADR 0007 defines the Google Workspace connector as a metadata-first, privacy-preserving integration boundary.
+
 ### WSOS-008: Add Agent Command Router
 
 Acceptance criteria:
