@@ -980,6 +980,113 @@ def run_cycle_plan(
     )
 
 
+def resume_cycle(
+    memory_store: WorkspaceMemoryStore,
+    sources: list[Source],
+    cycle_id: int,
+    iterations: int | None = None,
+    duration_minutes: float | None = None,
+    note: str | None = None,
+    stop_on_failure: bool = False,
+) -> CycleRunResult:
+    """Resume an interrupted cycle from its last checkpoint.
+
+    Args:
+        memory_store: Workspace memory store
+        sources: Source repositories
+        cycle_id: ID of cycle to resume
+        iterations: Number of additional iterations to run (mutually exclusive with duration_minutes)
+        duration_minutes: Duration to run (mutually exclusive with iterations)
+        note: Optional note prefix for checkpoints
+        stop_on_failure: Stop on first failing checkpoint
+
+    Returns:
+        CycleRunResult with resumed cycle information
+
+    Raises:
+        ValueError: If cycle not found or both/neither iterations and duration_minutes specified
+    """
+    # Validate cycle exists
+    cycle_data = memory_store.cycle_report(cycle_id)
+    if cycle_data is None:
+        raise ValueError(f"Cycle {cycle_id} not found.")
+
+    # Check if cycle is already finished
+    if cycle_data['cycle'].get('ended_at'):
+        raise ValueError(f"Cycle {cycle_id} is already complete. Use 'workspace cycle start' to create a new cycle.")
+
+    # Validate arguments
+    if iterations is not None and duration_minutes is not None:
+        raise ValueError("Cannot specify both iterations and duration_minutes.")
+
+    if iterations is None and duration_minutes is None:
+        iterations = 1  # Default to 1 iteration
+
+    # Get current checkpoint count to continue numbering
+    current_checkpoint_count = int(cycle_data['checkpoint_count'])
+
+    # Resume based on mode
+    if duration_minutes is not None:
+        # Time-based resume
+        return run_cycle_window(
+            memory_store,
+            sources,
+            duration_minutes=duration_minutes,
+            note=note or "resumed",
+            stop_on_failure=stop_on_failure,
+        )
+    else:
+        # Iteration-based resume
+        assert iterations is not None  # Type guard
+        if iterations < 1:
+            raise ValueError("Iterations must be at least 1.")
+
+        iteration_results: list[CycleIterationResult] = []
+        for i in range(1, iterations + 1):
+            iteration_number = current_checkpoint_count + i
+            evaluation = run_cycle_evaluation(sources, memory_store)
+            checkpoint_label = _iteration_label(note or "resumed", iteration_number)
+            checkpoint_id = record_cycle_checkpoint(
+                memory_store,
+                evaluation,
+                checkpoint_label,
+                iteration_number=iteration_number,
+                note=(note or "resumed").strip() if note else "resumed",
+                cycle_id=cycle_id,
+            )
+            iteration_results.append(
+                CycleIterationResult(
+                    iteration_number=iteration_number,
+                    checkpoint_id=checkpoint_id,
+                    label=checkpoint_label,
+                    evaluation=evaluation,
+                )
+            )
+            if stop_on_failure and not evaluation.overall_ok():
+                break
+
+        # Get updated report
+        report = memory_store.cycle_report(cycle_id)
+        if report is None:
+            raise ValueError("Cycle report could not be generated.")
+
+        return CycleRunResult(
+            cycle_id=cycle_id,
+            started_cycle=False,  # We're resuming, not starting
+            iterations_completed=len(iteration_results),
+            iteration_results=tuple(iteration_results),
+            report=CycleReport(
+                cycle=report["cycle"],
+                checkpoint_count=int(report["checkpoint_count"]),
+                health_pass_rate=float(report["health_pass_rate"]),
+                stability_pass_rate=float(report["stability_pass_rate"]),
+                security_pass_rate=float(report["security_pass_rate"]),
+                quality_pass_rate=float(report["quality_pass_rate"]),
+                latest_checkpoint=report["latest_checkpoint"],
+            ),
+        )
+
+
 def run_cycle_window(
     memory_store: WorkspaceMemoryStore,
     sources: list[Source],
