@@ -31,6 +31,7 @@ from workspace_os.collaborative_learning import (
     PatternExtractor,
 )
 from workspace_os.debug_logger import create_debug_logger, OperationType
+from workspace_os.notifications import format_cycle_notification, load_slack_events, load_slack_webhook_url, send_slack_notification
 import subprocess
 
 
@@ -189,11 +190,16 @@ class CycleNextAction:
 
 
 def start_cycle(memory_store: WorkspaceMemoryStore, label: str, objective: str, started_at: str | None = None) -> int:
-    return memory_store.start_cycle(label, objective, started_at=started_at)
+    cycle_id = memory_store.start_cycle(label, objective, started_at=started_at)
+    _notify_cycle_event(memory_store, "start", cycle_id=cycle_id, objective=objective)
+    return cycle_id
 
 
 def stop_cycle(memory_store: WorkspaceMemoryStore, ended_at: str | None = None) -> dict[str, str | None] | None:
-    return memory_store.finish_active_cycle(ended_at=ended_at)
+    cycle = memory_store.finish_active_cycle(ended_at=ended_at)
+    if cycle is not None:
+        _notify_cycle_event(memory_store, "complete", cycle_id=int(cycle["id"]), ended_at=cycle.get("ended_at"))
+    return cycle
 
 
 def active_cycle_report(memory_store: WorkspaceMemoryStore) -> CycleReport | None:
@@ -876,7 +882,7 @@ def record_cycle_checkpoint(
     cycle_id: int | None = None,
     created_at: str | None = None,
 ) -> int:
-    return memory_store.record_cycle_checkpoint(
+    checkpoint_id = memory_store.record_cycle_checkpoint(
         label=label,
         iteration_number=iteration_number,
         report=evaluation.to_dict(),
@@ -884,6 +890,51 @@ def record_cycle_checkpoint(
         cycle_id=cycle_id,
         created_at=created_at,
     )
+    active_cycle_id = cycle_id
+    if active_cycle_id is None:
+        active = memory_store.active_cycle()
+        active_cycle_id = int(active["id"]) if active else None
+    if active_cycle_id is not None:
+        _notify_cycle_event(
+            memory_store,
+            "checkpoint",
+            cycle_id=active_cycle_id,
+            iteration_number=iteration_number,
+            label=label,
+            passed=evaluation.overall_ok(),
+        )
+        if not evaluation.overall_ok():
+            _notify_cycle_event(
+                memory_store,
+                "failure",
+                cycle_id=active_cycle_id,
+                iteration_number=iteration_number,
+                label=label,
+                summary="checkpoint had failing gates",
+            )
+    return checkpoint_id
+
+
+def _notify_cycle_event(memory_store: WorkspaceMemoryStore, event: str, **details: object) -> None:
+    webhook_url = load_slack_webhook_url()
+    if not webhook_url:
+        return
+    if event not in load_slack_events():
+        return
+
+    cycle_id = details.get("cycle_id")
+    cycle: dict[str, object] | None = None
+    if isinstance(cycle_id, int):
+        fetched = memory_store.get_cycle(cycle_id)
+        if fetched is not None:
+            cycle = fetched
+    if cycle is None:
+        active = memory_store.active_cycle()
+        if active is not None:
+            cycle = active
+
+    text = format_cycle_notification(event, cycle, **details)
+    send_slack_notification(text, webhook_url=webhook_url)
 
 
 def _record_questioning_outcome(
