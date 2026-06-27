@@ -115,18 +115,77 @@ class AutonomousCycleTests(unittest.TestCase):
             )
 
             record = store.get_cycle(cycle_id)
+            latest = store.latest_cycle_for_issue(12)
             cycles = store.list_cycles(limit=10)
             signals = store.latest_learning_signals(limit=10)
 
         self.assertIsNotNone(record)
+        self.assertIsNotNone(latest)
         assert record is not None
+        assert latest is not None
         self.assertEqual(12, record.issue_number)
         self.assertEqual("feat/issue-12-branch-cleanup-docs", record.branch_name)
         self.assertEqual("validation", record.stage)
         self.assertEqual("passed", record.status)
         self.assertEqual(("python -m pytest tests/test_autonomous_cycle.py -q",), record.validation_commands)
+        self.assertEqual(record.id, latest.id)
         self.assertEqual(1, len(cycles))
         self.assertIn("validation_passed", signals)
+
+    def test_plan_cycle_reuses_previous_cycle_context_and_learning_signals(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = WorkspaceMemoryStore(root / ".workspace-os" / "workspace-memory.sqlite3")
+            memory.ensure_schema()
+            store = AutonomousCycleStore(root / ".workspace-os" / "autonomous-cycles.sqlite3")
+            store.ensure_schema()
+
+            policy = AutonomousCyclePolicy(
+                disposition=AutonomousCycleDisposition.SAFE_AUTONOMOUS,
+                reason="simple issue",
+                risk_level="low",
+                requires_validation=True,
+                requires_human_review=False,
+                can_merge=True,
+                confidence=0.95,
+            )
+            previous_cycle_id = store.start_cycle(
+                issue_number=142,
+                issue_title="Persist autonomous cycle state and learning signals",
+                issue_url="https://github.com/os-santiago/workspace-os/issues/142",
+                branch_name="feat/issue-142-persist-autonomous-cycle-state",
+                policy=policy,
+                validation_commands=("python -m pytest tests/test_autonomous_cycle.py -q",),
+                prompt="previous prompt",
+            )
+            store.update_cycle(
+                previous_cycle_id,
+                AutonomousCycleStage.COMPLETED,
+                "merged",
+                "Cycle completed successfully.",
+                learning_signals=("validation_passed", "branch_created"),
+                completed=True,
+            )
+
+            orchestrator = AutonomousCycleOrchestrator(
+                workspace_root=root,
+                memory_store=memory,
+                store=store,
+                command_runner=self._unexpected_command_runner,
+            )
+            plan = orchestrator.plan_cycle(
+                {
+                    "number": 142,
+                    "title": "Persist autonomous cycle state and learning signals",
+                    "body": "Keep durable state and feed prior signals into later cycles.",
+                    "labels": [{"name": "enhancement"}],
+                }
+            )
+
+        self.assertIn("Previous autonomous cycle:", plan.prompt)
+        self.assertIn("learning_signals=validation_passed; branch_created", plan.prompt)
+        self.assertTrue(any(note.startswith("resumes_cycle_id=") for note in plan.notes))
+        self.assertTrue(any(note.startswith("recent_signal=") for note in plan.notes))
 
     def test_orchestrator_records_blocked_issue_without_merging(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -93,6 +93,24 @@ class AutonomousCycleRecord:
     updated_at: str = ""
     completed_at: str | None = None
 
+    def compact_summary(self) -> str:
+        lines = [
+            f"cycle_id={self.id}",
+            f"issue=#{self.issue_number}: {self.issue_title}",
+            f"stage={self.stage}",
+            f"status={self.status}",
+            f"branch={self.branch_name}",
+            f"policy={self.policy_disposition}",
+            f"risk_level={self.risk_level}",
+            f"pr_number={self.pr_number or 'n/a'}",
+            f"merge_status={self.merge_status or 'n/a'}",
+        ]
+        if self.blockers:
+            lines.append(f"blockers={'; '.join(self.blockers)}")
+        if self.learning_signals:
+            lines.append(f"learning_signals={'; '.join(self.learning_signals)}")
+        return "\n".join(lines)
+
     def render(self) -> str:
         lines = [
             "Autonomous cycle record",
@@ -382,6 +400,22 @@ class AutonomousCycleStore:
             ).fetchall()
         return [_record_from_row(row) for row in rows]
 
+    def latest_cycle_for_issue(self, issue_number: int) -> AutonomousCycleRecord | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM autonomous_cycle_runs
+                WHERE issue_number = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (issue_number,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _record_from_row(row)
+
     def latest_learning_signals(self, limit: int = 20) -> list[str]:
         signals: list[str] = []
         for record in self.list_cycles(limit=limit):
@@ -428,20 +462,31 @@ class AutonomousCycleOrchestrator:
         complexity = classify_issue(issue_data)
         commands = tuple(validation_commands or self._default_validation_commands())
         policy = self.evaluate_policy(issue_data, complexity, validation_commands=commands)
+        prior_cycle = self.store.latest_cycle_for_issue(issue_number)
+        recent_signals = self.store.latest_learning_signals(limit=8)
         prompt = build_hardened_delegate_prompt(
             agent="claude",
             workspace_name=self.workspace_root.name,
             workspace_root=self.workspace_root,
             task=f"Implement issue #{issue_number}: {issue_title}",
-            brief=self._build_brief(issue_data, complexity, policy),
+            brief=self._build_brief(
+                issue_data,
+                complexity,
+                policy,
+                prior_cycle=prior_cycle,
+                recent_signals=recent_signals,
+            ),
             tone="focused, concise, and repository-safe",
             detail_level="high",
         )
-        notes = (
+        notes = [
             f"complexity={complexity.level.value}",
             f"score={complexity.score:.1f}",
             f"requires_human_review={policy.requires_human_review}",
-        )
+        ]
+        if prior_cycle is not None:
+            notes.append(f"resumes_cycle_id={prior_cycle.id}")
+        notes.extend(f"recent_signal={signal}" for signal in recent_signals[:3])
         return AutonomousCyclePlan(
             issue_number=issue_number,
             issue_title=issue_title,
@@ -450,7 +495,7 @@ class AutonomousCycleOrchestrator:
             prompt=prompt,
             validation_commands=commands,
             should_merge=policy.can_merge,
-            notes=notes,
+            notes=tuple(notes),
         )
 
     def evaluate_policy(
@@ -720,6 +765,9 @@ class AutonomousCycleOrchestrator:
         issue_data: dict[str, Any],
         complexity: ComplexityClassification,
         policy: AutonomousCyclePolicy,
+        *,
+        prior_cycle: AutonomousCycleRecord | None = None,
+        recent_signals: Sequence[str] = (),
     ) -> str:
         issue_number = issue_data.get("number", "n/a")
         title = issue_data.get("title", "Untitled")
@@ -735,6 +783,22 @@ class AutonomousCycleOrchestrator:
             brief_lines.append(f"Labels={', '.join(labels)}")
         if body:
             brief_lines.append(f"Body preview={_truncate(body, 500)}")
+        if prior_cycle is not None:
+            brief_lines.append("Previous autonomous cycle:")
+            brief_lines.append(f"- {prior_cycle.compact_summary()}")
+            if prior_cycle.validation_commands:
+                brief_lines.append(f"- validation_commands={'; '.join(prior_cycle.validation_commands)}")
+            if prior_cycle.validation_results:
+                validation_bits = []
+                for result in prior_cycle.validation_results[:3]:
+                    validation_bits.append(
+                        f"{result.get('command', 'n/a')}:{'pass' if result.get('passed', False) else 'fail'}"
+                    )
+                if validation_bits:
+                    brief_lines.append(f"- validation_results={'; '.join(validation_bits)}")
+        if recent_signals:
+            brief_lines.append("Recent learning signals:")
+            brief_lines.extend(f"- {signal}" for signal in recent_signals[:5])
         return "\n".join(brief_lines)
 
     def _default_validation_commands(self) -> list[str]:

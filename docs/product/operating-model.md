@@ -126,6 +126,8 @@ Each cycle must record:
 - the autonomy policy and the reason it was chosen;
 - learning signals for the next cycle.
 
+The next cycle should also reuse the latest stored record for the same issue when available, so the prompt and review context can inherit prior blockers, validation results, and signals instead of starting from scratch.
+
 ## Librarian Rule
 
 Before adding durable content:

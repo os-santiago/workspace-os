@@ -115,6 +115,13 @@ Initial scope:
 - Save stage transitions and review outcomes across sessions.
 - Store learning signals from blocked, partial, or successful cycles.
 - Expose the latest cycle records for the next run and for documentation.
+- Reuse the latest cycle for the same issue plus recent learning signals when constructing the next cycle prompt.
+
+Retrieval path:
+- `AutonomousCycleStore.get_cycle(id)`
+- `AutonomousCycleStore.list_cycles(limit=...)`
+- `AutonomousCycleStore.latest_cycle_for_issue(issue_number)`
+- `AutonomousCycleStore.latest_learning_signals(limit=...)`
 
 ### Source Registry
 
