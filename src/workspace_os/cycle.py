@@ -759,6 +759,8 @@ def _build_cycle_work_prompt(
         role=role,
         work_item_id=f"issue-{assigned_issue['number']}" if assigned_issue and "number" in assigned_issue else None,
         agent_name=role,
+        issue_data=assigned_issue,
+        code_context=analysis_text,
     )
 
     # Add recent work context from other agents (squad awareness)
