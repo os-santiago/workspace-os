@@ -23,6 +23,10 @@ from workspace_os.conscience_report import build_conscience_recommendation_text,
 from workspace_os.cycle import build_cycle_next_action
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
+from workspace_os.performance_regression import (
+    build_performance_regression_report,
+    capture_performance_baseline,
+)
 from workspace_os.conversation import build_workspace_reply
 from workspace_os.learning import suggest_questions_for_work
 from workspace_os.oce_extensions import load_configured_oce_extensions
@@ -213,6 +217,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     filename="agent-utilization.md",
                 )
                 return
+            if parsed.path == "/api/performance-regression":
+                self._send_json(_performance_regression_payload(memory_path, workspace_root, query))
+                return
+            if parsed.path == "/api/performance-regression.md":
+                self._send_text(
+                    _performance_regression_markdown_payload(memory_path, workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="performance-regression.md",
+                )
+                return
 
             self.send_error(404, "Not found")
 
@@ -234,6 +248,9 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
+                return
+            if parsed.path == "/api/performance-regression/baseline":
+                self._send_json(_performance_regression_baseline_payload(memory_path, workspace_root, payload))
                 return
 
         def log_message(self, format: str, *args: object) -> None:
@@ -1008,6 +1025,67 @@ def _agent_utilization_markdown_payload(
     return {"ok": True, "text": report.render()}
 
 
+def _performance_regression_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None or workspace_root is None:
+        return {"ok": False, "error": "Memory path and workspace root are required."}
+    threshold = _float_query(query or {}, "threshold", 0.10)
+    sample_count = _int_query(query or {}, "samples", 5)
+    iterations_per_sample = _int_query(query or {}, "iterations", 25)
+    report = build_performance_regression_report(
+        memory_path,
+        workspace_root,
+        threshold_ratio=threshold,
+        sample_count=sample_count,
+        iterations_per_sample=iterations_per_sample,
+    )
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _performance_regression_markdown_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None or workspace_root is None:
+        return {"ok": False, "text": "Memory path and workspace root are required."}
+    threshold = _float_query(query or {}, "threshold", 0.10)
+    sample_count = _int_query(query or {}, "samples", 5)
+    iterations_per_sample = _int_query(query or {}, "iterations", 25)
+    report = build_performance_regression_report(
+        memory_path,
+        workspace_root,
+        threshold_ratio=threshold,
+        sample_count=sample_count,
+        iterations_per_sample=iterations_per_sample,
+    )
+    return {"ok": True, "text": report.render()}
+
+
+def _performance_regression_baseline_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if memory_path is None or workspace_root is None:
+        return {"ok": False, "error": "Memory path and workspace root are required."}
+    body = payload or {}
+    threshold = float(body.get("threshold", 0.10))
+    sample_count = int(body.get("samples", 5))
+    iterations_per_sample = int(body.get("iterations", 25))
+    report = capture_performance_baseline(
+        memory_path,
+        workspace_root,
+        threshold_ratio=threshold,
+        sample_count=sample_count,
+        iterations_per_sample=iterations_per_sample,
+    )
+    return {"ok": True, "report": report.to_dict()}
+
+
 def _conscience_recommendation_payload(
     memory_path: Path | None = None,
     query: dict[str, list[str]] | None = None,
@@ -1434,6 +1512,13 @@ def _extract_progress_map(content: str) -> str:
 def _first(query: dict[str, list[str]], name: str) -> str:
     values = query.get(name, [])
     return values[0].strip() if values else ""
+
+
+def _float_query(query: dict[str, list[str]], name: str, default: float) -> float:
+    try:
+        return float(_first(query, name) or default)
+    except ValueError:
+        return default
 
 
 def _int_query(query: dict[str, list[str]], name: str, default: int) -> int:

@@ -1,5 +1,7 @@
 import unittest
 import json
+import threading
+import urllib.request
 
 from pathlib import Path
 import tempfile
@@ -22,6 +24,10 @@ from workspace_os.web_server import (
     _conscience_recommendation_payload,
     _agent_utilization_markdown_payload,
     _agent_utilization_payload,
+    _build_handler,
+    _performance_regression_baseline_payload,
+    _performance_regression_markdown_payload,
+    _performance_regression_payload,
     _security_markdown_payload,
     _security_payload,
     _delegate_launch_payload,
@@ -84,6 +90,13 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("utilizationRefresh", index)
         self.assertIn("utilizationOutput", index)
         self.assertIn("utilizationDownload", index)
+        self.assertIn("performanceRefresh", index)
+        self.assertIn("performanceOutput", index)
+        self.assertIn("performanceDownload", index)
+        self.assertIn("regressionBaseline", index)
+        self.assertIn("regressionOutput", index)
+        self.assertIn("regressionRefresh", index)
+        self.assertIn("regressionDownload", index)
         self.assertIn("securityRefresh", index)
         self.assertIn("securityOutput", index)
         self.assertIn("securityDownload", index)
@@ -106,6 +119,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestConscienceRecommendation", app)
         self.assertIn("latestQuestioningMetrics", app)
         self.assertIn("latestAgentUtilization", app)
+        self.assertIn("latestAgentPerformance", app)
+        self.assertIn("latestPerformanceRegression", app)
         self.assertIn("latestSecurity", app)
         self.assertIn("latestNextAction", app)
         self.assertIn("latestCycleMonitor", app)
@@ -333,6 +348,69 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(24, len(result["report"]["hourly_totals"]))
         self.assertIn("Agent Utilization Report", markdown["text"])
         self.assertIn("Recommended max workers", markdown["text"])
+
+    def test_performance_regression_payload_renders_benchmark_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+
+            result = _performance_regression_payload(memory, root, {"samples": ["1"], "iterations": ["1"]})
+            markdown = _performance_regression_markdown_payload(memory, root, {"samples": ["1"], "iterations": ["1"]})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(3, result["report"]["benchmark_count"])
+        self.assertFalse(result["report"]["baseline_available"])
+        self.assertIn("Performance Regression Report", markdown["text"])
+        self.assertIn("Baseline available: no", markdown["text"])
+
+    def test_performance_regression_baseline_is_saved_locally(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            baseline = _performance_regression_baseline_payload(
+                memory,
+                root,
+                {"threshold": 0.1, "samples": 1, "iterations": 1},
+            )
+            baseline_path = root / ".workspace-os" / "performance-baselines.json"
+            self.assertTrue(baseline["ok"])
+            self.assertTrue(baseline["report"]["baseline_available"])
+            self.assertTrue(baseline_path.exists())
+
+    def test_performance_regression_http_routes_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from http.server import ThreadingHTTPServer
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), _build_handler([], root, memory, None))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_address[1]}"
+                with urllib.request.urlopen(f"{base_url}/api/performance-regression?samples=1&iterations=1", timeout=5) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                with urllib.request.urlopen(f"{base_url}/api/performance-regression.md?samples=1&iterations=1", timeout=5) as response:
+                    markdown = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+                request = urllib.request.Request(
+                    f"{base_url}/api/performance-regression/baseline",
+                    data=b"{}",
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    baseline = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Performance Regression Report", markdown)
+        self.assertTrue(baseline["ok"])
 
     def test_cycle_monitor_payload_renders_active_cycle_summary(self):
         with tempfile.TemporaryDirectory() as directory:
