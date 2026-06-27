@@ -18,6 +18,25 @@ from workspace_os.memory import WorkspaceMemoryStore
 
 
 class AutonomousCycleTests(unittest.TestCase):
+    def test_evaluate_autonomy_allows_simple_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            issue_data = {
+                "_workspace_root": Path(directory),
+                "number": 12,
+                "title": "Fix README typo",
+                "body": "Correct the spelling in the quickstart section.",
+                "labels": [{"name": "documentation"}],
+            }
+
+            policy = evaluate_autonomy(issue_data)
+            rendered = policy.render()
+
+        self.assertEqual(AutonomousCycleDisposition.SAFE_AUTONOMOUS, policy.disposition)
+        self.assertFalse(policy.requires_human_review)
+        self.assertTrue(policy.can_merge)
+        self.assertIn("gate_factors:", rendered)
+        self.assertIn("scope_size=small", rendered)
+
     def test_evaluate_autonomy_blocks_harmful_issue(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             issue_data = {
@@ -33,6 +52,25 @@ class AutonomousCycleTests(unittest.TestCase):
         self.assertEqual(AutonomousCycleDisposition.BLOCKED, policy.disposition)
         self.assertTrue(policy.requires_human_review)
         self.assertIn("malicious", policy.reason.lower())
+        self.assertIn("gate_factors:", policy.render())
+
+    def test_evaluate_autonomy_escalates_when_coverage_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            issue_data = {
+                "_workspace_root": root,
+                "number": 44,
+                "title": "Refactor cycle routing and state management",
+                "body": "Coordinate routing, storage, and approval flow across multiple modules.",
+                "labels": [{"name": "enhancement"}],
+            }
+
+            policy = evaluate_autonomy(issue_data)
+
+        self.assertEqual(AutonomousCycleDisposition.HUMAN_REVIEW, policy.disposition)
+        self.assertTrue(policy.requires_human_review)
+        self.assertFalse(policy.can_merge)
+        self.assertIn("coverage", policy.reason.lower())
 
     def test_store_persists_cycle_state_and_events(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -119,7 +157,7 @@ class AutonomousCycleTests(unittest.TestCase):
         self.assertTrue(record.completed_at)
         self.assertIn("malicious", record.policy_reason.lower())
 
-    def test_orchestrator_stops_before_merge_when_validation_fails(self) -> None:
+    def test_orchestrator_stops_before_branch_when_human_review_required(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             memory = WorkspaceMemoryStore(root / ".workspace-os" / "workspace-memory.sqlite3")
@@ -129,6 +167,42 @@ class AutonomousCycleTests(unittest.TestCase):
 
             issue_data = {
                 "number": 21,
+                "title": "Refactor cycle routing and state management",
+                "body": "Coordinate routing, storage, and approval flow across multiple modules.",
+                "labels": [{"name": "enhancement"}],
+            }
+
+            runner = _FakeCommandRunner()
+            orchestrator = AutonomousCycleOrchestrator(
+                workspace_root=root,
+                memory_store=memory,
+                store=store,
+                command_runner=runner,
+            )
+            record = orchestrator.create_cycle_record(issue_data, dry_run=False)
+
+        self.assertEqual(AutonomousCycleDisposition.HUMAN_REVIEW.value, record.policy_disposition)
+        self.assertEqual("human_review_required", record.status)
+        self.assertEqual("oce_gate", record.stage)
+        self.assertIn("human_review_required", record.blockers)
+        self.assertEqual(0, runner.checkout_calls)
+        self.assertEqual(0, runner.validation_calls)
+        self.assertEqual(0, runner.pr_create_calls)
+        self.assertEqual(0, runner.merge_calls)
+
+    def test_orchestrator_stops_before_merge_when_validation_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tests_dir = root / "tests"
+            tests_dir.mkdir()
+            (tests_dir / "test_dummy.py").write_text("def test_dummy():\n    assert True\n", encoding="utf-8")
+            memory = WorkspaceMemoryStore(root / ".workspace-os" / "workspace-memory.sqlite3")
+            memory.ensure_schema()
+            store = AutonomousCycleStore(root / ".workspace-os" / "autonomous-cycles.sqlite3")
+            store.ensure_schema()
+
+            issue_data = {
+                "number": 22,
                 "title": "Add a small docs note",
                 "body": "Document the existing workflow.",
                 "labels": [{"name": "documentation"}],

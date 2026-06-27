@@ -102,8 +102,9 @@ Coordinates the first closed-loop WOS flow for a single issue: select, branch, i
 
 Initial scope:
 - Classify each candidate issue through OCE before starting a cycle.
+- Evaluate scope size, change surface, test coverage, merge risk, ambiguity, and cross-cutting impact before any mutation.
 - Persist the issue, branch, PR, validation, blockers, and learning signals.
-- Refuse merge when validation fails or when the autonomy policy requires human review.
+- Refuse mutation or merge when validation fails or when the autonomy policy requires human review.
 - Keep the orchestration logic separate from the implementation agent and from the model provider layer.
 
 ### Autonomous Cycle State Store

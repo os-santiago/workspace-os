@@ -112,12 +112,18 @@ Autonomy levels:
 - `human_review` - WOS records the cycle, explains the risk, and pauses before mutation.
 - `blocked` - WOS refuses the cycle because OCE classified the request as unsafe or out of bounds.
 
+The gate is intentionally conservative:
+- large or cross-cutting changes stay at `validation_only`;
+- ambiguous or under-tested changes escalate to `human_review`;
+- unsafe or policy-breaking requests become `blocked`.
+
 Each cycle must record:
 - selected issue;
 - branch name;
 - PR number and URL when created;
 - validation commands and outcomes;
 - merge outcome or merge refusal reason;
+- the autonomy policy and the reason it was chosen;
 - learning signals for the next cycle.
 
 ## Librarian Rule
