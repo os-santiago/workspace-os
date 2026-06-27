@@ -43,6 +43,20 @@
       </section>
 
       <aside class="right-rail" aria-label="Workspace activity">
+        <section class="rail-section handoff-section cycle-monitor-section">
+          <div class="rail-header">
+            <h2>Cycle Monitor</h2>
+            <div class="rail-actions">
+              <span class="engine-pill" id="cycleMonitorStatus">Live</span>
+              <button class="rail-action" id="cycleMonitorRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Active cycle, checkpoint progress, agent utilization, and the next recommended action.</p>
+            <pre class="handoff-output" id="cycleMonitorOutput">Loading cycle monitor...</pre>
+          </div>
+        </section>
+
         <section class="rail-section">
           <div class="rail-header">
             <h2>Software</h2>

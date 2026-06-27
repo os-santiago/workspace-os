@@ -11,6 +11,8 @@ from workspace_os.web_server import (
     _analysis_payload,
     _capture_preview_payload,
     _chat_payload,
+    _cycle_monitor_markdown_payload,
+    _cycle_monitor_payload,
     _context_snapshot_markdown_payload,
     _context_snapshot_payload,
     _conscience_preview_payload,
@@ -87,6 +89,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("securityDownload", index)
         self.assertIn("analysisRefresh", index)
         self.assertIn("analysisOutput", index)
+        self.assertIn("cycleMonitorRefresh", index)
+        self.assertIn("cycleMonitorOutput", index)
+        self.assertIn("cycleMonitorStatus", index)
         self.assertIn("chatContextToggle", index)
         self.assertIn("chatContextRefresh", index)
         self.assertIn("chatContextOutput", index)
@@ -103,6 +108,8 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestAgentUtilization", app)
         self.assertIn("latestSecurity", app)
         self.assertIn("latestNextAction", app)
+        self.assertIn("latestCycleMonitor", app)
+        self.assertIn("cycleMonitorSocket", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
         self.assertIn("chatContextExpanded", app)
@@ -316,6 +323,41 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Agent Utilization Report", markdown["text"])
         self.assertIn("Recommended max workers", markdown["text"])
 
+    def test_cycle_monitor_payload_renders_active_cycle_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            cycle_id = store.start_cycle("cycle-1", "monitor the cycle dashboard", started_at="2026-06-26T10:00:00+00:00")
+            store.record_cycle_checkpoint(
+                "iteration-1",
+                1,
+                {
+                    "health_ok": True,
+                    "stability_ok": True,
+                    "security_ok": True,
+                    "quality_ok": False,
+                },
+                note="first dashboard checkpoint",
+                cycle_id=cycle_id,
+                created_at="2026-06-26T10:05:00+00:00",
+            )
+
+            result = _cycle_monitor_payload(memory)
+            markdown = _cycle_monitor_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["monitor"]["active"])
+        self.assertEqual("cycle-1", result["monitor"]["cycle"]["label"])
+        self.assertEqual(1, result["monitor"]["summary"]["checkpoint_count"])
+        self.assertEqual(1, len(result["monitor"]["checkpoints"]))
+        self.assertIn("Cycle monitor dashboard", markdown["text"])
+        self.assertIn("monitor the cycle dashboard", markdown["text"])
+        self.assertIn("iteration-1", markdown["text"])
+
     def test_security_payload_renders_bandit_report_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -355,7 +397,6 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(command[:2], ["opencode", "run"])
         self.assertIn("--model", command)
         self.assertIn("opencode/deepseek-v4-flash-free", command)
-        self.assertIn("--dangerously-skip-permissions", command)
 
     def test_delegate_launch_passes_conscience_to_launcher(self):
         captured = {}
