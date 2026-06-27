@@ -331,8 +331,13 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertEqual(24, len(result["report"]["hourly_totals"]))
+        self.assertIn("idle_hours", result["report"])
+        self.assertIn("bottleneck_hours", result["report"])
+        self.assertIn("recommendations", result["report"])
         self.assertIn("Agent Utilization Report", markdown["text"])
         self.assertIn("Recommended max workers", markdown["text"])
+        self.assertIn("Idle hours:", markdown["text"])
+        self.assertIn("Recommendations:", markdown["text"])
 
     def test_cycle_monitor_payload_renders_active_cycle_summary(self):
         with tempfile.TemporaryDirectory() as directory:
