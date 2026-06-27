@@ -354,6 +354,7 @@ const renderQuestioningMetrics = (data = null) => {
   const patterns = metrics.question_patterns || [];
   const withQna = metrics.with_qna || {};
   const withoutQna = metrics.without_qna || {};
+  const semantic = metrics.semantic || {};
   const lines = [
     `Context focus: ${data.report?.context || "n/a"}`,
     `Total Q&A: ${summary.total || 0}`,
@@ -366,6 +367,8 @@ const renderQuestioningMetrics = (data = null) => {
     `Estimated rework savings (min): ${(metrics.estimated_rework_savings_minutes || 0).toFixed(1)}`,
     `Success w/ Q&A: ${(withQna.success_rate || 0).toFixed(2)}`,
     `Success w/o Q&A: ${(withoutQna.success_rate || 0).toFixed(2)}`,
+    `Semantic top score: ${(semantic.top_score || 0).toFixed(2)}`,
+    `Semantic hit count: ${semantic.hit_count || 0}`,
     "",
     "Recent Q&A:",
     ...(recent.length > 0
@@ -381,6 +384,11 @@ const renderQuestioningMetrics = (data = null) => {
     "",
     "Question patterns:",
     ...(patterns.length > 0 ? patterns.map((item) => `- ${item.question} (asked ${item.count}x)`) : ["- none recorded yet"]),
+    "",
+    "Semantic memory:",
+    ...(Array.isArray(data.report?.semantic_hits) && data.report.semantic_hits.length > 0
+      ? data.report.semantic_hits.map((item) => `- ${item.created_at} | ${item.source} | ${item.title} | score=${Number(item.score || 0).toFixed(2)}`)
+      : ["- none recorded yet"]),
     "",
     "Suggestions:",
     ...(suggestions.length > 0

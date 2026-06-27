@@ -630,6 +630,19 @@ def suggest_questions_for_work(
         List of proactive question suggestions ordered by relevance
     """
     similar_qa = memory_store.get_similar_questions(task_context, limit=20)
+    semantic_hits = memory_store.semantic_search(task_context, limit=20)
+    for hit in semantic_hits:
+        if hit.kind != "qa":
+            continue
+        similar_qa.append(
+            {
+                "question": hit.title,
+                "answer": hit.body.split("|", 1)[0].strip() if hit.body else "",
+                "context": hit.body,
+                "agent": hit.source,
+                "created_at": hit.created_at,
+            }
+        )
 
     if not similar_qa:
         return []

@@ -57,6 +57,12 @@ class MemoryTests(unittest.TestCase):
                 work_item_id="issue-80",
                 agent_name="claude",
             )
+            store.record_context_snapshot(
+                "workspace",
+                "semantic-review",
+                "Coordinate context sharing with similarity search and memory reuse.",
+                "Semantic context sharing helps reuse prior work that is not recent.",
+            )
 
             stats = store.stats()
             hits = store.search("concise", limit=10)
@@ -69,14 +75,16 @@ class MemoryTests(unittest.TestCase):
             recent_qa = store.recent_qa_pairs(limit=1)
             work_item_qa = store.get_qa_for_work_item("issue-80")
             similar_qa = store.get_similar_questions("issue-80-dashboard", limit=1)
-            metrics = store.questioning_metrics()
+            semantic_hits = store.semantic_search("semantic context sharing and memory reuse", limit=3)
+            semantic_metrics = store.semantic_context_metrics("semantic context sharing and memory reuse")
+            metrics = store.questioning_metrics("semantic context sharing and memory reuse")
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
         self.assertEqual(1, stats["task_outcomes"])
         self.assertEqual(1, stats["conversation_turns"])
         self.assertEqual(2, stats["feedback_events"])
-        self.assertEqual(1, stats["context_snapshots"])
+        self.assertEqual(2, stats["context_snapshots"])
         self.assertEqual(2, stats["question_answer_pairs"])
         self.assertTrue(any(hit.kind == "preference" for hit in hits))
         self.assertTrue(any(hit.kind == "feedback" for hit in feedback_hits))
@@ -106,11 +114,16 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", work_item_qa[0]["answer"])
         self.assertEqual("How do we validate a dashboard change?", similar_qa[0]["question"])
         self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", similar_qa[0]["answer"])
+        self.assertTrue(any(hit.kind == "snapshot" for hit in semantic_hits))
+        self.assertGreaterEqual(semantic_hits[0].score, 0.15)
+        self.assertGreaterEqual(semantic_metrics["hit_count"], 1)
+        self.assertGreaterEqual(semantic_metrics["top_score"], 0.15)
         self.assertEqual(2, metrics["summary"]["total"])
         self.assertEqual("claude", next(iter(metrics["answer_sources"])))
         self.assertTrue(metrics["question_patterns"])
         self.assertIn("with_qna", metrics)
         self.assertIn("without_qna", metrics)
+        self.assertIn("semantic", metrics)
         self.assertGreaterEqual(metrics["learning_velocity"], 0.0)
         self.assertGreaterEqual(metrics["estimated_time_invested_minutes"], 0.0)
         self.assertGreaterEqual(metrics["estimated_rework_savings_minutes"], 0.0)
@@ -136,7 +149,7 @@ class MemoryTests(unittest.TestCase):
                 error_type="positive",
                 has_praise=True,
             )
-            large_metrics = store.questioning_metrics()
+            large_metrics = store.questioning_metrics("bulk dashboard behavior")
 
         self.assertEqual(205, large_metrics["summary"]["total"])
         self.assertEqual(205, sum(large_metrics["answer_sources"].values()))

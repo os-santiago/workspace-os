@@ -800,8 +800,19 @@ def _questioning_payload(
         context = str(snapshot["summary"]) if snapshot and snapshot.get("summary") else "workspace"
     report = {
         "context": context,
-        "metrics": store.questioning_metrics(),
+        "metrics": store.questioning_metrics(context),
         "recent": store.recent_qa_pairs(limit=limit),
+        "semantic_hits": [
+            {
+                "kind": hit.kind,
+                "title": hit.title,
+                "body": hit.body,
+                "created_at": hit.created_at,
+                "score": hit.score,
+                "source": hit.source,
+            }
+            for hit in store.semantic_search(context, limit=limit)
+        ],
         "suggestions": [
             {
                 "question": suggestion.question,
@@ -850,6 +861,16 @@ def _questioning_markdown_payload(
         lines.extend(
             f"- {item['created_at']} | {item['agent']} | {item['question']} -> {item['answer']}"
             for item in recent
+        )
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Semantic memory:")
+    semantic_hits = report.get("semantic_hits", [])
+    if semantic_hits:
+        lines.extend(
+            f"- {item['created_at']} | {item['source']} | {item['title']} | score={item['score']:.2f}"
+            for item in semantic_hits
         )
     else:
         lines.append("- none recorded yet")
