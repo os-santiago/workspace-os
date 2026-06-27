@@ -1894,6 +1894,7 @@ def run_cycle_work_window_continuous(
                                     workspace_name=workspace_name,
                                     workspace_root=workspace_root,
                                     memory_store=memory_store,
+                                    config_path=args.config,
                                     agent_type="claude",
                                     agent_runner=executor,
                                     enable_user_approval=True

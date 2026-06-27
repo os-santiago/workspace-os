@@ -105,6 +105,7 @@ See [Agent Routing Validation](docs/features/agent-routing-validation.md) for de
 - [Product Vision](docs/product/vision.md) - Goals, outcomes, and success criteria
 - [Roadmap](docs/product/roadmap.md) - Implementation stages and current progress
 - [Architecture Overview](docs/architecture/overview.md) - System design and boundaries
+- [Model Providers](docs/runbooks/model-providers.md) - optional model brain configuration
 - [Agent Routing Validation](docs/features/agent-routing-validation.md) - Intelligent agent routing
 - [Examples](examples/README.md) - Usage patterns and demo scripts
 
