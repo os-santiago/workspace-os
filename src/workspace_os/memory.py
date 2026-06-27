@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
+from collections import Counter
 import json
 import sqlite3
 from pathlib import Path
@@ -1619,6 +1620,58 @@ class WorkspaceMemoryStore:
                 "latest_created_at": str(row["latest_created_at"]) if row and row["latest_created_at"] else "",
             }
 
+    def questioning_metrics(self) -> dict[str, object]:
+        """Get dashboard metrics for the questioning protocol."""
+        qa_rows = self.all_qa_pairs()
+        qa_summary = self.qa_metrics()
+        source_counts = Counter(row["agent"] for row in qa_rows if row.get("agent"))
+        question_counts = Counter(row["question"].casefold().strip() for row in qa_rows if row.get("question"))
+        patterns = [
+            {
+                "question": question,
+                "count": count,
+            }
+            for question, count in question_counts.most_common(5)
+        ]
+        with_qna_feedback = self._questioning_feedback_metrics(with_questioning=True)
+        without_qna_feedback = self._questioning_feedback_metrics(with_questioning=False)
+        total_questions = int(qa_summary.get("total", 0))
+        recent_7_days = int(qa_summary.get("recent_7_days", 0))
+        learning_velocity = recent_7_days / 7.0
+        estimated_time_invested_minutes = total_questions * 2.0
+        estimated_rework_savings_minutes = max(
+            0.0,
+            (with_qna_feedback["positive_count"] * 6.0) + (with_qna_feedback["over_expectation_count"] * 4.0),
+        )
+        with_qna_success_rate = (
+            (with_qna_feedback["positive_count"] + with_qna_feedback["over_expectation_count"])
+            / with_qna_feedback["total"]
+            if with_qna_feedback["total"]
+            else 0.0
+        )
+        without_qna_success_rate = (
+            (without_qna_feedback["positive_count"] + without_qna_feedback["over_expectation_count"])
+            / without_qna_feedback["total"]
+            if without_qna_feedback["total"]
+            else 0.0
+        )
+        return {
+            "summary": qa_summary,
+            "answer_sources": dict(source_counts),
+            "question_patterns": patterns,
+            "with_qna": {
+                **with_qna_feedback,
+                "success_rate": with_qna_success_rate,
+            },
+            "without_qna": {
+                **without_qna_feedback,
+                "success_rate": without_qna_success_rate,
+            },
+            "learning_velocity": learning_velocity,
+            "estimated_time_invested_minutes": estimated_time_invested_minutes,
+            "estimated_rework_savings_minutes": estimated_rework_savings_minutes,
+        }
+
     def recent_qa_pairs(self, limit: int = 5) -> list[dict[str, str]]:
         """Get the most recent Q&A pairs for dashboarding and review."""
         with self._connection() as conn:
@@ -1642,6 +1695,61 @@ class WorkspaceMemoryStore:
                 }
                 for row in rows
             ]
+
+    def all_qa_pairs(self) -> list[dict[str, str]]:
+        """Get all Q&A pairs for metrics and pattern analysis."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT question_text, answer_text, task_context, work_item_id, agent_name, created_at
+                FROM question_answer_pairs
+                ORDER BY created_at DESC, id DESC
+                """
+            )
+            return [
+                {
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
+                    "context": str(row["task_context"]),
+                    "work_item_id": str(row["work_item_id"]) if row["work_item_id"] else "",
+                    "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def _questioning_feedback_metrics(self, *, with_questioning: bool) -> dict[str, int]:
+        with self._connection() as conn:
+            if with_questioning:
+                row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                        SUM(CASE WHEN status = 'questionable' THEN 1 ELSE 0 END) AS questionable_count,
+                        SUM(CASE WHEN status = 'over_expectation' THEN 1 ELSE 0 END) AS over_expectation_count
+                    FROM feedback_events
+                    WHERE request_text LIKE 'Questioning phase%'
+                    """
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                        SUM(CASE WHEN status = 'questionable' THEN 1 ELSE 0 END) AS questionable_count,
+                        SUM(CASE WHEN status = 'over_expectation' THEN 1 ELSE 0 END) AS over_expectation_count
+                    FROM feedback_events
+                    WHERE request_text NOT LIKE 'Questioning phase%'
+                    """
+                ).fetchone()
+        return {
+            "total": int(row["total"] or 0) if row else 0,
+            "positive_count": int(row["positive_count"] or 0) if row else 0,
+            "questionable_count": int(row["questionable_count"] or 0) if row else 0,
+            "over_expectation_count": int(row["over_expectation_count"] or 0) if row else 0,
+        }
 
     @contextmanager
     def _connection(self):
