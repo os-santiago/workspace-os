@@ -213,6 +213,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     filename="agent-utilization.md",
                 )
                 return
+            if parsed.path == "/api/agent-performance":
+                self._send_json(_agent_performance_payload(memory_path, query))
+                return
+            if parsed.path == "/api/agent-performance.md":
+                self._send_text(
+                    _agent_performance_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="agent-performance.md",
+                )
+                return
 
             self.send_error(404, "Not found")
 
@@ -1005,6 +1015,30 @@ def _agent_utilization_markdown_payload(
         return {"ok": False, "text": "Memory path is required."}
     tracker = AgentQueueTracker(memory_path.parent)
     report = tracker.utilization_report()
+    return {"ok": True, "text": report.render()}
+
+
+def _agent_performance_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    tracker = AgentQueueTracker(memory_path.parent)
+    limit = _int_query(query or {}, "limit", 1000)
+    report = tracker.performance_report(limit=limit)
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _agent_performance_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    tracker = AgentQueueTracker(memory_path.parent)
+    limit = _int_query(query or {}, "limit", 1000)
+    report = tracker.performance_report(limit=limit)
     return {"ok": True, "text": report.render()}
 
 

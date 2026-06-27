@@ -101,3 +101,36 @@ def test_agent_queue_utilization_report(temp_memory):
     assert any(summary.agent == "opencode" for summary in report.agent_summaries)
     assert "Agent Utilization Report" in report.render()
     assert "Recommended max workers" in report.render()
+
+
+def test_agent_queue_performance_report(temp_memory):
+    tracker = AgentQueueTracker(temp_memory)
+    tracker.enqueue(
+        "task-1",
+        "opencode",
+        "workspace-os",
+        "Validate the dashboard",
+        metadata={"role": "primary", "task_type": "validation"},
+    )
+    tracker.start("task-1")
+    tracker.complete("task-1", returncode=0, duration_seconds=4.0)
+    tracker.enqueue(
+        "task-2",
+        "claude",
+        "workspace-os",
+        "Review the dashboard",
+        metadata={"role": "cross-check", "task_type": "validation"},
+    )
+    tracker.start("task-2")
+    tracker.fail("task-2", error="Validation failed")
+
+    report = tracker.performance_report()
+
+    assert report.total_tasks == 2
+    assert report.completed_tasks == 1
+    assert report.failed_tasks == 1
+    assert report.success_rate == 0.5
+    assert report.agent_summaries
+    assert report.role_summaries
+    assert report.specialization_patterns[0][0] == "validation"
+    assert "Agent Performance Report" in report.render()

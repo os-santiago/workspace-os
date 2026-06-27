@@ -6,6 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 import json
+from collections import Counter
 
 
 class AgentTaskState(str, Enum):
@@ -168,6 +169,127 @@ class AgentUtilizationReport:
             for summary in self.agent_summaries:
                 label = summary.agent[:5].ljust(5)
                 lines.append(f"{label} {_render_hour_heatmap(summary.hourly_activity)} | util={summary.utilization_ratio:.2f} peak={summary.peak_concurrent}")
+        return "\n".join(lines) + "\n"
+
+
+@dataclass(frozen=True)
+class AgentRolePerformance:
+    role: str
+    task_count: int
+    successful_tasks: int
+    failed_tasks: int
+    avg_duration_seconds: float
+    success_rate: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "task_count": self.task_count,
+            "successful_tasks": self.successful_tasks,
+            "failed_tasks": self.failed_tasks,
+            "avg_duration_seconds": self.avg_duration_seconds,
+            "success_rate": self.success_rate,
+        }
+
+
+@dataclass(frozen=True)
+class AgentPerformanceSummary:
+    agent: str
+    total_tasks: int
+    successful_tasks: int
+    failed_tasks: int
+    avg_duration_seconds: float
+    success_rate: float
+    role_breakdown: tuple[AgentRolePerformance, ...]
+    specialization_patterns: tuple[tuple[str, int], ...]
+    task_type_counts: tuple[tuple[str, int], ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agent": self.agent,
+            "total_tasks": self.total_tasks,
+            "successful_tasks": self.successful_tasks,
+            "failed_tasks": self.failed_tasks,
+            "avg_duration_seconds": self.avg_duration_seconds,
+            "success_rate": self.success_rate,
+            "role_breakdown": [item.to_dict() for item in self.role_breakdown],
+            "specialization_patterns": [
+                {"pattern": pattern, "count": count} for pattern, count in self.specialization_patterns
+            ],
+            "task_type_counts": [
+                {"task_type": task_type, "count": count} for task_type, count in self.task_type_counts
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class AgentPerformanceReport:
+    timestamp: str
+    window_start: str | None
+    window_end: str | None
+    total_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    success_rate: float
+    learning_velocity_per_day: float
+    average_duration_seconds: float
+    agent_summaries: tuple[AgentPerformanceSummary, ...]
+    role_summaries: tuple[AgentRolePerformance, ...]
+    specialization_patterns: tuple[tuple[str, int], ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "timestamp": self.timestamp,
+            "window_start": self.window_start,
+            "window_end": self.window_end,
+            "total_tasks": self.total_tasks,
+            "completed_tasks": self.completed_tasks,
+            "failed_tasks": self.failed_tasks,
+            "success_rate": self.success_rate,
+            "learning_velocity_per_day": self.learning_velocity_per_day,
+            "average_duration_seconds": self.average_duration_seconds,
+            "agent_summaries": [summary.to_dict() for summary in self.agent_summaries],
+            "role_summaries": [summary.to_dict() for summary in self.role_summaries],
+            "specialization_patterns": [
+                {"pattern": pattern, "count": count} for pattern, count in self.specialization_patterns
+            ],
+        }
+
+    def render(self) -> str:
+        lines = [
+            f"Agent Performance Report @ {self.timestamp}",
+            f"Total tasks: {self.total_tasks}",
+            f"Completed tasks: {self.completed_tasks}",
+            f"Failed tasks: {self.failed_tasks}",
+            f"Success rate: {self.success_rate:.2f}",
+            f"Learning velocity/day: {self.learning_velocity_per_day:.2f}",
+            f"Average duration: {self.average_duration_seconds:.1f}s",
+            f"Window: {self.window_start or 'n/a'} -> {self.window_end or 'n/a'}",
+            "",
+            "Role performance:",
+        ]
+        if self.role_summaries:
+            lines.extend(
+                f"- {role.role}: tasks={role.task_count} success_rate={role.success_rate:.2f} avg_duration={role.avg_duration_seconds:.1f}s"
+                for role in self.role_summaries
+            )
+        else:
+            lines.append("- none recorded yet")
+        lines.append("")
+        lines.append("Agent summaries:")
+        if self.agent_summaries:
+            lines.extend(
+                f"- {summary.agent}: tasks={summary.total_tasks} success_rate={summary.success_rate:.2f} avg_duration={summary.avg_duration_seconds:.1f}s"
+                for summary in self.agent_summaries
+            )
+        else:
+            lines.append("- none recorded yet")
+        lines.append("")
+        lines.append("Specialization patterns:")
+        if self.specialization_patterns:
+            lines.extend(f"- {pattern}: {count}" for pattern, count in self.specialization_patterns)
+        else:
+            lines.append("- none recorded yet")
         return "\n".join(lines) + "\n"
 
 
@@ -377,6 +499,85 @@ class AgentQueueTracker:
             agent_summaries=tuple(agent_summaries),
         )
 
+    def performance_report(self, limit: int = 1000) -> AgentPerformanceReport:
+        tasks = self.recent_tasks(limit=limit)
+        if not tasks:
+            return AgentPerformanceReport(
+                timestamp=self._now_iso(),
+                window_start=None,
+                window_end=None,
+                total_tasks=0,
+                completed_tasks=0,
+                failed_tasks=0,
+                success_rate=0.0,
+                learning_velocity_per_day=0.0,
+                average_duration_seconds=0.0,
+                agent_summaries=(),
+                role_summaries=(),
+                specialization_patterns=(),
+            )
+
+        now = datetime.now(timezone.utc)
+        completed_tasks = [task for task in tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
+        failed_tasks = [task for task in tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
+        succeeded_count = len(completed_tasks)
+        total_tasks = len(tasks)
+        success_rate = succeeded_count / total_tasks if total_tasks else 0.0
+
+        started_values: list[datetime] = []
+        completed_values: list[datetime] = []
+        for task in tasks:
+            started = _parse_datetime(task.started_at) or _parse_datetime(task.queued_at)
+            if started is not None:
+                started_values.append(started)
+            completed = _parse_datetime(task.completed_at)
+            if completed is not None:
+                completed_values.append(completed)
+        window_start_dt = min(started_values) if started_values else None
+        window_end_dt = max(completed_values) if completed_values else (max(started_values) if started_values else now)
+        window_start = window_start_dt.isoformat() if window_start_dt else None
+        window_end = window_end_dt.isoformat() if window_end_dt else None
+
+        window_seconds = 0.0
+        if window_start_dt is not None and window_end_dt is not None:
+            window_seconds = max(0.0, (window_end_dt - window_start_dt).total_seconds())
+        window_days = max(1.0, window_seconds / 86400.0) if window_seconds > 0 else 1.0
+        learning_velocity_per_day = succeeded_count / window_days if window_days > 0 else 0.0
+
+        durations = [task.duration_seconds for task in completed_tasks if task.duration_seconds is not None]
+        average_duration_seconds = sum(durations) / len(durations) if durations else 0.0
+
+        by_agent: dict[str, list[AgentTaskTrace]] = {}
+        for task in tasks:
+            by_agent.setdefault(task.agent, []).append(task)
+
+        agent_summaries = tuple(
+            _build_agent_performance_summary(agent, agent_tasks)
+            for agent, agent_tasks in sorted(by_agent.items())
+        )
+
+        role_summaries = tuple(
+            _build_role_performance_summary(role, tasks)
+            for role in ("primary", "cross-check", "observer")
+            if any(_task_role(task) == role for task in tasks)
+        )
+        specialization_patterns = _collect_specialization_patterns(tasks)
+
+        return AgentPerformanceReport(
+            timestamp=self._now_iso(),
+            window_start=window_start,
+            window_end=window_end,
+            total_tasks=total_tasks,
+            completed_tasks=succeeded_count,
+            failed_tasks=len(failed_tasks),
+            success_rate=success_rate,
+            learning_velocity_per_day=learning_velocity_per_day,
+            average_duration_seconds=average_duration_seconds,
+            agent_summaries=agent_summaries,
+            role_summaries=role_summaries,
+            specialization_patterns=specialization_patterns,
+        )
+
     def _append_trace(self, trace: AgentTaskTrace) -> None:
         with open(self.queue_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(trace.to_dict()) + "\n")
@@ -562,3 +763,76 @@ def _render_hour_heatmap(values: tuple[int, ...] | list[int]) -> str:
         level = max(0, min(scale, level))
         chars.append(palette[level])
     return "".join(chars)
+
+
+def _build_agent_performance_summary(agent: str, tasks: list[AgentTaskTrace]) -> AgentPerformanceSummary:
+    completed_tasks = [task for task in tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
+    failed_tasks = [task for task in tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
+    durations = [task.duration_seconds for task in completed_tasks if task.duration_seconds is not None]
+    average_duration_seconds = sum(durations) / len(durations) if durations else 0.0
+    success_rate = len(completed_tasks) / len(tasks) if tasks else 0.0
+    role_counts = Counter(_task_role(task) for task in tasks)
+    role_summaries = tuple(
+        _build_role_performance_summary(role, tasks)
+        for role in ("primary", "cross-check", "observer")
+        if role_counts.get(role, 0) > 0
+    )
+    specialization_patterns = _collect_specialization_patterns(tasks)
+    task_type_counts = Counter(_task_type(task) for task in tasks)
+    return AgentPerformanceSummary(
+        agent=agent,
+        total_tasks=len(tasks),
+        successful_tasks=len(completed_tasks),
+        failed_tasks=len(failed_tasks),
+        avg_duration_seconds=average_duration_seconds,
+        success_rate=success_rate,
+        role_breakdown=role_summaries,
+        specialization_patterns=specialization_patterns,
+        task_type_counts=tuple(sorted(task_type_counts.items(), key=lambda item: (-item[1], item[0]))),
+    )
+
+
+def _build_role_performance_summary(role: str, tasks: list[AgentTaskTrace]) -> AgentRolePerformance:
+    role_tasks = [task for task in tasks if _task_role(task) == role]
+    completed_tasks = [task for task in role_tasks if task.state == AgentTaskState.COMPLETED and (task.returncode or 0) == 0]
+    failed_tasks = [task for task in role_tasks if task.state == AgentTaskState.FAILED or (task.returncode or 0) != 0]
+    durations = [task.duration_seconds for task in completed_tasks if task.duration_seconds is not None]
+    average_duration_seconds = sum(durations) / len(durations) if durations else 0.0
+    success_rate = len(completed_tasks) / len(role_tasks) if role_tasks else 0.0
+    return AgentRolePerformance(
+        role=role,
+        task_count=len(role_tasks),
+        successful_tasks=len(completed_tasks),
+        failed_tasks=len(failed_tasks),
+        avg_duration_seconds=average_duration_seconds,
+        success_rate=success_rate,
+    )
+
+
+def _collect_specialization_patterns(tasks: list[AgentTaskTrace]) -> tuple[tuple[str, int], ...]:
+    patterns = Counter(_task_type(task) for task in tasks)
+    return tuple(patterns.most_common())
+
+
+def _task_role(task: AgentTaskTrace) -> str:
+    role = str(task.metadata.get("role", "")).strip().casefold()
+    return role if role in {"primary", "cross-check", "observer"} else "unknown"
+
+
+def _task_type(task: AgentTaskTrace) -> str:
+    metadata_type = str(task.metadata.get("task_type", "")).strip().casefold()
+    if metadata_type:
+        return metadata_type
+    prompt = f"{task.workspace} {task.prompt}".casefold()
+    keyword_map = [
+        ("validation", ("validate", "validation", "verify", "test")),
+        ("security", ("security", "auth", "secret", "scan")),
+        ("performance", ("performance", "latency", "throughput", "utilization")),
+        ("documentation", ("docs", "documentation", "readme", "sphinx")),
+        ("learning", ("learning", "questioning", "feedback")),
+        ("routing", ("route", "routing", "agent")),
+    ]
+    for label, keywords in keyword_map:
+        if any(keyword in prompt for keyword in keywords):
+            return label
+    return "general"

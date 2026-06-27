@@ -20,6 +20,8 @@ from workspace_os.web_server import (
     _conscience_metrics_payload,
     _conscience_recommendation_markdown_payload,
     _conscience_recommendation_payload,
+    _agent_performance_markdown_payload,
+    _agent_performance_payload,
     _agent_utilization_markdown_payload,
     _agent_utilization_payload,
     _security_markdown_payload,
@@ -84,6 +86,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("utilizationRefresh", index)
         self.assertIn("utilizationOutput", index)
         self.assertIn("utilizationDownload", index)
+        self.assertIn("performanceRefresh", index)
+        self.assertIn("performanceOutput", index)
+        self.assertIn("performanceDownload", index)
         self.assertIn("securityRefresh", index)
         self.assertIn("securityOutput", index)
         self.assertIn("securityDownload", index)
@@ -106,6 +111,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestConscienceRecommendation", app)
         self.assertIn("latestQuestioningMetrics", app)
         self.assertIn("latestAgentUtilization", app)
+        self.assertIn("latestAgentPerformance", app)
         self.assertIn("latestSecurity", app)
         self.assertIn("latestNextAction", app)
         self.assertIn("latestCycleMonitor", app)
@@ -333,6 +339,34 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(24, len(result["report"]["hourly_totals"]))
         self.assertIn("Agent Utilization Report", markdown["text"])
         self.assertIn("Recommended max workers", markdown["text"])
+
+    def test_agent_performance_payload_renders_role_and_agent_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.agent_queue import AgentQueueTracker
+
+            tracker = AgentQueueTracker(memory.parent)
+            tracker.enqueue("task-1", "opencode", "workspace-os", "Validate the dashboard", metadata={"role": "primary", "task_type": "validation"})
+            tracker.start("task-1")
+            tracker.complete("task-1", returncode=0, duration_seconds=4.0)
+            tracker.enqueue("task-2", "claude", "workspace-os", "Review the dashboard", metadata={"role": "cross-check", "task_type": "validation"})
+            tracker.start("task-2")
+            tracker.fail("task-2", error="Validation failed")
+
+            result = _agent_performance_payload(memory)
+            markdown = _agent_performance_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(2, result["report"]["total_tasks"])
+        self.assertEqual(1, result["report"]["completed_tasks"])
+        self.assertEqual(1, result["report"]["failed_tasks"])
+        self.assertTrue(result["report"]["agent_summaries"])
+        self.assertTrue(result["report"]["role_summaries"])
+        self.assertEqual("validation", result["report"]["specialization_patterns"][0]["pattern"])
+        self.assertIn("Agent Performance Report", markdown["text"])
+        self.assertIn("Role performance", markdown["text"])
+        self.assertIn("Specialization patterns", markdown["text"])
 
     def test_cycle_monitor_payload_renders_active_cycle_summary(self):
         with tempfile.TemporaryDirectory() as directory:

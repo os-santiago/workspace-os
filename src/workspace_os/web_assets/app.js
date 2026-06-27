@@ -15,6 +15,7 @@ const state = {
   latestAnalysis: null,
   latestCycleMonitor: null,
   latestAgentUtilization: null,
+  latestAgentPerformance: null,
   latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
@@ -436,6 +437,47 @@ const renderAgentUtilization = (data = null) => {
   output.textContent = lines.join("\n").trim();
 };
 
+const renderAgentPerformance = (data = null) => {
+  const output = qs("#performanceOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load performance report.";
+    return;
+  }
+  state.latestAgentPerformance = data.report || null;
+  const report = data.report || {};
+  const lines = [
+    `Window: ${report.window_start || "n/a"} -> ${report.window_end || "n/a"}`,
+    `Total tasks: ${report.total_tasks ?? 0}`,
+    `Completed tasks: ${report.completed_tasks ?? 0}`,
+    `Failed tasks: ${report.failed_tasks ?? 0}`,
+    `Success rate: ${formatPercent(report.success_rate)}`,
+    `Learning velocity/day: ${Number(report.learning_velocity_per_day || 0).toFixed(2)}`,
+    `Average duration: ${Number(report.average_duration_seconds || 0).toFixed(1)}s`,
+    "",
+    "Role performance:",
+    ...((report.role_summaries || []).length > 0
+      ? report.role_summaries.map(
+          (role) =>
+            `- ${role.role}: tasks=${role.task_count ?? 0} success_rate=${formatPercent(role.success_rate)} avg_duration=${Number(role.avg_duration_seconds || 0).toFixed(1)}s`,
+        )
+      : ["- none recorded yet"]),
+    "",
+    "Agent summaries:",
+    ...((report.agent_summaries || []).length > 0
+      ? report.agent_summaries.map(
+          (summary) =>
+            `- ${summary.agent}: tasks=${summary.total_tasks ?? 0} success_rate=${formatPercent(summary.success_rate)} avg_duration=${Number(summary.avg_duration_seconds || 0).toFixed(1)}s`,
+        )
+      : ["- none recorded yet"]),
+    "",
+    "Specialization patterns:",
+    ...((report.specialization_patterns || []).length > 0
+      ? report.specialization_patterns.map((item) => `- ${item.pattern}: ${item.count}`)
+      : ["- none recorded yet"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
 const renderSecurity = (data = null) => {
   const output = qs("#securityOutput");
   if (!data || !data.ok) {
@@ -574,6 +616,11 @@ const loadNextAction = async () => {
 const loadAgentUtilization = async () => {
   const data = await getJson("/api/agent-utilization");
   renderAgentUtilization(data);
+};
+
+const loadAgentPerformance = async () => {
+  const data = await getJson("/api/agent-performance");
+  renderAgentPerformance(data);
 };
 
 const loadSecurity = async () => {
@@ -929,6 +976,17 @@ const init = async () => {
   qs("#utilizationDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-utilization.md";
   });
+  qs("#performanceRefresh").addEventListener("click", async () => {
+    qs("#performanceOutput").textContent = "Loading performance report...";
+    try {
+      await loadAgentPerformance();
+    } catch (error) {
+      qs("#performanceOutput").textContent = error.message;
+    }
+  });
+  qs("#performanceDownload").addEventListener("click", () => {
+    window.location.href = "/api/agent-performance.md";
+  });
   qs("#securityRefresh").addEventListener("click", async () => {
     qs("#securityOutput").textContent = "Loading security report...";
     try {
@@ -974,6 +1032,7 @@ const init = async () => {
   await loadAnalysis();
   await loadNextAction();
   await loadAgentUtilization();
+  await loadAgentPerformance();
   await loadSecurity();
   await loadHandoff();
   await loadConscienceRecommendation();
