@@ -88,6 +88,20 @@ Defines:
 - Exception process
 - Compliance requirements
 
+### 5. Policy as Code
+
+**File**: `config/security-policy.yml`
+
+Declares the repository security policy used by `SecurityValidator`:
+- Allowed dependencies from `pyproject.toml`
+- Banned code patterns such as unsafe YAML loading and `shell=True`
+- Required headers for security package modules and security validator tests
+- Environment-backed secret handling for model provider configuration
+
+The security dashboard exposes the resulting compliance summary through:
+- `GET /api/security`
+- `GET /api/security.md`
+
 ### 5. Exception Management
 
 **File**: `.security-exceptions.yml`

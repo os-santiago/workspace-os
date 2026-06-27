@@ -438,6 +438,9 @@ const renderSecurity = (data = null) => {
   const report = data.report || {};
   const summary = report.summary || {};
   const reports = report.reports || {};
+  const policy = report.policy || {};
+  const policySummary = policy.summary || {};
+  const findings = Array.isArray(policy.findings) ? policy.findings : [];
   const lines = [
     `Project root: ${report.project_root || "n/a"}`,
     `Report dir: ${report.report_dir || "n/a"}`,
@@ -455,10 +458,22 @@ const renderSecurity = (data = null) => {
     `- bandit_medium=${summary.bandit_medium ?? 0}`,
     `- bandit_low=${summary.bandit_low ?? 0}`,
     "",
+    "Policy:",
+    `- compliance_rate=${formatPercent(policySummary.compliance_rate ?? 0)}`,
+    `- declared_dependencies_total=${policySummary.declared_dependencies_total ?? 0}`,
+    `- declared_dependencies_disallowed=${policySummary.declared_dependencies_disallowed ?? 0}`,
+    `- banned_pattern_rules_failed=${policySummary.banned_pattern_rules_failed ?? 0}`,
+    `- header_rules_failed=${policySummary.header_rules_failed ?? 0}`,
+    `- encryption_rules_failed=${policySummary.encryption_rules_failed ?? 0}`,
+    "",
+    "Findings:",
+    ...(findings.length > 0 ? findings.slice(0, 5).map((finding) => `- ${finding}`) : ["- none"]),
+    "",
     "Reports:",
     `- pip-audit=${reports.pip_audit ? "present" : "missing"}`,
     `- safety=${reports.safety ? "present" : "missing"}`,
     `- bandit=${reports.bandit ? "present" : "missing"}`,
+    `- policy=${reports.policy ? "present" : "missing"}`,
   ];
   output.textContent = lines.join("\n").trim();
 };
