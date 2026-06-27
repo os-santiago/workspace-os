@@ -69,6 +69,7 @@ class MemoryTests(unittest.TestCase):
             recent_qa = store.recent_qa_pairs(limit=1)
             work_item_qa = store.get_qa_for_work_item("issue-80")
             similar_qa = store.get_similar_questions("issue-80-dashboard", limit=1)
+            metrics = store.questioning_metrics()
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
@@ -105,6 +106,14 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", work_item_qa[0]["answer"])
         self.assertEqual("How do we validate a dashboard change?", similar_qa[0]["question"])
         self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", similar_qa[0]["answer"])
+        self.assertEqual(2, metrics["summary"]["total"])
+        self.assertEqual("claude", next(iter(metrics["answer_sources"])))
+        self.assertTrue(metrics["question_patterns"])
+        self.assertIn("with_qna", metrics)
+        self.assertIn("without_qna", metrics)
+        self.assertGreaterEqual(metrics["learning_velocity"], 0.0)
+        self.assertGreaterEqual(metrics["estimated_time_invested_minutes"], 0.0)
+        self.assertGreaterEqual(metrics["estimated_rework_savings_minutes"], 0.0)
 
 
 if __name__ == "__main__":

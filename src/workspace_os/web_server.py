@@ -800,7 +800,7 @@ def _questioning_payload(
         context = str(snapshot["summary"]) if snapshot and snapshot.get("summary") else "workspace"
     report = {
         "context": context,
-        "summary": store.qa_metrics(),
+        "metrics": store.questioning_metrics(),
         "recent": store.recent_qa_pairs(limit=limit),
         "suggestions": [
             {
@@ -824,7 +824,10 @@ def _questioning_markdown_payload(
     if not payload.get("ok", False):
         return {"ok": False, "text": payload.get("error", "Unable to load questioning metrics.")}
     report = payload["report"]
-    summary = report["summary"]
+    metrics = report["metrics"]
+    summary = metrics["summary"]
+    with_qna = metrics["with_qna"]
+    without_qna = metrics["without_qna"]
     lines = [
         "Questioning dashboard:",
         f"Context focus: {report['context']}",
@@ -834,6 +837,11 @@ def _questioning_markdown_payload(
         f"- unique_questions={summary.get('unique_questions', 0)}",
         f"- recent_7_days={summary.get('recent_7_days', 0)}",
         f"- latest_created_at={summary.get('latest_created_at') or 'n/a'}",
+        f"- learning_velocity_per_day={metrics['learning_velocity']:.2f}",
+        f"- estimated_time_invested_minutes={metrics['estimated_time_invested_minutes']:.1f}",
+        f"- estimated_rework_savings_minutes={metrics['estimated_rework_savings_minutes']:.1f}",
+        f"- with_qna_success_rate={with_qna['success_rate']:.2f}",
+        f"- without_qna_success_rate={without_qna['success_rate']:.2f}",
         "",
         "Recent Q&A:",
     ]
@@ -843,6 +851,20 @@ def _questioning_markdown_payload(
             f"- {item['created_at']} | {item['agent']} | {item['question']} -> {item['answer']}"
             for item in recent
         )
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Answer sources:")
+    answer_sources = metrics.get("answer_sources", {})
+    if answer_sources:
+        lines.extend(f"- {source}: {count}" for source, count in sorted(answer_sources.items(), key=lambda item: (-item[1], item[0])))
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Question patterns:")
+    patterns = metrics.get("question_patterns", [])
+    if patterns:
+        lines.extend(f"- {item['question']} (asked {item['count']}x)" for item in patterns)
     else:
         lines.append("- none recorded yet")
     lines.append("")

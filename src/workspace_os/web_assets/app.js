@@ -346,9 +346,14 @@ const renderQuestioningMetrics = (data = null) => {
     return;
   }
   state.latestQuestioningMetrics = data.report || null;
-  const summary = data.report?.summary || {};
+  const metrics = data.report?.metrics || {};
+  const summary = metrics.summary || {};
   const recent = data.report?.recent || [];
   const suggestions = data.report?.suggestions || [];
+  const sources = metrics.answer_sources || {};
+  const patterns = metrics.question_patterns || [];
+  const withQna = metrics.with_qna || {};
+  const withoutQna = metrics.without_qna || {};
   const lines = [
     `Context focus: ${data.report?.context || "n/a"}`,
     `Total Q&A: ${summary.total || 0}`,
@@ -356,13 +361,28 @@ const renderQuestioningMetrics = (data = null) => {
     `Unique questions: ${summary.unique_questions || 0}`,
     `Recent 7 days: ${summary.recent_7_days || 0}`,
     `Latest recorded: ${summary.latest_created_at || "n/a"}`,
+    `Learning velocity/day: ${(metrics.learning_velocity || 0).toFixed(2)}`,
+    `Estimated time invested (min): ${(metrics.estimated_time_invested_minutes || 0).toFixed(1)}`,
+    `Estimated rework savings (min): ${(metrics.estimated_rework_savings_minutes || 0).toFixed(1)}`,
+    `Success w/ Q&A: ${(withQna.success_rate || 0).toFixed(2)}`,
+    `Success w/o Q&A: ${(withoutQna.success_rate || 0).toFixed(2)}`,
     "",
     "Recent Q&A:",
     ...(recent.length > 0
       ? recent.map((item) => `- ${item.created_at} | ${item.agent} | ${item.question}`)
       : ["- none recorded yet"]),
     "",
+    "Answer sources:",
+    ...(Object.keys(sources).length > 0
+      ? Object.entries(sources)
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([source, count]) => `- ${source}: ${count}`)
+      : ["- none recorded yet"]),
+    "",
     "Question patterns:",
+    ...(patterns.length > 0 ? patterns.map((item) => `- ${item.question} (asked ${item.count}x)`) : ["- none recorded yet"]),
+    "",
+    "Suggestions:",
     ...(suggestions.length > 0
       ? suggestions.map(
           (item) => `- ${item.question} (asked ${item.frequency}x, relevance=${Number(item.relevance_score || 0).toFixed(2)})`,

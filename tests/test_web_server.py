@@ -296,13 +296,16 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertEqual("issue 80 dashboard", result["report"]["context"])
-        self.assertEqual(2, result["report"]["summary"]["total"])
+        self.assertEqual(2, result["report"]["metrics"]["summary"]["total"])
         self.assertEqual(1, len(result["report"]["recent"]))
         self.assertEqual("claude", result["report"]["recent"][0]["agent"])
         self.assertTrue(result["report"]["suggestions"])
         self.assertIn("Questioning dashboard", markdown["text"])
         self.assertIn("recent_7_days=2", markdown["text"])
         self.assertIn("How do we validate a dashboard change?", markdown["text"])
+        self.assertIn("Answer sources:", markdown["text"])
+        self.assertIn("Question patterns:", markdown["text"])
+        self.assertIn("learning_velocity_per_day", markdown["text"])
 
     def test_agent_utilization_payload_renders_heatmap_report(self):
         with tempfile.TemporaryDirectory() as directory:
