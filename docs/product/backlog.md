@@ -150,6 +150,9 @@ Initial implementation:
 - Supported capture types are daily, incident, session, and decision.
 - Output uses source-relative references instead of local machine paths.
 
+Initial design:
+- ADR 0009 splits capture into a sanitized evidence step before any durable write.
+
 ### WSOS-017: Implement Promotion Workflow
 
 As an operator, the system needs a controlled way to promote reusable lessons into doctrine.
@@ -164,6 +167,9 @@ Initial implementation:
 - `python -m workspace_os promote --to <target> --rule <rule> --evidence <ref>` emits a proposal-only Markdown brief.
 - Promotion output includes related existing content found through librarian search.
 - Promotion does not mutate doctrine or evidence.
+
+Initial design:
+- ADR 0009 defines promotion as a proposed doctrine update that remains reviewable before doctrine changes.
 
 ## Next
 
