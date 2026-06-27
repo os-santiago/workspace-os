@@ -366,6 +366,9 @@ Batch 02 [NEXT] Web pilot
             root = Path(directory)
             reports_dir = root / ".security-reports"
             reports_dir.mkdir()
+            config_dir = root / "config"
+            config_dir.mkdir()
+            (config_dir / "security-policy.yml").write_text("allowed_dependencies: []\n", encoding="utf-8")
             (reports_dir / "pip-audit.json").write_text(
                 json.dumps({
                     "dependencies": [
@@ -390,7 +393,9 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertEqual(2, result["report"]["summary"]["total"])
         self.assertEqual(2, result["report"]["summary"]["bandit_total"])
+        self.assertTrue(result["report"]["policy"]["passed"])
         self.assertIn("Security dashboard", markdown["text"])
+        self.assertIn("Policy summary", markdown["text"])
         self.assertIn("bandit_total=2", markdown["text"])
         self.assertIn("pip-audit=present", markdown["text"])
 

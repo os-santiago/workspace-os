@@ -888,6 +888,7 @@ def _security_payload(
         return {"ok": False, "error": "Workspace root is required."}
     validator = SecurityValidator(workspace_root)
     summary = validator.get_vulnerability_summary()
+    policy_report = validator.get_policy_summary()
     report_dir = validator.report_dir
     return {
         "ok": True,
@@ -895,10 +896,12 @@ def _security_payload(
             "project_root": str(workspace_root),
             "report_dir": str(report_dir),
             "summary": summary,
+            "policy": policy_report,
             "reports": {
                 "pip_audit": (report_dir / "pip-audit.json").exists(),
                 "safety": (report_dir / "safety.json").exists(),
                 "bandit": (report_dir / "bandit.json").exists(),
+                "policy": validator.policy_path.exists(),
             },
         },
     }
@@ -910,9 +913,12 @@ def _security_markdown_payload(
 ) -> dict[str, object]:
     payload = _security_payload(workspace_root, query)
     if not payload.get("ok", False):
-        return {"ok": False, "text": payload.get("error", "Unable to load security report.")}    
+        return {"ok": False, "text": payload.get("error", "Unable to load security report.")}
     report = payload["report"]
     summary = report["summary"]
+    policy = report.get("policy", {})
+    policy_summary = policy.get("summary", {}) if isinstance(policy, dict) else {}
+    findings = policy.get("findings", []) if isinstance(policy, dict) else []
     lines = [
         "Security dashboard:",
         f"Project root: {report['project_root']}",
@@ -932,11 +938,30 @@ def _security_markdown_payload(
         f"- bandit_medium={summary.get('bandit_medium', 0)}",
         f"- bandit_low={summary.get('bandit_low', 0)}",
         "",
-        "Reports:",
-        f"- pip-audit={'present' if report['reports']['pip_audit'] else 'missing'}",
-        f"- safety={'present' if report['reports']['safety'] else 'missing'}",
-        f"- bandit={'present' if report['reports']['bandit'] else 'missing'}",
+        "Policy summary:",
+        f"- compliance_rate={float(policy_summary.get('compliance_rate', 0.0)):.2f}",
+        f"- declared_dependencies_total={policy_summary.get('declared_dependencies_total', 0)}",
+        f"- declared_dependencies_disallowed={policy_summary.get('declared_dependencies_disallowed', 0)}",
+        f"- banned_pattern_rules_failed={policy_summary.get('banned_pattern_rules_failed', 0)}",
+        f"- header_rules_failed={policy_summary.get('header_rules_failed', 0)}",
+        f"- encryption_rules_failed={policy_summary.get('encryption_rules_failed', 0)}",
+        "",
+        "Policy findings:",
     ]
+    if findings:
+        lines.extend(f"- {finding}" for finding in findings[:5])
+    else:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "Reports:",
+            f"- pip-audit={'present' if report['reports']['pip_audit'] else 'missing'}",
+            f"- safety={'present' if report['reports']['safety'] else 'missing'}",
+            f"- bandit={'present' if report['reports']['bandit'] else 'missing'}",
+            f"- policy={'present' if report['reports']['policy'] else 'missing'}",
+        ]
+    )
     return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 
