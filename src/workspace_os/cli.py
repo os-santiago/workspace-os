@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import shutil
 import sys
 
 from workspace_os.capture import build_capture_draft, write_capture
@@ -96,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
         return _journal(sources, memory_path, args.journal_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
+    if args.command == "agents":
+        return _agents(args.agents_command, args)
 
     parser.print_help()
     return 2
@@ -432,6 +436,15 @@ def _build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
     web_parser.add_argument("--port", type=int, default=8765, help="Bind port.")
 
+    agents_parser = subparsers.add_parser(
+        "agents",
+        help="Check agent availability and configuration.",
+    )
+    agents_subparsers = agents_parser.add_subparsers(dest="agents_command", required=True)
+    agents_status = agents_subparsers.add_parser("status", help="Show available agents and their configuration.")
+    agents_status.add_argument("--verbose", action="store_true", help="Show detailed agent information.")
+    agents_test = agents_subparsers.add_parser("test", help="Test agent command construction.")
+
     return parser
 
 
@@ -468,7 +481,7 @@ def _search(sources: list[Source], query: str, source_type: str | None, max_resu
         max_results=max_results,
     )
     for match in matches:
-        print(f"{match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}")
+        print(f"{match.source_name}:{match.path.as_posix()}:{match.line_number}: {sanitize_text(match.line)}")
     if not matches:
         print("No matches found.")
     return 0
@@ -1065,6 +1078,58 @@ def _process(sources: list[Source], memory_path: Path, command: str, args: argpa
 def _web(config_path: Path, host: str, port: int) -> int:
     serve_web_app(config_path=config_path, host=host, port=port)
     return 0
+
+
+def _agents(command: str, args: argparse.Namespace) -> int:
+    from workspace_os.agent_policy import SUPPORTED_WORK_AGENTS, agent_is_available, available_work_agents
+
+    if command == "status":
+        print("🤖 WOS Agent Status\n")
+
+        for agent in SUPPORTED_WORK_AGENTS:
+            available = agent_is_available(agent)
+            status_icon = "✓" if available else "✗"
+            status_text = "AVAILABLE" if available else "NOT FOUND"
+
+            # Show path if available
+            path = shutil.which(agent)
+            if not path:
+                # Check for .cmd or .ps1 variants
+                path = shutil.which(f"{agent}.cmd") or shutil.which(f"{agent}.ps1")
+
+            location = f" ({path})" if path else ""
+
+            print(f"{status_icon} {agent}: {status_text}{location}")
+
+            # Show additional info in verbose mode
+            if getattr(args, "verbose", False) and available:
+                if agent == "antigravity":
+                    custom_cmd = os.environ.get("WOS_ANTIGRAVITY_COMMAND")
+                    if custom_cmd:
+                        print(f"  └─ Custom command: {custom_cmd[:60]}...")
+
+        active = available_work_agents()
+        print(f"\nActive pool: {', '.join(active)} ({len(active)} agent{'s' if len(active) != 1 else ''})")
+
+        return 0
+
+    if command == "test":
+        print("🧪 Testing agent execution...\n")
+
+        from workspace_os.agent_adapter import build_agent_command
+
+        for agent in available_work_agents():
+            try:
+                cmd = build_agent_command(agent, Path.cwd(), "test prompt")
+                cmd_preview = ' '.join(str(c) for c in cmd[:3])
+                print(f"✓ {agent}: {cmd_preview}...")
+            except Exception as e:
+                print(f"✗ {agent}: {e}")
+
+        return 0
+
+    print(f"error: unsupported agents command '{command}'", file=sys.stderr)
+    return 2
 
 
 def _cycle(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
