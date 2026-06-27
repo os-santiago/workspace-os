@@ -326,7 +326,11 @@ def _bool_mark(value: object) -> str:
 
 
 def _websocket_accept_key(key: str) -> str:
-    digest = hashlib.sha1((key.strip() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("utf-8")).digest()
+    digest = hashlib.new(
+        "sha1",
+        (key.strip() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("utf-8"),
+        usedforsecurity=False,
+    ).digest()
     return base64.b64encode(digest).decode("ascii")
 
 
