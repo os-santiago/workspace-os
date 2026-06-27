@@ -286,6 +286,9 @@ Acceptance criteria:
 - The workflow flags unrealistic assumptions.
 - Output destination is Google Workspace, with source logic in Git.
 
+Initial design:
+- ADR 0010 defines the estimate workflow as a structured, reviewable brief that can later be rendered into Google Workspace.
+
 ## Later
 
 ### WSOS-007: Add Google Workspace Metadata Connector
