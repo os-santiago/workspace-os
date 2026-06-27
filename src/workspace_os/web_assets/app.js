@@ -418,6 +418,12 @@ const renderAgentUtilization = (data = null) => {
   }
   state.latestAgentUtilization = data.report || null;
   const report = data.report || {};
+  const formatHourList = (values) => {
+    const hours = Array.isArray(values) ? values : [];
+    if (hours.length === 0) return "none";
+    return hours.map((hour) => String(hour).padStart(2, "0")).join(", ");
+  };
+  const recommendations = Array.isArray(report.recommendations) ? report.recommendations : [];
   const lines = [
     `Configured max_parallel: ${report.max_parallel ?? 0}`,
     `Observed peak_parallel: ${report.observed_peak_parallel ?? 0}`,
@@ -432,6 +438,14 @@ const renderAgentUtilization = (data = null) => {
     "Agent heatmaps:",
     ...((report.agent_summaries || []).map((summary) =>
       `${String(summary.agent || "agent").slice(0, 5).padEnd(5)} ${renderHeatmapRow(summary.hourly_activity || [])} | util=${formatPercent(summary.utilization_ratio)} peak=${summary.peak_concurrent ?? 0} tasks=${summary.task_count ?? 0}`)),
+    "",
+    "Idle / bottleneck hours:",
+    `- idle=${formatHourList(report.idle_hours || [])}`,
+    `- bottleneck=${formatHourList(report.bottleneck_hours || [])}`,
+    `- peak=${formatHourList(report.peak_hours || [])}`,
+    "",
+    "Recommendations:",
+    ...(recommendations.length > 0 ? recommendations.map((item) => `- ${item}`) : ["- none"]),
   ];
   output.textContent = lines.join("\n").trim();
 };
