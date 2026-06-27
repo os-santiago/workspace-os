@@ -67,6 +67,8 @@ class MemoryTests(unittest.TestCase):
             feedback_history = store.feedback_history(limit=10)
             qa_metrics = store.qa_metrics()
             recent_qa = store.recent_qa_pairs(limit=1)
+            work_item_qa = store.get_qa_for_work_item("issue-80")
+            similar_qa = store.get_similar_questions("issue-80-dashboard", limit=1)
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
@@ -99,6 +101,10 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual("How do we validate a dashboard change?", recent_qa[0]["question"])
         self.assertEqual("claude", recent_qa[0]["agent"])
         self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", recent_qa[0]["answer"])
+        self.assertEqual("How do we validate a dashboard change?", work_item_qa[0]["question"])
+        self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", work_item_qa[0]["answer"])
+        self.assertEqual("How do we validate a dashboard change?", similar_qa[0]["question"])
+        self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", similar_qa[0]["answer"])
 
 
 if __name__ == "__main__":
