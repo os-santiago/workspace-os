@@ -1055,6 +1055,24 @@ class CliTests(unittest.TestCase):
             self.assertIn("Process summary", rendered)
             self.assertIn("Workspace handoff:", rendered)
 
+    def test_init_command_creates_configuration_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config" / "workspace.sources.json"
+
+            exit_code = main(["--config", str(config), "init", "--name", "test-workspace", "--non-interactive"])
+
+            self.assertEqual(0, exit_code)
+            self.assertTrue(config.exists())
+
+            config_data = json.loads(config.read_text(encoding="utf-8"))
+            self.assertEqual(".", config_data["workspace_root"])
+            self.assertEqual(".workspace-os/workspace-memory.sqlite3", config_data["memory_db"])
+            self.assertEqual(1, len(config_data["sources"]))
+            self.assertEqual("test-workspace", config_data["sources"][0]["name"])
+            self.assertEqual("directory", config_data["sources"][0]["type"])
+            self.assertEqual(".", config_data["sources"][0]["path"])
+
     def _init_git_repo(self, path: Path, commit_date: str | None = None) -> None:
         import subprocess
 
