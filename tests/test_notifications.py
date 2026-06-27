@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from workspace_os.cycle import CycleCheckResult, CycleEvaluation, record_cycle_checkpoint, start_cycle, stop_cycle
 from workspace_os.memory import WorkspaceMemoryStore
-from workspace_os.notifications import format_cycle_notification, load_slack_events
+from workspace_os.notifications import format_cycle_notification, load_slack_events, send_slack_notification
 
 
 class NotificationTests(unittest.TestCase):
@@ -72,3 +72,15 @@ class NotificationTests(unittest.TestCase):
         self.assertIn("checkpoint", events)
         self.assertIn("failure", events)
 
+    def test_send_slack_notification_uses_https_connection(self) -> None:
+        with patch("workspace_os.notifications.http.client.HTTPSConnection") as connection_cls:
+            connection = connection_cls.return_value
+            response = connection.getresponse.return_value
+            response.status = 204
+            response.read.return_value = b""
+
+            delivery = send_slack_notification("hello", webhook_url="https://example.invalid/slack")
+
+        connection_cls.assert_called_once_with("example.invalid", timeout=5.0)
+        connection.request.assert_called_once()
+        self.assertTrue(delivery.ok)

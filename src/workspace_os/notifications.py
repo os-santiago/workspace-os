@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import http.client
 import json
 import os
 from typing import Any
-from urllib import error, request
+from urllib.parse import urlparse
 
 
 DEFAULT_SLACK_EVENTS = {"start", "complete", "checkpoint", "failure", "error", "pr_created"}
@@ -56,10 +57,26 @@ def send_slack_notification(text: str, webhook_url: str | None = None, timeout_s
     if not url:
         return NotificationDelivery(ok=False, error="Slack webhook is not configured.")
     payload = json.dumps({"text": text}, ensure_ascii=False).encode("utf-8")
-    req = request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return NotificationDelivery(ok=False, error="Slack webhook URL must be an absolute http(s) URL.")
+    path = parsed.path or "/"
+    if parsed.params:
+        path = f"{path};{parsed.params}"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    connection = connection_cls(parsed.netloc, timeout=timeout_seconds)
     try:
-        with request.urlopen(req, timeout=timeout_seconds) as response:
-            status = getattr(response, "status", 200)
-            return NotificationDelivery(ok=200 <= int(status) < 300)
-    except (error.URLError, TimeoutError, OSError) as exc:
+        connection.request("POST", path, body=payload, headers={"Content-Type": "application/json"})
+        response = connection.getresponse()
+        status = getattr(response, "status", 200)
+        response.read()
+        return NotificationDelivery(ok=200 <= int(status) < 300)
+    except (http.client.HTTPException, TimeoutError, OSError) as exc:
         return NotificationDelivery(ok=False, error=str(exc))
+    finally:
+        try:
+            connection.close()
+        except OSError:
+            pass
