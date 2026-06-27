@@ -86,6 +86,25 @@ Initial scope:
 - Promote repeated lessons into durable rules, checks, tests, or backlog items.
 - Feed relevant context to agent briefs and connector workflows.
 
+### Autonomous Cycle Orchestrator
+
+Coordinates the first closed-loop WOS flow for a single issue: select, branch, implement, validate, open PR, and merge when policy allows.
+
+Initial scope:
+- Classify each candidate issue through OCE before starting a cycle.
+- Persist the issue, branch, PR, validation, blockers, and learning signals.
+- Refuse merge when validation fails or when the autonomy policy requires human review.
+- Keep the orchestration logic separate from the implementation agent and from the model provider layer.
+
+### Autonomous Cycle State Store
+
+Stores the durable history of autonomous cycles so later runs can inspect prior outcomes without relying on transient agent context.
+
+Initial scope:
+- Save stage transitions and review outcomes across sessions.
+- Store learning signals from blocked, partial, or successful cycles.
+- Expose the latest cycle records for the next run and for documentation.
+
 ### Source Registry
 
 Defines known sources and their responsibilities.
