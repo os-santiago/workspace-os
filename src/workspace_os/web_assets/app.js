@@ -5,6 +5,7 @@ const state = {
   learningCount: 0,
   contextCount: 0,
   handoffCount: 0,
+  cycleMonitorConnected: false,
   chatContextExpanded: false,
   conscienceExpanded: false,
   chatVerbose: false,
@@ -12,16 +13,21 @@ const state = {
   latestSuggestedActions: [],
   latestNextAction: null,
   latestAnalysis: null,
+  latestCycleMonitor: null,
   latestAgentUtilization: null,
   latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
   latestQuestioningMetrics: null,
+  cycleMonitorSocket: null,
+  cycleMonitorReconnectTimer: null,
+  cycleMonitorPollTimer: null,
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
 const CONSCIENCE_STORAGE_KEY = "workspace-os.conscience-expanded";
 const CHAT_VERBOSE_STORAGE_KEY = "workspace-os.chat-verbose";
+const CYCLE_MONITOR_REFRESH_MS = 5000;
 
 const getJson = async (url) => {
   const response = await fetch(url, { cache: "no-store" });
@@ -135,6 +141,72 @@ const renderHandoff = (data) => {
   }
   state.handoffCount += 1;
   output.textContent = data.markdown || "No handoff available.";
+};
+
+const renderCycleMonitor = (data = null) => {
+  const output = qs("#cycleMonitorOutput");
+  const status = qs("#cycleMonitorStatus");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load cycle monitor.";
+    status.textContent = "Offline";
+    status.style.color = "var(--tp-red)";
+    return;
+  }
+  const monitor = data.monitor || {};
+  state.latestCycleMonitor = monitor;
+  const cycle = monitor.cycle;
+  const summary = monitor.summary || {};
+  const utilization = monitor.utilization || {};
+  const checkpoints = monitor.checkpoints || [];
+  const lines = [];
+  if (!cycle) {
+    lines.push("No cycle is currently active.", "", monitor.next_action || "Start a cycle to begin monitoring.");
+    status.textContent = "Idle";
+    status.style.color = "var(--tp-gray)";
+    output.textContent = lines.join("\n");
+    return;
+  }
+  status.textContent = monitor.active ? "Live" : "Idle";
+  status.style.color = monitor.active ? "var(--tp-cyan)" : "var(--tp-gray)";
+  lines.push(
+    `Cycle: ${cycle.label}`,
+    `State: ${monitor.active ? "active" : "idle"}`,
+    `Objective: ${cycle.objective}`,
+    `Started: ${cycle.started_at}`,
+    `Ended: ${cycle.ended_at || "n/a"}`,
+    "",
+    `Checkpoint count: ${summary.checkpoint_count ?? 0}`,
+    `Health pass rate: ${formatPercent(summary.health_pass_rate)}`,
+    `Stability pass rate: ${formatPercent(summary.stability_pass_rate)}`,
+    `Security pass rate: ${formatPercent(summary.security_pass_rate)}`,
+    `Quality pass rate: ${formatPercent(summary.quality_pass_rate)}`,
+    "",
+    "Recent checkpoints:",
+  );
+  if (checkpoints.length > 0) {
+    lines.push(
+      ...checkpoints.map(
+        (item) =>
+          `- #${item.iteration_number} ${item.label} | H=${item.health_ok ? "PASS" : "FAIL"} S=${item.stability_ok ? "PASS" : "FAIL"} Sec=${item.security_ok ? "PASS" : "FAIL"} Q=${item.quality_ok ? "PASS" : "FAIL"} | ${item.created_at}`,
+      ),
+    );
+  } else {
+    lines.push("- none recorded yet");
+  }
+  lines.push(
+    "",
+    "Agent utilization:",
+    `- configured_max_parallel=${utilization.max_parallel ?? 0}`,
+    `- observed_peak_parallel=${utilization.observed_peak_parallel ?? 0}`,
+    `- recommended_max_parallel=${utilization.recommended_max_parallel ?? 0}`,
+    `- idle_ratio=${Number(utilization.idle_ratio || 0).toFixed(2)}`,
+    "",
+    "Next action:",
+    monitor.next_action || "No next action available.",
+    "",
+    `Updated: ${monitor.updated_at || "n/a"}`,
+  );
+  output.textContent = lines.join("\n").trim();
 };
 
 const renderContext = (data, selector = "#contextOutput", expanded = false) => {
@@ -431,6 +503,11 @@ const loadHandoff = async () => {
   renderHandoff(data);
 };
 
+const loadCycleMonitor = async () => {
+  const data = await getJson("/api/cycle-monitor");
+  renderCycleMonitor(data);
+};
+
 const loadConscienceMetrics = async () => {
   const data = await getJson("/api/conscience?limit=10");
   renderConscienceMetrics(data);
@@ -464,6 +541,67 @@ const loadSecurity = async () => {
 const loadAnalysis = async () => {
   const data = await getJson("/api/analysis");
   renderAnalysis(data);
+};
+
+const stopCycleMonitorTimers = () => {
+  if (state.cycleMonitorPollTimer) {
+    window.clearInterval(state.cycleMonitorPollTimer);
+    state.cycleMonitorPollTimer = null;
+  }
+  if (state.cycleMonitorReconnectTimer) {
+    window.clearTimeout(state.cycleMonitorReconnectTimer);
+    state.cycleMonitorReconnectTimer = null;
+  }
+};
+
+const startCycleMonitorPolling = () => {
+  stopCycleMonitorTimers();
+  state.cycleMonitorPollTimer = window.setInterval(() => {
+    loadCycleMonitor().catch((error) => {
+      qs("#cycleMonitorOutput").textContent = error.message;
+    });
+  }, CYCLE_MONITOR_REFRESH_MS);
+};
+
+const connectCycleMonitor = () => {
+  stopCycleMonitorTimers();
+  if (!("WebSocket" in window)) {
+    state.cycleMonitorConnected = false;
+    startCycleMonitorPolling();
+    return;
+  }
+  try {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${protocol}//${window.location.host}/api/cycle-monitor/ws`);
+    state.cycleMonitorSocket = socket;
+    socket.addEventListener("open", () => {
+      state.cycleMonitorConnected = true;
+      qs("#cycleMonitorStatus").textContent = "Live";
+    });
+    socket.addEventListener("message", (event) => {
+      try {
+        renderCycleMonitor(JSON.parse(event.data));
+      } catch (error) {
+        qs("#cycleMonitorOutput").textContent = error.message;
+      }
+    });
+    socket.addEventListener("close", () => {
+      state.cycleMonitorConnected = false;
+      qs("#cycleMonitorStatus").textContent = "Polling";
+      startCycleMonitorPolling();
+      state.cycleMonitorReconnectTimer = window.setTimeout(() => {
+        connectCycleMonitor();
+      }, CYCLE_MONITOR_REFRESH_MS);
+    });
+    socket.addEventListener("error", () => {
+      state.cycleMonitorConnected = false;
+      qs("#cycleMonitorStatus").textContent = "Polling";
+      startCycleMonitorPolling();
+    });
+  } catch {
+    state.cycleMonitorConnected = false;
+    startCycleMonitorPolling();
+  }
 };
 
 const loadContext = async () => {
@@ -681,6 +819,14 @@ const init = async () => {
   qs("#handoffDownload").addEventListener("click", () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
   });
+  qs("#cycleMonitorRefresh").addEventListener("click", async () => {
+    qs("#cycleMonitorOutput").textContent = "Loading cycle monitor...";
+    try {
+      await loadCycleMonitor();
+    } catch (error) {
+      qs("#cycleMonitorOutput").textContent = error.message;
+    }
+  });
   qs("#chatContextToggle").addEventListener("click", toggleChatContext);
   qs("#conscienceToggle").addEventListener("click", toggleConscience);
   qs("#conscienceRefresh").addEventListener("click", () => {
@@ -779,6 +925,8 @@ const init = async () => {
   await loadSidebar();
   setChatContextExpanded(readChatContextPreference(), false);
   setConscienceExpanded(readConsciencePreference(), false);
+  await loadCycleMonitor();
+  connectCycleMonitor();
   await loadContext();
   await loadAnalysis();
   await loadNextAction();

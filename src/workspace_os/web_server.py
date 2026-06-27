@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import shlex
 import subprocess
+import struct
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -16,6 +20,7 @@ from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
+from workspace_os.cycle import build_cycle_next_action
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
@@ -24,7 +29,7 @@ from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
-from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.memory import WorkspaceMemoryStore, _utc_now
 from workspace_os.overview import build_workspace_handoff, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
@@ -85,6 +90,22 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/roadmap":
                 self._send_json(_roadmap_payload())
+                return
+            if parsed.path == "/api/cycle-monitor":
+                self._send_json(_cycle_monitor_payload(memory_path, query))
+                return
+            if parsed.path == "/api/cycle-monitor.md":
+                self._send_text(
+                    _cycle_monitor_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="cycle-monitor.md",
+                )
+                return
+            if parsed.path == "/api/cycle-monitor/ws":
+                if self.headers.get("Upgrade", "").lower() == "websocket":
+                    self._handle_cycle_monitor_websocket(memory_path, query)
+                    return
+                self._send_json(_cycle_monitor_payload(memory_path, query))
                 return
             if parsed.path == "/api/recent-software":
                 self._send_json(_recent_software_payload(root=workspace_root))
@@ -267,6 +288,29 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             self.end_headers()
             _write_response_body(self.wfile.write, body)
 
+        def _handle_cycle_monitor_websocket(self, memory_path: Path | None, query: dict[str, list[str]]) -> None:
+            key = self.headers.get("Sec-WebSocket-Key")
+            if not key:
+                self.send_error(400, "Missing Sec-WebSocket-Key header")
+                return
+            accept = _websocket_accept_key(key)
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+            while True:
+                payload = _cycle_monitor_payload(memory_path, query)
+                frame = _websocket_text_frame(json.dumps(payload, ensure_ascii=False))
+                _write_response_body(self.wfile.write, frame)
+                try:
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+                    return
+                time.sleep(5)
+
     return WorkspaceRequestHandler
 
 
@@ -275,6 +319,34 @@ def _write_response_body(writer, body: bytes) -> None:
         writer(body)
     except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
         return
+
+
+def _bool_mark(value: object) -> str:
+    return "PASS" if bool(value) else "FAIL"
+
+
+def _websocket_accept_key(key: str) -> str:
+    digest = hashlib.new(
+        "sha1",
+        (key.strip() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("utf-8"),
+        usedforsecurity=False,
+    ).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _websocket_text_frame(message: str) -> bytes:
+    payload = message.encode("utf-8")
+    length = len(payload)
+    header = bytearray([0x81])
+    if length < 126:
+        header.append(length)
+    elif length < (1 << 16):
+        header.append(126)
+        header.extend(struct.pack(">H", length))
+    else:
+        header.append(127)
+        header.extend(struct.pack(">Q", length))
+    return bytes(header) + payload
 
 
 def _status_payload(sources: list[Source]) -> dict[str, object]:
@@ -595,6 +667,121 @@ def _conscience_recommendation_markdown_payload(
     query: dict[str, list[str]] | None = None,
 ) -> dict[str, object]:
     return _conscience_recommendation_payload(memory_path, query)
+
+
+def _cycle_monitor_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    cycle_id = _int_query(query or {}, "cycle_id", 0) if query else 0
+    cycle = store.get_cycle(cycle_id) if cycle_id > 0 else store.active_cycle()
+    if cycle is None:
+        history = store.cycle_history(limit=1)
+        cycle = history[0] if history else None
+    if cycle is None:
+        return {
+            "ok": True,
+            "monitor": {
+                "active": False,
+                "cycle": None,
+                "summary": None,
+                "checkpoints": [],
+                "utilization": None,
+                "next_action": build_cycle_next_action(store).render(),
+                "updated_at": _utc_now(),
+            },
+        }
+    report = store.cycle_report(int(cycle["id"]))
+    checkpoints = store.cycle_checkpoints(int(cycle["id"]), limit=10)
+    utilization = AgentQueueTracker(memory_path.parent).utilization_report().to_dict()
+    latest_checkpoint = report.get("latest_checkpoint") if report else None
+    checkpoint_items = [
+        {
+            "iteration_number": checkpoint["iteration_number"],
+            "label": checkpoint["label"],
+            "created_at": checkpoint["created_at"],
+            "health_ok": bool(checkpoint["health_ok"]),
+            "stability_ok": bool(checkpoint["stability_ok"]),
+            "security_ok": bool(checkpoint["security_ok"]),
+            "quality_ok": bool(checkpoint["quality_ok"]),
+            "note": checkpoint["note"],
+        }
+        for checkpoint in checkpoints
+    ]
+    return {
+        "ok": True,
+        "monitor": {
+            "active": cycle.get("ended_at") is None,
+            "cycle": cycle,
+            "summary": {
+                "checkpoint_count": int(report["checkpoint_count"]) if report else len(checkpoints),
+                "health_pass_rate": float(report["health_pass_rate"]) if report else 0.0,
+                "stability_pass_rate": float(report["stability_pass_rate"]) if report else 0.0,
+                "security_pass_rate": float(report["security_pass_rate"]) if report else 0.0,
+                "quality_pass_rate": float(report["quality_pass_rate"]) if report else 0.0,
+                "latest_checkpoint": latest_checkpoint,
+            },
+            "checkpoints": checkpoint_items,
+            "utilization": utilization,
+            "next_action": build_cycle_next_action(store).render(),
+            "updated_at": _utc_now(),
+        },
+    }
+
+
+def _cycle_monitor_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _cycle_monitor_payload(memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load cycle monitor.")}
+    monitor = payload["monitor"]
+    cycle = monitor["cycle"]
+    summary = monitor["summary"] or {}
+    utilization = monitor["utilization"] or {}
+    lines = [
+        "Cycle monitor dashboard:",
+        f"Cycle: {cycle['label']}",
+        f"State: {'active' if monitor['active'] else 'idle'}",
+        f"Objective: {cycle['objective']}",
+        f"Started: {cycle['started_at']}",
+        f"Ended: {cycle['ended_at'] or 'n/a'}",
+        "",
+        f"Checkpoint count: {summary.get('checkpoint_count', 0)}",
+        f"Health pass rate: {summary.get('health_pass_rate', 0.0):.2f}",
+        f"Stability pass rate: {summary.get('stability_pass_rate', 0.0):.2f}",
+        f"Security pass rate: {summary.get('security_pass_rate', 0.0):.2f}",
+        f"Quality pass rate: {summary.get('quality_pass_rate', 0.0):.2f}",
+        "",
+        "Recent checkpoints:",
+    ]
+    checkpoints = monitor.get("checkpoints", [])
+    if checkpoints:
+        lines.extend(
+            f"- #{item['iteration_number']} {item['label']} | H={_bool_mark(item['health_ok'])} S={_bool_mark(item['stability_ok'])} Sec={_bool_mark(item['security_ok'])} Q={_bool_mark(item['quality_ok'])} | {item['created_at']}"
+            for item in checkpoints
+        )
+    else:
+        lines.append("- none recorded yet")
+    lines.extend(
+        [
+            "",
+            "Agent utilization:",
+            f"- configured_max_parallel={utilization.get('max_parallel', 0)}",
+            f"- observed_peak_parallel={utilization.get('observed_peak_parallel', 0)}",
+            f"- recommended_max_parallel={utilization.get('recommended_max_parallel', 0)}",
+            f"- idle_ratio={utilization.get('idle_ratio', 0.0):.2f}",
+            "",
+            "Next action:",
+            monitor["next_action"].strip(),
+        ]
+    )
+    return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 def _questioning_payload(
     memory_path: Path | None = None,
