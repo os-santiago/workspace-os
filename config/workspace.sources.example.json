@@ -5,6 +5,28 @@
   "oce_extensions": [
     "../src/workspace_os/oce_extension_adaptive_learning.py"
   ],
+  "modeling": {
+    "enabled": false,
+    "default_profile": "none",
+    "fallback_profile": "none",
+    "profiles": {
+      "remote_reasoner": {
+        "kind": "openai_compatible",
+        "enabled": true,
+        "base_url_env": "WOS_MODEL_BASE_URL",
+        "api_key_env": "WOS_MODEL_API_KEY",
+        "model_env": "WOS_MODEL_NAME"
+      }
+    },
+    "routes": {
+      "planning": [
+        "remote_reasoner"
+      ],
+      "review": [
+        "remote_reasoner"
+      ]
+    }
+  },
   "sources": [
     {
       "name": "adev",

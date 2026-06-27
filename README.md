@@ -208,6 +208,14 @@ export WOS_TASK_AWARE_ROUTING=false
 export WOS_ROUTING_DEBUG=true
 ```
 
+### Optional Model Brain
+
+WOS does not require an external model to run. By default it stays in no-model mode and uses deterministic rules, learning, context, and agent routing.
+
+If you want an advanced brain layer, you can configure a local or remote OpenAI-compatible provider through the workspace config or environment variables. WOS will use that provider for planning, synthesis, or review tasks and fall back to no-model behavior if the provider is missing or unavailable.
+
+This keeps WOS usable for users who already have agents configured, while making model-backed reasoning an opt-in capability instead of a hard requirement.
+
 ## PowerShell Integration
 
 To install a reusable PowerShell `wos` command for the current user, run:

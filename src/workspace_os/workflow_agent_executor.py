@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from workspace_os.agent_adapter import run_agent
+from workspace_os.model_provider import ModelRouter
 from workspace_os.memory import WorkspaceMemoryStore
 
 
@@ -26,6 +27,7 @@ class WorkflowAgentExecutor:
         memory_store: WorkspaceMemoryStore,
         agent_type: str = "claude",
         agent_runner: Callable[..., object] | None = None,
+        model_router: ModelRouter | None = None,
     ):
         """Initialize workflow agent executor.
 
@@ -41,6 +43,7 @@ class WorkflowAgentExecutor:
         self.memory_store = memory_store
         self.agent_type = agent_type
         self.agent_runner = agent_runner or run_agent
+        self.model_router = model_router
         self.execution_count = 0
 
     def execute(self, prompt: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -55,6 +58,10 @@ class WorkflowAgentExecutor:
         """
         self.execution_count += 1
         task_id = f"workflow-agent-{self.execution_count}"
+
+        if self.model_router is not None:
+            selected_provider = self.model_router.select_provider("general")
+            print(f"[workflow] model_provider={selected_provider.name}")
 
         # If schema provided, append structured output request to prompt
         enhanced_prompt = prompt
@@ -130,6 +137,7 @@ def create_workflow_agent_executor(
     memory_store: WorkspaceMemoryStore,
     agent_type: str = "claude",
     agent_runner: Callable[..., object] | None = None,
+    model_router: ModelRouter | None = None,
 ) -> Callable[[str, dict[str, Any] | None], dict[str, Any]]:
     """Create a workflow agent executor function.
 
@@ -143,5 +151,12 @@ def create_workflow_agent_executor(
     Returns:
         Callable that takes (prompt, schema) and returns structured output
     """
-    executor = WorkflowAgentExecutor(workspace_name, workspace_root, memory_store, agent_type, agent_runner)
+    executor = WorkflowAgentExecutor(
+        workspace_name,
+        workspace_root,
+        memory_store,
+        agent_type,
+        agent_runner,
+        model_router,
+    )
     return executor.execute
