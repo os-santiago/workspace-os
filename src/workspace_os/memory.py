@@ -1562,8 +1562,8 @@ class WorkspaceMemoryStore:
             )
             return [
                 {
-                    "question": str(row["question_text"]),
-                    "answer": str(row["answer_text"]),
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
                     "context": str(row["task_context"]),
                     "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
                     "created_at": str(row["created_at"]),
@@ -1585,8 +1585,8 @@ class WorkspaceMemoryStore:
             )
             return [
                 {
-                    "question": str(row["question_text"]),
-                    "answer": str(row["answer_text"]),
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
                     "context": str(row["task_context"]),
                     "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
                     "created_at": str(row["created_at"]),
@@ -1633,8 +1633,8 @@ class WorkspaceMemoryStore:
             )
             return [
                 {
-                    "question": str(row["question_text"]),
-                    "answer": str(row["answer_text"]),
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
                     "context": str(row["task_context"]),
                     "work_item_id": str(row["work_item_id"]) if row["work_item_id"] else "",
                     "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
@@ -1656,6 +1656,13 @@ class WorkspaceMemoryStore:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _capitalize_qa_text(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
 
 
 def _duration_seconds(started_at: str, ended_at: str) -> float:

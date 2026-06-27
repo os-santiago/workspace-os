@@ -44,15 +44,15 @@ class MemoryTests(unittest.TestCase):
                 routing_reason="workspace_inventory_first",
             )
             store.record_qa(
-                "How do we validate a dashboard change?",
-                "Run the focused pytest module and verify the rendered UI payload.",
+                "  how do we validate a dashboard change?  ",
+                "  run the focused pytest module and verify the rendered ui payload.  ",
                 "issue-80-dashboard",
                 work_item_id="issue-80",
                 agent_name="claude",
             )
             store.record_qa(
-                "How do we validate a dashboard change?",
-                "Run the focused pytest module and verify the rendered UI payload.",
+                "how do we validate a dashboard change?",
+                "run the focused pytest module and verify the rendered ui payload.",
                 "issue-80-dashboard",
                 work_item_id="issue-80",
                 agent_name="claude",
@@ -67,6 +67,8 @@ class MemoryTests(unittest.TestCase):
             feedback_history = store.feedback_history(limit=10)
             qa_metrics = store.qa_metrics()
             recent_qa = store.recent_qa_pairs(limit=1)
+            work_item_qa = store.get_qa_for_work_item("issue-80")
+            similar_qa = store.get_similar_questions("issue-80-dashboard", limit=1)
 
         self.assertEqual(1, stats["operator_preferences"])
         self.assertEqual(1, stats["reusable_lessons"])
@@ -98,6 +100,11 @@ class MemoryTests(unittest.TestCase):
         self.assertTrue(qa_metrics["latest_created_at"])
         self.assertEqual("How do we validate a dashboard change?", recent_qa[0]["question"])
         self.assertEqual("claude", recent_qa[0]["agent"])
+        self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", recent_qa[0]["answer"])
+        self.assertEqual("How do we validate a dashboard change?", work_item_qa[0]["question"])
+        self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", work_item_qa[0]["answer"])
+        self.assertEqual("How do we validate a dashboard change?", similar_qa[0]["question"])
+        self.assertEqual("Run the focused pytest module and verify the rendered ui payload.", similar_qa[0]["answer"])
 
 
 if __name__ == "__main__":
