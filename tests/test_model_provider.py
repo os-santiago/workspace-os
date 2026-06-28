@@ -155,6 +155,19 @@ class ModelProviderTests(unittest.TestCase):
                 model="test-model",
             )
 
+    def test_openai_compatible_provider_rejects_query_or_fragment_in_base_url(self) -> None:
+        for base_url in (
+            "https://api.example.invalid/v1?token=abc",
+            "https://api.example.invalid/v1#fragment",
+        ):
+            with self.subTest(base_url=base_url):
+                with self.assertRaises(ModelProviderError):
+                    OpenAICompatibleProvider(
+                        name="remote_reasoner",
+                        base_url=base_url,
+                        model="test-model",
+                    )
+
     def test_build_model_router_defaults_to_no_model_when_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "workspace.json"

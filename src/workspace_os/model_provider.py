@@ -458,6 +458,8 @@ def _normalize_http_base_url(base_url: str) -> str:
         raise ModelProviderError("Model provider base_url must use http or https.")
     if not parsed.netloc:
         raise ModelProviderError("Model provider base_url must include a host.")
+    if parsed.query or parsed.fragment:
+        raise ModelProviderError("Model provider base_url must not include query or fragment parts.")
     return base_url.strip().rstrip("/")
 
 
