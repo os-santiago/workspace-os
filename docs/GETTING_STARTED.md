@@ -35,6 +35,18 @@ workspace --help
 
 You should see the Workspace OS command-line interface help output.
 
+## API Documentation
+
+The public Python API is documented with Sphinx under `docs/api/`.
+
+```bash
+pip install -e ".[dev]"
+sphinx-build -b html docs/api docs/api/_build/html
+```
+
+That build auto-discovers the public `workspace_os` modules, generates the API
+pages, and includes usage examples for the CLI and the Python tracker API.
+
 ## Initialize Your Workspace
 
 ### 1. Create Your Configuration
