@@ -453,47 +453,6 @@ const renderAgentUtilization = (data = null) => {
   output.textContent = lines.join("\n").trim();
 };
 
-const renderAgentPerformance = (data = null) => {
-  const output = qs("#performanceOutput");
-  if (!data || !data.ok) {
-    output.textContent = data?.error || "Unable to load performance report.";
-    return;
-  }
-  state.latestAgentPerformance = data.report || null;
-  const report = data.report || {};
-  const lines = [
-    `Window: ${report.window_start || "n/a"} -> ${report.window_end || "n/a"}`,
-    `Total tasks: ${report.total_tasks ?? 0}`,
-    `Completed tasks: ${report.completed_tasks ?? 0}`,
-    `Failed tasks: ${report.failed_tasks ?? 0}`,
-    `Success rate: ${formatPercent(report.success_rate)}`,
-    `Learning velocity/day: ${Number(report.learning_velocity_per_day || 0).toFixed(2)}`,
-    `Average duration: ${Number(report.average_duration_seconds || 0).toFixed(1)}s`,
-    "",
-    "Role performance:",
-    ...((report.role_summaries || []).length > 0
-      ? report.role_summaries.map(
-          (role) =>
-            `- ${role.role}: tasks=${role.task_count ?? 0} success_rate=${formatPercent(role.success_rate)} avg_duration=${Number(role.avg_duration_seconds || 0).toFixed(1)}s`,
-        )
-      : ["- none recorded yet"]),
-    "",
-    "Agent summaries:",
-    ...((report.agent_summaries || []).length > 0
-      ? report.agent_summaries.map(
-          (summary) =>
-            `- ${summary.agent}: tasks=${summary.total_tasks ?? 0} success_rate=${formatPercent(summary.success_rate)} avg_duration=${Number(summary.avg_duration_seconds || 0).toFixed(1)}s`,
-        )
-      : ["- none recorded yet"]),
-    "",
-    "Specialization patterns:",
-    ...((report.specialization_patterns || []).length > 0
-      ? report.specialization_patterns.map((item) => `- ${item.pattern}: ${item.count}`)
-      : ["- none recorded yet"]),
-  ];
-  output.textContent = lines.join("\n").trim();
-};
-
 const renderPerformanceRegression = (data = null) => {
   const output = qs("#regressionOutput");
   if (!data || !data.ok) {
@@ -522,6 +481,44 @@ const renderPerformanceRegression = (data = null) => {
     "",
     "Alerts:",
     ...(alerts.length > 0 ? alerts.map((name) => `- ${name}`) : ["- none"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const renderAgentPerformance = (data = null) => {
+  const output = qs("#performanceOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load performance dashboard.";
+    return;
+  }
+  state.latestAgentPerformance = data.report || null;
+  const report = data.report || {};
+  const agentSummaries = Array.isArray(report.agent_summaries) ? report.agent_summaries : [];
+  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+  const lines = [
+    `Agents: ${report.agent_count ?? 0}`,
+    `Queue depth: ${report.queue_depth ?? 0}`,
+    `Average success rate: ${Number(report.average_success_rate || 0).toFixed(2)}`,
+    `Average duration: ${(report.average_duration_seconds || 0).toFixed(1)}s`,
+    "",
+    "Highlights:",
+    ...(highlights.length > 0 ? highlights.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "Per-agent performance:",
+    ...agentSummaries.flatMap((summary) => {
+      const roleSummaries = Array.isArray(summary.role_summaries) ? summary.role_summaries : [];
+      const linesForAgent = [
+        `- ${summary.agent}: tasks=${summary.task_count ?? 0} success=${Number(summary.success_rate || 0).toFixed(2)} avg=${(summary.avg_duration_seconds || 0).toFixed(1)}s learning=${Number(summary.learning_velocity || 0).toFixed(2)}`,
+        `  roles: primary=${summary.primary_count ?? 0} cross-check=${summary.cross_check_count ?? 0} observer=${summary.observer_count ?? 0}`,
+        `  specialization: ${summary.specialization_note || "n/a"} | top_task_type=${summary.top_task_type || "general"}`,
+      ];
+      for (const roleSummary of roleSummaries) {
+        linesForAgent.push(
+          `  - ${roleSummary.role}: tasks=${roleSummary.task_count ?? 0} success=${Number(roleSummary.success_rate || 0).toFixed(2)} avg=${(roleSummary.avg_duration_seconds || 0).toFixed(1)}s`,
+        );
+      }
+      return linesForAgent;
+    }),
   ];
   output.textContent = lines.join("\n").trim();
 };
