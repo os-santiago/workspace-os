@@ -32,12 +32,15 @@ class AgentPerformanceDashboardTests(unittest.TestCase):
                 tracker.start(task_id)
                 tracker.complete(task_id, returncode=0, duration_seconds=3.0 + index)
 
+            tracker.enqueue("queued-only-1", "idle-agent", "workspace-os", "Queued only", metadata={"role": "observer"})
+
             dashboard = build_agent_performance_dashboard(memory)
 
         self.assertEqual(2, dashboard.agent_count)
-        self.assertEqual(0, dashboard.queue_depth)
+        self.assertEqual(1, dashboard.queue_depth)
         self.assertEqual(14, dashboard.completed_count)
         self.assertEqual(10, dashboard.failed_count)
+        self.assertEqual({"claude", "opencode"}, {summary.agent for summary in dashboard.agent_summaries})
         opencode = next(summary for summary in dashboard.agent_summaries if summary.agent == "opencode")
         self.assertEqual(20, opencode.task_count)
         self.assertAlmostEqual(0.5, opencode.success_rate, places=2)
@@ -50,3 +53,29 @@ class AgentPerformanceDashboardTests(unittest.TestCase):
         self.assertIn("best fit:", opencode.specialization_note)
         self.assertIn("Best success rate:", dashboard.render())
         self.assertIn("Strongest recent learning velocity:", dashboard.render())
+
+    def test_dashboard_recent_metrics_use_completion_time_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            tracker = AgentQueueTracker(memory.parent)
+
+            task_ids = []
+            for index in range(12):
+                task_id = f"task-{index + 1}"
+                task_ids.append(task_id)
+                tracker.enqueue(task_id, "opencode", "workspace-os", f"Task {index + 1}", metadata={"role": "primary"})
+                tracker.start(task_id)
+
+            for task_id in task_ids[5:]:
+                tracker.complete(task_id, returncode=1, duration_seconds=1.0)
+            for task_id in task_ids[:5]:
+                tracker.complete(task_id, returncode=0, duration_seconds=1.0)
+
+            dashboard = build_agent_performance_dashboard(memory)
+
+        opencode = next(summary for summary in dashboard.agent_summaries if summary.agent == "opencode")
+        self.assertAlmostEqual(0.5, opencode.recent_success_rate, places=2)
+        self.assertGreater(opencode.learning_velocity, 0.4)

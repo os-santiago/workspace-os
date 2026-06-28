@@ -132,6 +132,9 @@ def build_agent_performance_dashboard(memory_path: Path) -> AgentPerformanceDash
     agent_summaries = []
     for agent, agent_tasks in sorted(agent_groups.items()):
         completed = [task for task in agent_tasks if task.state in {AgentTaskState.COMPLETED, AgentTaskState.FAILED}]
+        if not completed:
+            continue
+        completed = sorted(completed, key=_task_completed_sort_key)
         success_count = sum(1 for task in completed if task.state == AgentTaskState.COMPLETED)
         failure_count = sum(1 for task in completed if task.state == AgentTaskState.FAILED)
         task_count = len(agent_tasks)
@@ -262,6 +265,24 @@ def _role_success_rate(tasks: list[Any], role: str) -> float:
         return 0.0
     successes = sum(1 for task in role_tasks if task.state == AgentTaskState.COMPLETED)
     return successes / len(role_tasks)
+
+
+def _task_completed_sort_key(task: Any) -> tuple[datetime, str]:
+    completed_at = _parse_datetime(str(getattr(task, "completed_at", "") or ""))
+    started_at = _parse_datetime(str(getattr(task, "started_at", "") or ""))
+    queued_at = _parse_datetime(str(getattr(task, "queued_at", "") or ""))
+    moment = completed_at or started_at or queued_at or datetime.min.replace(tzinfo=timezone.utc)
+    return moment, str(getattr(task, "task_id", ""))
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _top_key(values: dict[str, int]) -> str | None:
