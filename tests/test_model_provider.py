@@ -12,6 +12,7 @@ from workspace_os.model_provider import (
     ModelRequest,
     ModelRouter,
     ModelRoutingConfig,
+    ModelProviderError,
     NoModelProvider,
     OpenAICompatibleProvider,
     build_model_router,
@@ -141,6 +142,14 @@ class ModelProviderTests(unittest.TestCase):
         self.assertEqual("Bearer secret-token", http_request.get_header("Authorization"))
         self.assertEqual("test-model", body["model"])
         self.assertEqual("review", request_payload.task_type)
+
+    def test_openai_compatible_provider_rejects_non_http_base_url(self):
+        with self.assertRaises(ModelProviderError):
+            OpenAICompatibleProvider(
+                name="remote_reasoner",
+                base_url="file:///tmp/model",
+                model="test-model",
+            )
 
     def test_build_model_router_defaults_to_no_model_when_unconfigured(self):
         with tempfile.TemporaryDirectory() as directory:

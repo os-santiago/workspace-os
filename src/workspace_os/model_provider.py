@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from urllib import error, request
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -135,7 +136,7 @@ class OpenAICompatibleProvider:
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.name = name
-        self.base_url = base_url.rstrip("/")
+        self.base_url = _normalize_http_base_url(base_url)
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
@@ -171,7 +172,7 @@ class OpenAICompatibleProvider:
         http_request = request.Request(url, data=body, headers=headers, method="POST")
 
         try:
-            with request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+            with request.urlopen(http_request, timeout=self.timeout_seconds) as response:  # nosec B310 - validated http(s) base URL
                 data = json.loads(response.read().decode("utf-8"))
         except error.HTTPError as exc:
             raise ModelProviderError(f"Provider '{self.name}' returned HTTP {exc.code}.") from exc
@@ -338,7 +339,10 @@ def _build_provider(profile: ModelProfile) -> ModelProvider | None:
         api_key = _resolve_setting(profile.api_key, profile.api_key_env)
         if not base_url or not model:
             return None
-        return OpenAICompatibleProvider(profile.name, base_url, model, api_key=api_key)
+        try:
+            return OpenAICompatibleProvider(profile.name, base_url, model, api_key=api_key)
+        except ModelProviderError:
+            return None
 
     raise ValueError(f"Unsupported model profile kind '{profile.kind}' for profile '{profile.name}'.")
 
@@ -429,6 +433,15 @@ def _read_optional_str(raw: Any) -> str | None:
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     return None
+
+
+def _normalize_http_base_url(base_url: str) -> str:
+    parsed = urlsplit(base_url.strip())
+    if parsed.scheme not in {"http", "https"}:
+        raise ModelProviderError("Model provider base_url must use http or https.")
+    if not parsed.netloc:
+        raise ModelProviderError("Model provider base_url must include a host.")
+    return base_url.strip().rstrip("/")
 
 
 def _dedupe(values: list[str]) -> tuple[str, ...]:
