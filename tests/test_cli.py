@@ -1055,6 +1055,58 @@ class CliTests(unittest.TestCase):
             self.assertIn("Process summary", rendered)
             self.assertIn("Workspace handoff:", rendered)
 
+    def test_cycle_resume_continues_from_last_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            self._init_git_repo(source_root)
+            config = root / "workspace.json"
+            memory = root / "memory.sqlite3"
+            config.write_text(
+                json.dumps({
+                    "workspace_root": ".",
+                    "memory_db": "memory.sqlite3",
+                    "sources": [{
+                        "name": "source",
+                        "type": "product",
+                        "responsibility": "Product.",
+                        "path": "source",
+                        "search": True,
+                    }],
+                }),
+                encoding="utf-8",
+            )
+
+            # Start a cycle and run one checkpoint
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+                with redirect_stdout(buffer):
+                    start_exit = main(["--config", str(config), "cycle", "start", "--label", "test-cycle", "--objective", "testing"])
+                    run_exit = main(["--config", str(config), "cycle", "run", "--iterations", "1"])
+
+            self.assertEqual(0, start_exit)
+            self.assertEqual(0, run_exit)
+
+            # Resume with 2 more iterations
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as buffer:
+                from contextlib import redirect_stdout
+                with redirect_stdout(buffer):
+                    resume_exit = main(["--config", str(config), "cycle", "resume", "--iterations", "2"])
+                buffer.seek(0)
+                rendered = buffer.read()
+
+            self.assertEqual(0, resume_exit)
+            self.assertIn("Resuming cycle 1", rendered)
+            self.assertIn("Previous checkpoints: 1", rendered)
+            self.assertIn("iterations_completed=2", rendered)
+
+            # Verify total checkpoint count
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            report = store.cycle_report(1)
+            self.assertEqual(3, int(report['checkpoint_count']))
+
     def _init_git_repo(self, path: Path, commit_date: str | None = None) -> None:
         import subprocess
 
