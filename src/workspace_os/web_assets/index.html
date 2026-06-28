@@ -122,7 +122,7 @@
             </div>
           </div>
           <div class="handoff-body">
-            <p class="handoff-note">Agent heatmap, observed peak concurrency, and max_workers tuning guidance.</p>
+            <p class="handoff-note">Agent heatmap, idle and bottleneck hours, and max_workers tuning guidance.</p>
             <pre class="handoff-output" id="utilizationOutput">Loading utilization...</pre>
           </div>
         </section>
@@ -136,8 +136,23 @@
             </div>
           </div>
           <div class="handoff-body">
-            <p class="handoff-note">Per-agent success rate, average duration, role performance, learning velocity, and specialization patterns.</p>
-            <pre class="handoff-output" id="performanceOutput">Loading performance...</pre>
+            <p class="handoff-note">Per-agent success rates, duration averages, role breakdowns, and specialization patterns.</p>
+            <pre class="handoff-output" id="performanceOutput">Loading performance report...</pre>
+          </div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
+            <h2>Regression</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="regressionBaseline" type="button">Baseline</button>
+              <button class="rail-action" id="regressionDownload" type="button">Download</button>
+              <button class="rail-action" id="regressionRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Critical-path benchmark comparison against the local baseline. Alerts when median latency regresses above the configured threshold.</p>
+            <pre class="handoff-output" id="regressionOutput">Loading regression report...</pre>
           </div>
         </section>
 

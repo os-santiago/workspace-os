@@ -16,6 +16,7 @@ const state = {
   latestCycleMonitor: null,
   latestAgentUtilization: null,
   latestAgentPerformance: null,
+  latestPerformanceRegression: null,
   latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
@@ -419,6 +420,12 @@ const renderAgentUtilization = (data = null) => {
   }
   state.latestAgentUtilization = data.report || null;
   const report = data.report || {};
+  const formatHourList = (values) => {
+    const hours = Array.isArray(values) ? values : [];
+    if (hours.length === 0) return "none";
+    return hours.map((hour) => String(hour).padStart(2, "0")).join(", ");
+  };
+  const recommendations = Array.isArray(report.recommendations) ? report.recommendations : [];
   const lines = [
     `Configured max_parallel: ${report.max_parallel ?? 0}`,
     `Observed peak_parallel: ${report.observed_peak_parallel ?? 0}`,
@@ -433,6 +440,46 @@ const renderAgentUtilization = (data = null) => {
     "Agent heatmaps:",
     ...((report.agent_summaries || []).map((summary) =>
       `${String(summary.agent || "agent").slice(0, 5).padEnd(5)} ${renderHeatmapRow(summary.hourly_activity || [])} | util=${formatPercent(summary.utilization_ratio)} peak=${summary.peak_concurrent ?? 0} tasks=${summary.task_count ?? 0}`)),
+    "",
+    "Idle / bottleneck hours:",
+    `- idle=${formatHourList(report.idle_hours || [])}`,
+    `- bottleneck=${formatHourList(report.bottleneck_hours || [])}`,
+    `- peak=${formatHourList(report.peak_hours || [])}`,
+    "",
+    "Recommendations:",
+    ...(recommendations.length > 0 ? recommendations.map((item) => `- ${item}`) : ["- none"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const renderPerformanceRegression = (data = null) => {
+  const output = qs("#regressionOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load regression report.";
+    return;
+  }
+  state.latestPerformanceRegression = data.report || null;
+  const report = data.report || {};
+  const measurements = Array.isArray(report.measurements) ? report.measurements : [];
+  const alerts = Array.isArray(report.alerts) ? report.alerts : [];
+  const lines = [
+    `Baseline: ${report.baseline_path || "n/a"}`,
+    `Baseline available: ${report.baseline_available ? "yes" : "no"}`,
+    `Threshold: ${formatPercent(report.threshold_ratio)}`,
+    `Benchmarks: ${report.benchmark_count ?? 0}`,
+    `Regressions: ${report.regression_count ?? 0}`,
+    `Missing baselines: ${report.missing_baseline_count ?? 0}`,
+    "",
+    "Measurements:",
+    ...((measurements.length > 0
+      ? measurements.map(
+          (item) =>
+            `- ${item.name}: ${item.status} median=${Number(item.median_seconds || 0).toFixed(6)}s avg=${Number(item.average_seconds || 0).toFixed(6)}s slowdown=${item.slowdown_ratio == null ? "n/a" : formatPercent(item.slowdown_ratio)}`,
+        )
+      : ["- none recorded yet"])),
+    "",
+    "Alerts:",
+    ...(alerts.length > 0 ? alerts.map((name) => `- ${name}`) : ["- none"]),
   ];
   output.textContent = lines.join("\n").trim();
 };
@@ -473,11 +520,6 @@ const renderAgentPerformance = (data = null) => {
     }),
   ];
   output.textContent = lines.join("\n").trim();
-};
-
-const loadAgentPerformance = async () => {
-  const data = await getJson("/api/agent-performance");
-  renderAgentPerformance(data);
 };
 
 const renderSecurity = (data = null) => {
@@ -618,6 +660,25 @@ const loadNextAction = async () => {
 const loadAgentUtilization = async () => {
   const data = await getJson("/api/agent-utilization");
   renderAgentUtilization(data);
+};
+
+const loadAgentPerformance = async () => {
+  const data = await getJson("/api/agent-performance");
+  renderAgentPerformance(data);
+};
+
+const loadPerformanceRegression = async () => {
+  const data = await getJson("/api/performance-regression");
+  renderPerformanceRegression(data);
+};
+
+const capturePerformanceBaseline = async () => {
+  const data = await postJson("/api/performance-regression/baseline", {
+    samples: 5,
+    iterations: 25,
+    threshold: 0.1,
+  });
+  renderPerformanceRegression(data);
 };
 
 const loadSecurity = async () => {
@@ -974,7 +1035,7 @@ const init = async () => {
     window.location.href = "/api/agent-utilization.md";
   });
   qs("#performanceRefresh").addEventListener("click", async () => {
-    qs("#performanceOutput").textContent = "Loading performance...";
+    qs("#performanceOutput").textContent = "Loading performance report...";
     try {
       await loadAgentPerformance();
     } catch (error) {
@@ -983,6 +1044,25 @@ const init = async () => {
   });
   qs("#performanceDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-performance.md";
+  });
+  qs("#regressionBaseline").addEventListener("click", async () => {
+    qs("#regressionOutput").textContent = "Capturing baseline...";
+    try {
+      await capturePerformanceBaseline();
+    } catch (error) {
+      qs("#regressionOutput").textContent = error.message;
+    }
+  });
+  qs("#regressionRefresh").addEventListener("click", async () => {
+    qs("#regressionOutput").textContent = "Loading regression report...";
+    try {
+      await loadPerformanceRegression();
+    } catch (error) {
+      qs("#regressionOutput").textContent = error.message;
+    }
+  });
+  qs("#regressionDownload").addEventListener("click", () => {
+    window.location.href = "/api/performance-regression.md";
   });
   qs("#securityRefresh").addEventListener("click", async () => {
     qs("#securityOutput").textContent = "Loading security report...";
@@ -1030,6 +1110,7 @@ const init = async () => {
   await loadNextAction();
   await loadAgentUtilization();
   await loadAgentPerformance();
+  await loadPerformanceRegression();
   await loadSecurity();
   await loadHandoff();
   await loadConscienceRecommendation();

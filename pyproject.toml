@@ -37,6 +37,7 @@ Issues = "https://github.com/os-santiago/workspace-os/issues"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-benchmark>=4.0.0",
     "pytest-cov>=4.0.0",
     "bandit>=1.7.0",
     "black>=26.3.1",

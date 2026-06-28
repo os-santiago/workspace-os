@@ -19,6 +19,7 @@ pip install -e ".[dev]"
 
 This installs:
 - `pytest-cov` - Coverage measurement
+- `pytest-benchmark` - Local benchmark fixture for regression baselines
 - `bandit` - Security scanner
 
 ### Run Quality Checks
@@ -63,6 +64,7 @@ Edit `config/quality.json`:
 - [Coverage Tracking](./coverage.md) - Detailed coverage guide
 - [Security Scanning](./security.md) - Bandit integration
 - [Quality Gates](./gates.md) - Checkpoint enforcement
+- [Performance Regression Detection](../testing/performance-regression.md) - Local benchmark baselines and slowdown alerts
 
 ## Metrics
 
