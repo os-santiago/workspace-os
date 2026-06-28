@@ -1062,8 +1062,9 @@ def _local_metrics_export_payload(
         text = render_metrics_export(report, exporter)
     except ValueError as exc:
         return {"ok": False, "text": str(exc)}
-    content_type = "application/json; charset=utf-8" if exporter.lower() == "grafana-json" else "text/plain; charset=utf-8"
-    filename = f"metrics.{ 'json' if exporter.lower() == 'grafana-json' else 'prometheus' }"
+    normalized = exporter.strip().lower()
+    content_type = "application/json; charset=utf-8" if normalized == "grafana-json" else "text/plain; charset=utf-8"
+    filename = f"metrics.{ 'json' if normalized == 'grafana-json' else 'prometheus' }"
     return {"ok": True, "text": text, "content_type": content_type, "filename": filename}
 
 

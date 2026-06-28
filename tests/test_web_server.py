@@ -1,5 +1,6 @@
 import unittest
 import json
+from unittest.mock import patch
 
 from pathlib import Path
 import tempfile
@@ -383,7 +384,8 @@ Batch 02 [NEXT] Web pilot
                 created_at="2026-06-27T14:05:00+00:00",
             )
 
-            result = _local_metrics_export_payload(memory, "prometheus")
+            with patch.dict("os.environ", {"WOS_METRICS_EXPORTERS": ""}, clear=True):
+                result = _local_metrics_export_payload(memory, "prometheus")
 
         self.assertFalse(result["ok"])
         self.assertIn("not enabled", result["text"])

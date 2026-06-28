@@ -128,14 +128,14 @@ def build_local_metrics_report(memory_path: Path) -> LocalMetricsReport:
     return LocalMetricsReport(
         timestamp=_utc_now(),
         cycle_id=int(cycle_report["cycle_id"]) if cycle_report else None,
-        cycle_label=str(cycle_report["cycle"]["label"]) if cycle_report else None,
-        cycle_objective=str(cycle_report["cycle"]["objective"]) if cycle_report else None,
-        cycle_started_at=str(cycle_report["cycle"]["started_at"]) if cycle_report else None,
-        cycle_ended_at=str(cycle_report["cycle"]["ended_at"]) if cycle_report else None,
+        cycle_label=cycle_report["cycle"].get("label") if cycle_report else None,
+        cycle_objective=cycle_report["cycle"].get("objective") if cycle_report else None,
+        cycle_started_at=cycle_report["cycle"].get("started_at") if cycle_report else None,
+        cycle_ended_at=cycle_report["cycle"].get("ended_at") if cycle_report else None,
         cycle_duration_seconds=cycle_duration_seconds,
         checkpoint_count=int(cycle_report["checkpoint_count"]) if cycle_report else 0,
-        latest_checkpoint_label=str(cycle_report["latest_checkpoint"]["label"]) if cycle_report and cycle_report["latest_checkpoint"] else None,
-        latest_checkpoint_note=str(cycle_report["latest_checkpoint"]["note"]) if cycle_report and cycle_report["latest_checkpoint"] else None,
+        latest_checkpoint_label=cycle_report["latest_checkpoint"].get("label") if cycle_report and cycle_report["latest_checkpoint"] else None,
+        latest_checkpoint_note=cycle_report["latest_checkpoint"].get("note") if cycle_report and cycle_report["latest_checkpoint"] else None,
         task_outcome_total=task_outcome_total,
         task_success_count=task_success_count,
         task_failure_count=task_failure_count,
@@ -270,7 +270,7 @@ def _render_grafana_json(report: LocalMetricsReport) -> str:
 
 
 def _escape_prometheus_label(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("\"", "\\\"")
+    return value.replace("\\", "\\\\").replace("\n", "\\n").replace("\"", "\\\"")
 
 
 def _duration_seconds(started_at: str, ended_at: str) -> float:

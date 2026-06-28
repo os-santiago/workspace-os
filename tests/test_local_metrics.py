@@ -59,8 +59,9 @@ class LocalMetricsTests(unittest.TestCase):
 
             report = build_local_metrics_report(memory)
 
-        with self.assertRaises(ValueError):
-            render_metrics_export(report, "prometheus")
+        with patch.dict("os.environ", {"WOS_METRICS_EXPORTERS": ""}, clear=True):
+            with self.assertRaises(ValueError):
+                render_metrics_export(report, "prometheus")
 
         with patch.dict("os.environ", {"WOS_METRICS_EXPORTERS": "prometheus,grafana-json"}):
             prometheus = render_metrics_export(report, "prometheus")
