@@ -8,7 +8,7 @@ The local web app now exposes a live cycle monitor at `/api/cycle-monitor` and a
 
 - Shows the active or latest cycle
 - Streams checkpoint history and pass/fail gate status
-- Surfaces agent utilization and the next recommended action
+- Surfaces agent utilization, idle and bottleneck hours, and the next recommended action
 - Falls back to polling if WebSocket support is unavailable
 
 Open the main UI and keep the cycle monitor panel visible to watch a run in real time.
@@ -40,6 +40,8 @@ Open the main UI and keep the cycle monitor panel visible to watch a run in real
    - Active agents (X/Y)
    - Queue utilization percentage
    - Visual utilization bar
+   - Idle and bottleneck hour summaries
+   - Max_workers tuning recommendations
 
 4. **Quality Gates**
    - Checkpoints completed
