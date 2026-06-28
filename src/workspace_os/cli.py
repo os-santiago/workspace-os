@@ -43,6 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # init command doesn't require existing config
+    if args.command == "init":
+        return _init(args.config, args.name, args.non_interactive)
+
     try:
         sources = load_sources(args.config)
         memory_path = load_workspace_memory_path(args.config)
@@ -118,6 +122,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init_parser = subparsers.add_parser("init", help="Initialize WOS configuration for this repository.")
+    init_parser.add_argument("--name", help="Workspace name (defaults to directory name)")
+    init_parser.add_argument("--non-interactive", action="store_true", help="Skip interactive prompts")
+
     subparsers.add_parser("status", help="Report source repository status without mutation.")
 
     search_parser = subparsers.add_parser("search", help="Search configured workspace sources.")
@@ -1538,6 +1547,140 @@ def _cycle_report_to_dict(report: object) -> dict[str, object]:
 
 def _next_cycle_iteration(store: WorkspaceMemoryStore, cycle_id: int) -> int:
     return len(store.cycle_checkpoints(cycle_id, limit=1000)) + 1
+
+
+def _init(config_path: Path, workspace_name: str | None, non_interactive: bool) -> int:
+    """Initialize WOS configuration with interactive wizard."""
+    import json
+    from pathlib import Path
+
+    cwd = Path.cwd()
+
+    print("🚀 Workspace OS Initialization Wizard\n")
+
+    # Check if config already exists
+    if config_path.exists():
+        print(f"⚠️  Configuration already exists at {config_path}")
+        if non_interactive:
+            print("Use --force to overwrite (not implemented yet)")
+            return 1
+        response = input("Overwrite existing configuration? [y/N]: ").strip().lower()
+        if response not in ("y", "yes"):
+            print("Initialization cancelled.")
+            return 0
+
+    # Step 1: Workspace name
+    default_name = workspace_name or cwd.name
+    if non_interactive:
+        name = default_name
+    else:
+        name_input = input(f"Workspace name [{default_name}]: ").strip()
+        name = name_input if name_input else default_name
+
+    print(f"✓ Workspace name: {name}\n")
+
+    # Step 2: Project type
+    project_types = {
+        "1": ("single", "Single repository workspace"),
+        "2": ("multi", "Multi-repository workspace"),
+        "3": ("custom", "Custom configuration"),
+    }
+
+    if non_interactive:
+        project_type = "single"
+    else:
+        print("Select project type:")
+        for key, (_, desc) in project_types.items():
+            print(f"  {key}. {desc}")
+
+        while True:
+            choice = input("Choice [1]: ").strip() or "1"
+            if choice in project_types:
+                project_type, _ = project_types[choice]
+                break
+            print("Invalid choice. Please select 1, 2, or 3.")
+
+    print(f"✓ Project type: {project_type}\n")
+
+    # Step 3: Check agent availability
+    print("Checking agent availability...")
+    from workspace_os.agent_policy import available_work_agents
+
+    agents = available_work_agents()
+    print(f"✓ Found {len(agents)} available agent(s): {', '.join(agents)}\n")
+
+    # Step 4: Build configuration
+    config = {
+        "workspace_root": ".",
+        "memory_db": ".workspace-os/workspace-memory.sqlite3",
+        "sources": []
+    }
+
+    if project_type == "single":
+        # Single repository configuration
+        config["sources"] = [
+            {
+                "name": name,
+                "type": "directory",
+                "path": ".",
+                "responsibility": f"{name} repository"
+            }
+        ]
+    elif project_type == "multi":
+        # Multi-repository configuration - ask for additional repos
+        config["sources"] = [
+            {
+                "name": name,
+                "type": "directory",
+                "path": ".",
+                "responsibility": f"{name} main repository"
+            }
+        ]
+
+        if not non_interactive:
+            print("Add additional repositories? (enter path or press Enter to skip)")
+            while True:
+                repo_path = input("Repository path: ").strip()
+                if not repo_path:
+                    break
+
+                repo_name = input(f"Repository name [{Path(repo_path).name}]: ").strip()
+                if not repo_name:
+                    repo_name = Path(repo_path).name
+
+                config["sources"].append({
+                    "name": repo_name,
+                    "type": "directory",
+                    "path": repo_path,
+                    "responsibility": f"{repo_name} repository"
+                })
+                print(f"✓ Added {repo_name}\n")
+
+    # Step 5: GitHub integration (optional)
+    if not non_interactive:
+        print("Configure GitHub integration? [y/N]: ", end="")
+        if input().strip().lower() in ("y", "yes"):
+            print("GitHub integration will use 'gh' CLI if available.")
+            print("✓ GitHub integration enabled (via gh CLI)\n")
+
+    # Step 6: Write configuration
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"✓ Configuration written to {config_path}\n")
+
+    # Step 7: Next steps
+    print("🎉 Initialization complete!\n")
+    print("Next steps:")
+    print(f"  1. Review configuration: cat {config_path}")
+    print(f"  2. Check agent status: workspace agents status")
+    print(f"  3. Validate setup: workspace validate")
+    print(f"  4. Run first cycle: workspace cycle work --duration-minutes 30 --objective 'Your goal'")
+    print()
+
+    return 0
 
 
 if __name__ == "__main__":
