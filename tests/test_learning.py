@@ -4,7 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workspace_os.learning import _is_agent_mismatch_error, build_questioning_prompt, build_workspace_learning_model
+from workspace_os.learning import (
+    _is_agent_mismatch_error,
+    build_questioning_prompt,
+    build_squad_lead_answer_engine,
+    build_workspace_learning_model,
+    QuestioningProtocol,
+)
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.profile import load_profile, save_profile_key
 
@@ -153,6 +159,12 @@ class LearningModelTests(unittest.TestCase):
                 role="primary",
                 work_item_id="issue-81",
                 agent_name="claude",
+                issue_data={
+                    "number": 81,
+                    "title": "Implement Agent Questioning Protocol",
+                    "body": "## Acceptance Criteria\n- Ask clarifying questions before execution.\n- Record questions in learning.",
+                },
+                code_context="tests/test_learning.py",
             )
 
             stats = store.qa_metrics()
@@ -164,6 +176,88 @@ class LearningModelTests(unittest.TestCase):
         self.assertGreaterEqual(stats["total"], 1)
         self.assertEqual(len(recorded), stats["total"])
         self.assertTrue(any("issue number" in question.lower() or "source of truth" in question.lower() for question in prompt.questions))
+        self.assertTrue(any("acceptance criteria" in hint.lower() or "validate" in hint.lower() for hint in prompt.answer_hints))
+        self.assertTrue(prompt.question_categories)
+        self.assertIn(prompt.question_categories[0], {"scope", "constraints", "dependencies", "edge_cases", "clarification"})
+
+    def test_questioning_protocol_classifies_questions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            protocol = QuestioningProtocol(store, build_squad_lead_answer_engine(store))
+
+            prompt = protocol.formulate(
+                "Objective: implement agent questioning protocol",
+                issue_data={
+                    "number": 81,
+                    "title": "Implement Agent Questioning Protocol",
+                    "body": "## Acceptance Criteria\n- Ask up to 3 clarifying questions.\n- Integrate with Squad Lead.",
+                },
+                code_context="src/workspace_os/learning.py",
+            )
+
+        self.assertLessEqual(len(prompt.questions), 3)
+        self.assertEqual(len(prompt.questions), len(prompt.question_categories))
+        self.assertTrue(all(category in {"scope", "constraints", "dependencies", "edge_cases", "clarification"} for category in prompt.question_categories))
+
+    def test_squad_lead_answer_engine_uses_issue_context_and_caches_answers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            engine = build_squad_lead_answer_engine(store)
+            issue_data = {
+                "number": 83,
+                "title": "Build Squad Lead Answer Engine",
+                "body": "## Acceptance Criteria\n- Implementation complete\n- Tests passing\n- Documentation updated",
+            }
+
+            draft = engine.answer_question(
+                "Objective: build Squad Lead answer engine for issue #83",
+                "What acceptance criteria or validation must pass before this work is done?",
+                issue_data=issue_data,
+                code_context="src/workspace_os/learning.py\n tests/test_learning.py",
+                related_issues=(
+                    {"number": 81, "title": "Implement Agent Questioning Protocol"},
+                ),
+                work_item_id="issue-83",
+                agent_name="claude",
+            )
+            cached = engine.answer_question(
+                "Objective: build Squad Lead answer engine for issue #83",
+                "What acceptance criteria or validation must pass before this work is done?",
+                issue_data=issue_data,
+                code_context="src/workspace_os/learning.py",
+                work_item_id="issue-83",
+                agent_name="claude",
+            )
+            recorded = store.get_qa_for_work_item("issue-83")
+
+        self.assertGreaterEqual(draft.confidence, 0.6)
+        self.assertFalse(draft.should_escalate)
+        self.assertIn("Validate the acceptance criteria", draft.answer)
+        self.assertEqual("work_item_cache", cached.source_summary)
+        self.assertTrue(cached.cache_hit)
+        self.assertEqual(1, len(recorded))
+
+    def test_squad_lead_answer_engine_escalates_when_confidence_is_low(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "memory.sqlite3"
+            store = WorkspaceMemoryStore(db_path)
+            store.ensure_schema()
+            engine = build_squad_lead_answer_engine(store)
+
+            draft = engine.answer_question(
+                "Objective: investigate vague follow-up",
+                "What should I do?",
+                work_item_id="issue-999",
+                agent_name="claude",
+            )
+
+        self.assertLess(draft.confidence, 0.6)
+        self.assertTrue(draft.should_escalate)
+        self.assertIn("issue description", draft.answer)
 
 
 if __name__ == "__main__":

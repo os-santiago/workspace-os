@@ -150,6 +150,9 @@ Initial implementation:
 - Supported capture types are daily, incident, session, and decision.
 - Output uses source-relative references instead of local machine paths.
 
+Initial design:
+- ADR 0009 splits capture into a sanitized evidence step before any durable write.
+
 ### WSOS-017: Implement Promotion Workflow
 
 As an operator, the system needs a controlled way to promote reusable lessons into doctrine.
@@ -164,6 +167,9 @@ Initial implementation:
 - `python -m workspace_os promote --to <target> --rule <rule> --evidence <ref>` emits a proposal-only Markdown brief.
 - Promotion output includes related existing content found through librarian search.
 - Promotion does not mutate doctrine or evidence.
+
+Initial design:
+- ADR 0009 defines promotion as a proposed doctrine update that remains reviewable before doctrine changes.
 
 ## Next
 
@@ -271,6 +277,21 @@ Initial implementation:
 - `python -m workspace_os memory status` reports memory store location and counts.
 - `python -m workspace_os memory preference set|get` can seed and retrieve operator preferences.
 
+### WSOS-022: Create Onboarding Tutorial for First-Time Users
+
+As the operator, the system needs a first-run tutorial that explains the core WOS concepts and confirms the user understands the first workflow.
+
+Acceptance criteria:
+- Tutorial runs on first shell use or can be invoked manually.
+- Tutorial explains the stack, the librarian workflow, capture, and approval boundaries.
+- Tutorial includes a short quiz or confirmation step.
+- Experienced users can skip the tutorial.
+
+Initial implementation:
+- `python -m workspace_os onboarding` runs the interactive tutorial.
+- `python -m workspace_os shell` shows the tutorial on first run unless `--skip-onboarding` is passed.
+- The shell stores onboarding completion in persistent workspace memory.
+
 ### WSOS-011: Define Consulting Estimate Workflow
 
 As the operator, the system needs repeatable estimation support for platform and modernization work.
@@ -280,6 +301,9 @@ Acceptance criteria:
 - The workflow flags unrealistic assumptions.
 - Output destination is Google Workspace, with source logic in Git.
 
+Initial design:
+- ADR 0010 defines the estimate workflow as a structured, reviewable brief that can later be rendered into Google Workspace.
+
 ## Later
 
 ### WSOS-007: Add Google Workspace Metadata Connector
@@ -288,6 +312,9 @@ Acceptance criteria:
 - Read-only by default.
 - Captures metadata and links, not document contents unless explicitly allowed.
 - Does not store sensitive content in Git.
+
+Initial design:
+- ADR 0007 defines the Google Workspace connector as a metadata-first, privacy-preserving integration boundary.
 
 ### WSOS-008: Add Agent Command Router
 
@@ -302,3 +329,6 @@ Acceptance criteria:
 - Works through private network access.
 - Does not expose arbitrary command execution.
 - Provides audit logs and a kill switch.
+
+Initial design:
+- ADR 0008 defines the secure remote access model as a declarative, allowlisted supervision channel with explicit approval for mutation.

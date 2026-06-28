@@ -23,6 +23,7 @@ from workspace_os.habits import compute_habits
 from workspace_os.journal import journal_root, latest_journal_entry, list_journal_entries, write_cycle_journal
 from workspace_os.oce_extensions_report import build_oce_extensions_report, render_oce_extensions_report_text
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.onboarding import run_onboarding_tutorial
 from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile, save_profile_key, save_shortcut
@@ -35,7 +36,7 @@ class WorkspaceShell(cmd.Cmd):
     intro = "Workspace OS shell. Type /help for commands, /exit to leave."
     ruler = "-"
 
-    def __init__(self, sources: list[Source], memory_path: Path, session_id: str = "shell"):
+    def __init__(self, sources: list[Source], memory_path: Path, session_id: str = "shell", skip_onboarding: bool = False):
         super().__init__()
         self.sources = sources
         self.memory_store = WorkspaceMemoryStore(memory_path)
@@ -43,6 +44,7 @@ class WorkspaceShell(cmd.Cmd):
         self.profile = load_profile(self.memory_store)
         self.habits = compute_habits(self.memory_store, self.profile)
         self.session_id = session_id
+        self.skip_onboarding = skip_onboarding
         self.verbose = False
         self.active_workspace: str | None = self.profile.default_workspace
         if self.active_workspace and not any(source.name == self.active_workspace for source in self.sources):
@@ -58,6 +60,15 @@ class WorkspaceShell(cmd.Cmd):
             "Type /help for commands, /inspect for overview, /handoff for closing summary, /exit to leave."
         )
         self.prompt = self._render_prompt()
+
+    def preloop(self) -> None:
+        if self.skip_onboarding:
+            return
+        import sys
+
+        if not sys.stdin.isatty():
+            return
+        run_onboarding_tutorial(self.memory_store, input_func=input, output_func=self._emit)
 
     def parseline(self, line: str):
         stripped = self._normalize_line(line)
@@ -108,6 +119,7 @@ class WorkspaceShell(cmd.Cmd):
                     "/context latest     show the latest compacted global context snapshot",
                     "/classify <text>    classify content destination",
                     "/validate [--skip-smoke-queries] validate workspace health",
+                    "/onboarding [skip]  run or skip the first-run tutorial",
                     "/capture <type>     capture session/incident/decision/daily notes",
                     "/promote <target>   promote rule to ADEV/kb",
                     "/memory [query]     search persistent memory",
@@ -235,6 +247,14 @@ class WorkspaceShell(cmd.Cmd):
         self._emit(f"target={draft.source_name}:{draft.relative_path}")
         self._emit("")
         self._emit(draft.content, end="")
+
+    def do_onboarding(self, arg: str) -> None:
+        parts = shlex.split(arg)
+        if parts and parts[0].casefold() == "skip":
+            self.memory_store.record_preference("onboarding_completed", "true")
+            self._emit("Onboarding marked complete.")
+            return
+        run_onboarding_tutorial(self.memory_store, input_func=input, output_func=self._emit)
 
     def do_promote(self, arg: str) -> None:
         parts = shlex.split(arg)

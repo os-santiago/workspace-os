@@ -86,6 +86,43 @@ Initial scope:
 - Promote repeated lessons into durable rules, checks, tests, or backlog items.
 - Feed relevant context to agent briefs and connector workflows.
 
+### Model Provider Layer
+
+Provides an optional brain layer that WOS can use for planning, synthesis, and review when a model is configured.
+
+Initial scope:
+- Default to no-model operation when nothing is configured.
+- Support local or remote OpenAI-compatible providers through config or environment variables.
+- Route tasks by capability and fall back cleanly when a provider is missing or unavailable.
+- Keep model choice independent from agent orchestration and workspace execution.
+
+### Autonomous Cycle Orchestrator
+
+Coordinates the first closed-loop WOS flow for a single issue: select, branch, implement, validate, open PR, and merge when policy allows.
+
+Initial scope:
+- Classify each candidate issue through OCE before starting a cycle.
+- Evaluate scope size, change surface, test coverage, merge risk, ambiguity, and cross-cutting impact before any mutation.
+- Persist the issue, branch, PR, validation, blockers, and learning signals.
+- Refuse mutation or merge when validation fails or when the autonomy policy requires human review.
+- Keep the orchestration logic separate from the implementation agent and from the model provider layer.
+
+### Autonomous Cycle State Store
+
+Stores the durable history of autonomous cycles so later runs can inspect prior outcomes without relying on transient agent context.
+
+Initial scope:
+- Save stage transitions and review outcomes across sessions.
+- Store learning signals from blocked, partial, or successful cycles.
+- Expose the latest cycle records for the next run and for documentation.
+- Reuse the latest cycle for the same issue plus recent learning signals when constructing the next cycle prompt.
+
+Retrieval path:
+- `AutonomousCycleStore.get_cycle(id)`
+- `AutonomousCycleStore.list_cycles(limit=...)`
+- `AutonomousCycleStore.latest_cycle_for_issue(issue_number)`
+- `AutonomousCycleStore.latest_learning_signals(limit=...)`
+
 ### Source Registry
 
 Defines known sources and their responsibilities.
@@ -102,6 +139,7 @@ Examples:
 Searches existing content before new content is added.
 
 Initial implementation should use plain text search before adding vector search.
+Semantic similarity can be layered on top of the local memory store as a deterministic, dependency-light index so the system can reuse older work summaries without requiring a remote embedding service.
 
 ### Agent Context Pack
 
@@ -111,6 +149,7 @@ Initial implementation:
 - Includes source repository state without machine-specific paths.
 - Includes an ADEV doctrine excerpt from configured doctrine sources.
 - Includes existing knowledge matches for the task topic.
+- Includes semantically similar memory entries from prior work summaries when available.
 - Redacts common secret-like assignments in emitted text.
 
 ### Content Classifier

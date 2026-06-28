@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import shlex
 import subprocess
+import struct
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -16,15 +20,22 @@ from workspace_os.batch import current_batch_report, current_process_report
 from workspace_os.classification import classify_content
 from workspace_os.conscience import ConscienceDecision, evaluate_request, render_decision_for_prompt
 from workspace_os.conscience_report import build_conscience_recommendation_text, build_conscience_report, render_conscience_report_text
+from workspace_os.cycle import build_cycle_next_action
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
+from workspace_os.local_metrics import build_local_metrics_report, render_local_metrics_markdown, render_metrics_export
+from workspace_os.performance_regression import (
+    build_performance_regression_report,
+    capture_performance_baseline,
+)
 from workspace_os.conversation import build_workspace_reply
+from workspace_os.agent_performance_dashboard import build_agent_performance_dashboard
 from workspace_os.learning import suggest_questions_for_work
 from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
-from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.memory import WorkspaceMemoryStore, _utc_now
 from workspace_os.overview import build_workspace_handoff, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
@@ -85,6 +96,22 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/roadmap":
                 self._send_json(_roadmap_payload())
+                return
+            if parsed.path == "/api/cycle-monitor":
+                self._send_json(_cycle_monitor_payload(memory_path, query))
+                return
+            if parsed.path == "/api/cycle-monitor.md":
+                self._send_text(
+                    _cycle_monitor_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="cycle-monitor.md",
+                )
+                return
+            if parsed.path == "/api/cycle-monitor/ws":
+                if self.headers.get("Upgrade", "").lower() == "websocket":
+                    self._handle_cycle_monitor_websocket(memory_path, query)
+                    return
+                self._send_json(_cycle_monitor_payload(memory_path, query))
                 return
             if parsed.path == "/api/recent-software":
                 self._send_json(_recent_software_payload(root=workspace_root))
@@ -192,6 +219,42 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     filename="agent-utilization.md",
                 )
                 return
+            if parsed.path == "/api/agent-performance":
+                self._send_json(_agent_performance_payload(memory_path, query))
+                return
+            if parsed.path == "/api/agent-performance.md":
+                self._send_text(
+                    _agent_performance_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="agent-performance.md",
+                )
+                return
+            if parsed.path == "/api/metrics":
+                self._send_json(_local_metrics_payload(memory_path, query))
+                return
+            if parsed.path == "/api/metrics.md":
+                self._send_text(
+                    _local_metrics_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="metrics.md",
+                )
+                return
+            if parsed.path == "/api/metrics/export":
+                exporter = _first(query, "format") or _first(query, "exporter")
+                payload = _local_metrics_export_payload(memory_path, exporter)
+                content_type = str(payload.get("content_type", "text/plain; charset=utf-8"))
+                self._send_text(payload, content_type, filename=str(payload.get("filename", "metrics-export.txt")))
+                return
+            if parsed.path == "/api/performance-regression":
+                self._send_json(_performance_regression_payload(memory_path, workspace_root, query))
+                return
+            if parsed.path == "/api/performance-regression.md":
+                self._send_text(
+                    _performance_regression_markdown_payload(memory_path, workspace_root, query),
+                    "text/markdown; charset=utf-8",
+                    filename="performance-regression.md",
+                )
+                return
 
             self.send_error(404, "Not found")
 
@@ -213,6 +276,9 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                 return
             if parsed.path == "/api/delegate-launch":
                 self._send_json(_delegate_launch_payload(payload, workspace_root=workspace_root))
+                return
+            if parsed.path == "/api/performance-regression/baseline":
+                self._send_json(_performance_regression_baseline_payload(memory_path, workspace_root, payload))
                 return
 
         def log_message(self, format: str, *args: object) -> None:
@@ -267,6 +333,29 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
             self.end_headers()
             _write_response_body(self.wfile.write, body)
 
+        def _handle_cycle_monitor_websocket(self, memory_path: Path | None, query: dict[str, list[str]]) -> None:
+            key = self.headers.get("Sec-WebSocket-Key")
+            if not key:
+                self.send_error(400, "Missing Sec-WebSocket-Key header")
+                return
+            accept = _websocket_accept_key(key)
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+            while True:
+                payload = _cycle_monitor_payload(memory_path, query)
+                frame = _websocket_text_frame(json.dumps(payload, ensure_ascii=False))
+                _write_response_body(self.wfile.write, frame)
+                try:
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+                    return
+                time.sleep(5)
+
     return WorkspaceRequestHandler
 
 
@@ -275,6 +364,34 @@ def _write_response_body(writer, body: bytes) -> None:
         writer(body)
     except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
         return
+
+
+def _bool_mark(value: object) -> str:
+    return "PASS" if bool(value) else "FAIL"
+
+
+def _websocket_accept_key(key: str) -> str:
+    digest = hashlib.new(
+        "sha1",
+        (key.strip() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("utf-8"),
+        usedforsecurity=False,
+    ).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _websocket_text_frame(message: str) -> bytes:
+    payload = message.encode("utf-8")
+    length = len(payload)
+    header = bytearray([0x81])
+    if length < 126:
+        header.append(length)
+    elif length < (1 << 16):
+        header.append(126)
+        header.extend(struct.pack(">H", length))
+    else:
+        header.append(127)
+        header.extend(struct.pack(">Q", length))
+    return bytes(header) + payload
 
 
 def _status_payload(sources: list[Source]) -> dict[str, object]:
@@ -596,6 +713,121 @@ def _conscience_recommendation_markdown_payload(
 ) -> dict[str, object]:
     return _conscience_recommendation_payload(memory_path, query)
 
+
+def _cycle_monitor_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    cycle_id = _int_query(query or {}, "cycle_id", 0) if query else 0
+    cycle = store.get_cycle(cycle_id) if cycle_id > 0 else store.active_cycle()
+    if cycle is None:
+        history = store.cycle_history(limit=1)
+        cycle = history[0] if history else None
+    if cycle is None:
+        return {
+            "ok": True,
+            "monitor": {
+                "active": False,
+                "cycle": None,
+                "summary": None,
+                "checkpoints": [],
+                "utilization": None,
+                "next_action": build_cycle_next_action(store).render(),
+                "updated_at": _utc_now(),
+            },
+        }
+    report = store.cycle_report(int(cycle["id"]))
+    checkpoints = store.cycle_checkpoints(int(cycle["id"]), limit=10)
+    utilization = AgentQueueTracker(memory_path.parent).utilization_report().to_dict()
+    latest_checkpoint = report.get("latest_checkpoint") if report else None
+    checkpoint_items = [
+        {
+            "iteration_number": checkpoint["iteration_number"],
+            "label": checkpoint["label"],
+            "created_at": checkpoint["created_at"],
+            "health_ok": bool(checkpoint["health_ok"]),
+            "stability_ok": bool(checkpoint["stability_ok"]),
+            "security_ok": bool(checkpoint["security_ok"]),
+            "quality_ok": bool(checkpoint["quality_ok"]),
+            "note": checkpoint["note"],
+        }
+        for checkpoint in checkpoints
+    ]
+    return {
+        "ok": True,
+        "monitor": {
+            "active": cycle.get("ended_at") is None,
+            "cycle": cycle,
+            "summary": {
+                "checkpoint_count": int(report["checkpoint_count"]) if report else len(checkpoints),
+                "health_pass_rate": float(report["health_pass_rate"]) if report else 0.0,
+                "stability_pass_rate": float(report["stability_pass_rate"]) if report else 0.0,
+                "security_pass_rate": float(report["security_pass_rate"]) if report else 0.0,
+                "quality_pass_rate": float(report["quality_pass_rate"]) if report else 0.0,
+                "latest_checkpoint": latest_checkpoint,
+            },
+            "checkpoints": checkpoint_items,
+            "utilization": utilization,
+            "next_action": build_cycle_next_action(store).render(),
+            "updated_at": _utc_now(),
+        },
+    }
+
+
+def _cycle_monitor_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    payload = _cycle_monitor_payload(memory_path, query)
+    if not payload.get("ok", False):
+        return {"ok": False, "text": payload.get("error", "Unable to load cycle monitor.")}
+    monitor = payload["monitor"]
+    cycle = monitor["cycle"]
+    summary = monitor["summary"] or {}
+    utilization = monitor["utilization"] or {}
+    lines = [
+        "Cycle monitor dashboard:",
+        f"Cycle: {cycle['label']}",
+        f"State: {'active' if monitor['active'] else 'idle'}",
+        f"Objective: {cycle['objective']}",
+        f"Started: {cycle['started_at']}",
+        f"Ended: {cycle['ended_at'] or 'n/a'}",
+        "",
+        f"Checkpoint count: {summary.get('checkpoint_count', 0)}",
+        f"Health pass rate: {summary.get('health_pass_rate', 0.0):.2f}",
+        f"Stability pass rate: {summary.get('stability_pass_rate', 0.0):.2f}",
+        f"Security pass rate: {summary.get('security_pass_rate', 0.0):.2f}",
+        f"Quality pass rate: {summary.get('quality_pass_rate', 0.0):.2f}",
+        "",
+        "Recent checkpoints:",
+    ]
+    checkpoints = monitor.get("checkpoints", [])
+    if checkpoints:
+        lines.extend(
+            f"- #{item['iteration_number']} {item['label']} | H={_bool_mark(item['health_ok'])} S={_bool_mark(item['stability_ok'])} Sec={_bool_mark(item['security_ok'])} Q={_bool_mark(item['quality_ok'])} | {item['created_at']}"
+            for item in checkpoints
+        )
+    else:
+        lines.append("- none recorded yet")
+    lines.extend(
+        [
+            "",
+            "Agent utilization:",
+            f"- configured_max_parallel={utilization.get('max_parallel', 0)}",
+            f"- observed_peak_parallel={utilization.get('observed_peak_parallel', 0)}",
+            f"- recommended_max_parallel={utilization.get('recommended_max_parallel', 0)}",
+            f"- idle_ratio={utilization.get('idle_ratio', 0.0):.2f}",
+            "",
+            "Next action:",
+            monitor["next_action"].strip(),
+        ]
+    )
+    return {"ok": True, "text": "\n".join(lines) + "\n"}
+
 def _questioning_payload(
     memory_path: Path | None = None,
     query: dict[str, list[str]] | None = None,
@@ -613,8 +845,19 @@ def _questioning_payload(
         context = str(snapshot["summary"]) if snapshot and snapshot.get("summary") else "workspace"
     report = {
         "context": context,
-        "summary": store.qa_metrics(),
+        "metrics": store.questioning_metrics(context),
         "recent": store.recent_qa_pairs(limit=limit),
+        "semantic_hits": [
+            {
+                "kind": hit.kind,
+                "title": hit.title,
+                "body": hit.body,
+                "created_at": hit.created_at,
+                "score": hit.score,
+                "source": hit.source,
+            }
+            for hit in store.semantic_search(context, limit=limit)
+        ],
         "suggestions": [
             {
                 "question": suggestion.question,
@@ -637,7 +880,10 @@ def _questioning_markdown_payload(
     if not payload.get("ok", False):
         return {"ok": False, "text": payload.get("error", "Unable to load questioning metrics.")}
     report = payload["report"]
-    summary = report["summary"]
+    metrics = report["metrics"]
+    summary = metrics["summary"]
+    with_qna = metrics["with_qna"]
+    without_qna = metrics["without_qna"]
     lines = [
         "Questioning dashboard:",
         f"Context focus: {report['context']}",
@@ -647,6 +893,11 @@ def _questioning_markdown_payload(
         f"- unique_questions={summary.get('unique_questions', 0)}",
         f"- recent_7_days={summary.get('recent_7_days', 0)}",
         f"- latest_created_at={summary.get('latest_created_at') or 'n/a'}",
+        f"- learning_velocity_per_day={metrics['learning_velocity']:.2f}",
+        f"- estimated_time_invested_minutes={metrics['estimated_time_invested_minutes']:.1f}",
+        f"- estimated_rework_savings_minutes={metrics['estimated_rework_savings_minutes']:.1f}",
+        f"- with_qna_success_rate={with_qna['success_rate']:.2f}",
+        f"- without_qna_success_rate={without_qna['success_rate']:.2f}",
         "",
         "Recent Q&A:",
     ]
@@ -656,6 +907,30 @@ def _questioning_markdown_payload(
             f"- {item['created_at']} | {item['agent']} | {item['question']} -> {item['answer']}"
             for item in recent
         )
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Semantic memory:")
+    semantic_hits = report.get("semantic_hits", [])
+    if semantic_hits:
+        lines.extend(
+            f"- {item['created_at']} | {item['source']} | {item['title']} | score={item['score']:.2f}"
+            for item in semantic_hits
+        )
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Answer sources:")
+    answer_sources = metrics.get("answer_sources", {})
+    if answer_sources:
+        lines.extend(f"- {source}: {count}" for source, count in sorted(answer_sources.items(), key=lambda item: (-item[1], item[0])))
+    else:
+        lines.append("- none recorded yet")
+    lines.append("")
+    lines.append("Question patterns:")
+    patterns = metrics.get("question_patterns", [])
+    if patterns:
+        lines.extend(f"- {item['question']} (asked {item['count']}x)" for item in patterns)
     else:
         lines.append("- none recorded yet")
     lines.append("")
@@ -679,6 +954,7 @@ def _security_payload(
         return {"ok": False, "error": "Workspace root is required."}
     validator = SecurityValidator(workspace_root)
     summary = validator.get_vulnerability_summary()
+    policy_report = validator.get_policy_summary()
     report_dir = validator.report_dir
     return {
         "ok": True,
@@ -686,10 +962,12 @@ def _security_payload(
             "project_root": str(workspace_root),
             "report_dir": str(report_dir),
             "summary": summary,
+            "policy": policy_report,
             "reports": {
                 "pip_audit": (report_dir / "pip-audit.json").exists(),
                 "safety": (report_dir / "safety.json").exists(),
                 "bandit": (report_dir / "bandit.json").exists(),
+                "policy": validator.policy_path.exists(),
             },
         },
     }
@@ -701,9 +979,12 @@ def _security_markdown_payload(
 ) -> dict[str, object]:
     payload = _security_payload(workspace_root, query)
     if not payload.get("ok", False):
-        return {"ok": False, "text": payload.get("error", "Unable to load security report.")}    
+        return {"ok": False, "text": payload.get("error", "Unable to load security report.")}
     report = payload["report"]
     summary = report["summary"]
+    policy = report.get("policy", {})
+    policy_summary = policy.get("summary", {}) if isinstance(policy, dict) else {}
+    findings = policy.get("findings", []) if isinstance(policy, dict) else []
     lines = [
         "Security dashboard:",
         f"Project root: {report['project_root']}",
@@ -723,11 +1004,30 @@ def _security_markdown_payload(
         f"- bandit_medium={summary.get('bandit_medium', 0)}",
         f"- bandit_low={summary.get('bandit_low', 0)}",
         "",
-        "Reports:",
-        f"- pip-audit={'present' if report['reports']['pip_audit'] else 'missing'}",
-        f"- safety={'present' if report['reports']['safety'] else 'missing'}",
-        f"- bandit={'present' if report['reports']['bandit'] else 'missing'}",
+        "Policy summary:",
+        f"- compliance_rate={float(policy_summary.get('compliance_rate', 0.0)):.2f}",
+        f"- declared_dependencies_total={policy_summary.get('declared_dependencies_total', 0)}",
+        f"- declared_dependencies_disallowed={policy_summary.get('declared_dependencies_disallowed', 0)}",
+        f"- banned_pattern_rules_failed={policy_summary.get('banned_pattern_rules_failed', 0)}",
+        f"- header_rules_failed={policy_summary.get('header_rules_failed', 0)}",
+        f"- encryption_rules_failed={policy_summary.get('encryption_rules_failed', 0)}",
+        "",
+        "Policy findings:",
     ]
+    if findings:
+        lines.extend(f"- {finding}" for finding in findings[:5])
+    else:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "Reports:",
+            f"- pip-audit={'present' if report['reports']['pip_audit'] else 'missing'}",
+            f"- safety={'present' if report['reports']['safety'] else 'missing'}",
+            f"- bandit={'present' if report['reports']['bandit'] else 'missing'}",
+            f"- policy={'present' if report['reports']['policy'] else 'missing'}",
+        ]
+    )
     return {"ok": True, "text": "\n".join(lines) + "\n"}
 
 
@@ -753,6 +1053,124 @@ def _agent_utilization_markdown_payload(
     return {"ok": True, "text": report.render()}
 
 
+def _agent_performance_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    report = build_agent_performance_dashboard(memory_path)
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _agent_performance_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    report = build_agent_performance_dashboard(memory_path)
+    return {"ok": True, "text": report.render()}
+
+
+def _local_metrics_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    report = build_local_metrics_report(memory_path)
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _local_metrics_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    report = build_local_metrics_report(memory_path)
+    return {"ok": True, "text": render_local_metrics_markdown(report)}
+
+
+def _local_metrics_export_payload(
+    memory_path: Path | None = None,
+    exporter: str | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    if not exporter:
+        return {"ok": False, "text": "Export format is required."}
+    report = build_local_metrics_report(memory_path)
+    normalized = exporter.strip().lower()
+    try:
+        text = render_metrics_export(report, normalized)
+    except ValueError as exc:
+        return {"ok": False, "text": str(exc)}
+    content_type = "application/json; charset=utf-8" if normalized == "grafana-json" else "text/plain; charset=utf-8"
+    filename = f"metrics.{ 'json' if normalized == 'grafana-json' else 'prometheus' }"
+    return {"ok": True, "text": text, "content_type": content_type, "filename": filename}
+
+
+def _performance_regression_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None or workspace_root is None:
+        return {"ok": False, "error": "Memory path and workspace root are required."}
+    threshold = _float_query(query or {}, "threshold", 0.10)
+    sample_count = _int_query(query or {}, "samples", 5)
+    iterations_per_sample = _int_query(query or {}, "iterations", 25)
+    report = build_performance_regression_report(
+        memory_path,
+        workspace_root,
+        threshold_ratio=threshold,
+        sample_count=sample_count,
+        iterations_per_sample=iterations_per_sample,
+    )
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _performance_regression_markdown_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None or workspace_root is None:
+        return {"ok": False, "text": "Memory path and workspace root are required."}
+    threshold = _float_query(query or {}, "threshold", 0.10)
+    sample_count = _int_query(query or {}, "samples", 5)
+    iterations_per_sample = _int_query(query or {}, "iterations", 25)
+    report = build_performance_regression_report(
+        memory_path,
+        workspace_root,
+        threshold_ratio=threshold,
+        sample_count=sample_count,
+        iterations_per_sample=iterations_per_sample,
+    )
+    return {"ok": True, "text": report.render()}
+
+
+def _performance_regression_baseline_payload(
+    memory_path: Path | None = None,
+    workspace_root: Path | None = None,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if memory_path is None or workspace_root is None:
+        return {"ok": False, "error": "Memory path and workspace root are required."}
+    body = payload or {}
+    threshold = float(body.get("threshold", 0.10))
+    sample_count = int(body.get("samples", 5))
+    iterations_per_sample = int(body.get("iterations", 25))
+    report = capture_performance_baseline(
+        memory_path,
+        workspace_root,
+        threshold_ratio=threshold,
+        sample_count=sample_count,
+        iterations_per_sample=iterations_per_sample,
+    )
+    return {"ok": True, "report": report.to_dict()}
 def _conscience_recommendation_payload(
     memory_path: Path | None = None,
     query: dict[str, list[str]] | None = None,
@@ -1179,6 +1597,13 @@ def _extract_progress_map(content: str) -> str:
 def _first(query: dict[str, list[str]], name: str) -> str:
     values = query.get(name, [])
     return values[0].strip() if values else ""
+
+
+def _float_query(query: dict[str, list[str]], name: str, default: float) -> float:
+    try:
+        return float(_first(query, name) or default)
+    except ValueError:
+        return default
 
 
 def _int_query(query: dict[str, list[str]], name: str, default: int) -> int:

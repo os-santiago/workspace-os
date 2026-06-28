@@ -6,7 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
+from collections import Counter
 import json
+import math
+import re
 import sqlite3
 from pathlib import Path
 from typing import Iterable
@@ -24,6 +27,15 @@ class MemoryHit:
 
     def render(self) -> str:
         return f"- [{self.kind}] {self.title}: {self.body} ({self.created_at})"
+
+
+@dataclass(frozen=True)
+class SemanticMemoryHit(MemoryHit):
+    score: float = 0.0
+    source: str = ""
+
+    def render(self) -> str:
+        return f"{super().render()} score={self.score:.2f}"
 
 
 class WorkspaceMemoryStore:
@@ -1562,8 +1574,8 @@ class WorkspaceMemoryStore:
             )
             return [
                 {
-                    "question": str(row["question_text"]),
-                    "answer": str(row["answer_text"]),
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
                     "context": str(row["task_context"]),
                     "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
                     "created_at": str(row["created_at"]),
@@ -1585,8 +1597,8 @@ class WorkspaceMemoryStore:
             )
             return [
                 {
-                    "question": str(row["question_text"]),
-                    "answer": str(row["answer_text"]),
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
                     "context": str(row["task_context"]),
                     "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
                     "created_at": str(row["created_at"]),
@@ -1619,6 +1631,60 @@ class WorkspaceMemoryStore:
                 "latest_created_at": str(row["latest_created_at"]) if row and row["latest_created_at"] else "",
             }
 
+    def questioning_metrics(self, task_context: str | None = None) -> dict[str, object]:
+        """Get dashboard metrics for the questioning protocol."""
+        qa_rows = self.all_qa_pairs()
+        qa_summary = self.qa_metrics()
+        source_counts = Counter(row["agent"] for row in qa_rows if row.get("agent"))
+        question_counts = Counter(row["question"].casefold().strip() for row in qa_rows if row.get("question"))
+        patterns = [
+            {
+                "question": question,
+                "count": count,
+            }
+            for question, count in question_counts.most_common(5)
+        ]
+        with_qna_feedback = self._questioning_feedback_metrics(with_questioning=True)
+        without_qna_feedback = self._questioning_feedback_metrics(with_questioning=False)
+        total_questions = int(qa_summary.get("total", 0))
+        recent_7_days = int(qa_summary.get("recent_7_days", 0))
+        learning_velocity = recent_7_days / 7.0
+        estimated_time_invested_minutes = total_questions * 2.0
+        estimated_rework_savings_minutes = max(
+            0.0,
+            (with_qna_feedback["positive_count"] * 6.0) + (with_qna_feedback["over_expectation_count"] * 4.0),
+        )
+        with_qna_success_rate = (
+            (with_qna_feedback["positive_count"] + with_qna_feedback["over_expectation_count"])
+            / with_qna_feedback["total"]
+            if with_qna_feedback["total"]
+            else 0.0
+        )
+        without_qna_success_rate = (
+            (without_qna_feedback["positive_count"] + without_qna_feedback["over_expectation_count"])
+            / without_qna_feedback["total"]
+            if without_qna_feedback["total"]
+            else 0.0
+        )
+        semantic_metrics = self.semantic_context_metrics(task_context)
+        return {
+            "summary": qa_summary,
+            "answer_sources": dict(source_counts),
+            "question_patterns": patterns,
+            "with_qna": {
+                **with_qna_feedback,
+                "success_rate": with_qna_success_rate,
+            },
+            "without_qna": {
+                **without_qna_feedback,
+                "success_rate": without_qna_success_rate,
+            },
+            "learning_velocity": learning_velocity,
+            "estimated_time_invested_minutes": estimated_time_invested_minutes,
+            "estimated_rework_savings_minutes": estimated_rework_savings_minutes,
+            "semantic": semantic_metrics,
+        }
+
     def recent_qa_pairs(self, limit: int = 5) -> list[dict[str, str]]:
         """Get the most recent Q&A pairs for dashboarding and review."""
         with self._connection() as conn:
@@ -1633,8 +1699,8 @@ class WorkspaceMemoryStore:
             )
             return [
                 {
-                    "question": str(row["question_text"]),
-                    "answer": str(row["answer_text"]),
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
                     "context": str(row["task_context"]),
                     "work_item_id": str(row["work_item_id"]) if row["work_item_id"] else "",
                     "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
@@ -1642,6 +1708,158 @@ class WorkspaceMemoryStore:
                 }
                 for row in rows
             ]
+
+    def semantic_search(
+        self,
+        query: str,
+        limit: int = 8,
+        min_score: float = 0.15,
+    ) -> list[SemanticMemoryHit]:
+        """Find semantically related memory entries using lightweight local embeddings."""
+        if not query.strip():
+            return []
+
+        query_vector = _build_semantic_vector(query)
+        if not query_vector:
+            return []
+
+        candidates = self._semantic_candidates()
+        scored: list[SemanticMemoryHit] = []
+        for candidate in candidates:
+            candidate_vector = _build_semantic_vector(f"{candidate.title}\n{candidate.body}")
+            if not candidate_vector:
+                continue
+            score = _cosine_similarity(query_vector, candidate_vector)
+            if score < min_score:
+                continue
+            scored.append(
+                SemanticMemoryHit(
+                    kind=candidate.kind,
+                    title=candidate.title,
+                    body=candidate.body,
+                    created_at=candidate.created_at,
+                    score=score,
+                    source=candidate.source,
+                )
+            )
+
+        scored.sort(key=lambda item: (item.score, item.created_at), reverse=True)
+        return scored[:limit]
+
+    def semantic_context_metrics(self, query: str | None = None) -> dict[str, object]:
+        """Summarize the semantic search surface for dashboarding."""
+        candidates = self._semantic_candidates()
+        metrics: dict[str, object] = {
+            "candidate_count": len(candidates),
+            "query_length": len(query.strip()) if query else 0,
+            "vectorized_candidates": 0,
+            "top_score": 0.0,
+            "source_counts": {},
+            "hit_count": 0,
+        }
+        if not query or not query.strip():
+            return metrics
+
+        hits = self.semantic_search(query, limit=5, min_score=0.0)
+        metrics["vectorized_candidates"] = sum(
+            1 for candidate in candidates if _build_semantic_vector(f"{candidate.title}\n{candidate.body}")
+        )
+        metrics["top_score"] = hits[0].score if hits else 0.0
+        metrics["source_counts"] = dict(Counter(hit.source or hit.kind for hit in hits))
+        metrics["hit_count"] = len(hits)
+        return metrics
+
+    def all_qa_pairs(self) -> list[dict[str, str]]:
+        """Get all Q&A pairs for metrics and pattern analysis."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT question_text, answer_text, task_context, work_item_id, agent_name, created_at
+                FROM question_answer_pairs
+                ORDER BY created_at DESC, id DESC
+                """
+            )
+            return [
+                {
+                    "question": _capitalize_qa_text(str(row["question_text"])),
+                    "answer": _capitalize_qa_text(str(row["answer_text"])),
+                    "context": str(row["task_context"]),
+                    "work_item_id": str(row["work_item_id"]) if row["work_item_id"] else "",
+                    "agent": str(row["agent_name"]) if row["agent_name"] else "unknown",
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    def _semantic_candidates(self) -> list[SemanticMemoryHit]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT kind, title, body, created_at, source FROM (
+                    SELECT 'qa' AS kind, question_text AS title, answer_text || ' | ' || task_context AS body, created_at, 'question_answer_pairs' AS source
+                    FROM question_answer_pairs
+                    UNION ALL
+                    SELECT 'snapshot' AS kind, scope || ' ' || reason AS title, summary || ' | ' || markdown AS body, created_at, 'context_snapshots' AS source
+                    FROM context_snapshots
+                    UNION ALL
+                    SELECT 'lesson' AS kind, category AS title, rule_text || ' | ' || evidence_refs AS body, created_at, 'reusable_lessons' AS source
+                    FROM reusable_lessons
+                    UNION ALL
+                    SELECT 'decision' AS kind, decision AS title, risk_level || ' ' || missing_context || ' | ' || COALESCE(routing_reason, '') AS body, created_at, 'decision_log' AS source
+                    FROM decision_log
+                    UNION ALL
+                    SELECT 'conversation' AS kind, role AS title, message AS body, created_at, 'conversation_turns' AS source
+                    FROM conversation_turns
+                    UNION ALL
+                    SELECT 'feedback' AS kind, status AS title, feedback_text || ' | ' || result_text || ' | ' || reason AS body, created_at, 'feedback_events' AS source
+                    FROM feedback_events
+                )
+                ORDER BY created_at DESC
+                """
+            )
+            return [
+                SemanticMemoryHit(
+                    kind=str(row["kind"]),
+                    title=str(row["title"]),
+                    body=str(row["body"]),
+                    created_at=str(row["created_at"]),
+                    source=str(row["source"]),
+                )
+                for row in rows
+            ]
+
+    def _questioning_feedback_metrics(self, *, with_questioning: bool) -> dict[str, int]:
+        with self._connection() as conn:
+            if with_questioning:
+                row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                        SUM(CASE WHEN status = 'questionable' THEN 1 ELSE 0 END) AS questionable_count,
+                        SUM(CASE WHEN status = 'over_expectation' THEN 1 ELSE 0 END) AS over_expectation_count
+                    FROM feedback_events
+                    WHERE request_text LIKE 'Questioning phase%'
+                    """
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                        SUM(CASE WHEN status = 'questionable' THEN 1 ELSE 0 END) AS questionable_count,
+                        SUM(CASE WHEN status = 'over_expectation' THEN 1 ELSE 0 END) AS over_expectation_count
+                    FROM feedback_events
+                    WHERE request_text NOT LIKE 'Questioning phase%'
+                    """
+                ).fetchone()
+        return {
+            "total": int(row["total"] or 0) if row else 0,
+            "positive_count": int(row["positive_count"] or 0) if row else 0,
+            "questionable_count": int(row["questionable_count"] or 0) if row else 0,
+            "over_expectation_count": int(row["over_expectation_count"] or 0) if row else 0,
+        }
 
     @contextmanager
     def _connection(self):
@@ -1656,6 +1874,51 @@ class WorkspaceMemoryStore:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _capitalize_qa_text(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
+
+
+def _build_semantic_vector(text: str) -> dict[str, float]:
+    tokens = _semantic_tokens(text)
+    if not tokens:
+        return {}
+    counts = Counter(tokens)
+    norm = math.sqrt(sum(count * count for count in counts.values()))
+    if norm == 0:
+        return {}
+    return {token: count / norm for token, count in counts.items()}
+
+
+def _cosine_similarity(left: dict[str, float], right: dict[str, float]) -> float:
+    if not left or not right:
+        return 0.0
+    if len(left) > len(right):
+        left, right = right, left
+    return sum(value * right.get(token, 0.0) for token, value in left.items())
+
+
+def _semantic_tokens(text: str) -> list[str]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", text.casefold())
+    tokens = [token for token in normalized.split() if token]
+    expanded: list[str] = []
+    for token in tokens:
+        expanded.extend(_expand_token(token))
+    return expanded
+
+
+def _expand_token(token: str) -> list[str]:
+    variants = {token}
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(token) > len(suffix) + 2 and token.endswith(suffix):
+            variants.add(token[: -len(suffix)])
+    if token.isdigit():
+        variants.add("number")
+    return list(variants)
 
 
 def _duration_seconds(started_at: str, ended_at: str) -> float:

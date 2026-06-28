@@ -97,7 +97,75 @@ def test_agent_queue_utilization_report(temp_memory):
     assert report.observed_peak_parallel >= 1
     assert report.recommended_max_parallel >= 1
     assert len(report.hourly_totals) == 24
+    assert isinstance(report.idle_hours, tuple)
+    assert isinstance(report.recommendations, tuple)
     assert report.agent_summaries
     assert any(summary.agent == "opencode" for summary in report.agent_summaries)
     assert "Agent Utilization Report" in report.render()
     assert "Recommended max workers" in report.render()
+    assert "Recommendations:" in report.render()
+
+
+def test_agent_queue_performance_report(temp_memory):
+    tracker = AgentQueueTracker(temp_memory)
+    tracker._save_all_tasks(
+        [
+            AgentTaskTrace(
+                task_id="task-1",
+                agent="opencode",
+                workspace="workspace-os",
+                prompt="Validate the dashboard",
+                state=AgentTaskState.COMPLETED,
+                queued_at="2026-06-01T00:00:00+00:00",
+                started_at="2026-06-01T00:00:00+00:00",
+                completed_at="2026-06-01T00:00:00+00:00",
+                duration_seconds=4.0,
+                returncode=0,
+                metadata={"role": "primary", "task_type": "validation"},
+            ),
+            AgentTaskTrace(
+                task_id="task-2",
+                agent="claude",
+                workspace="workspace-os",
+                prompt="Review the dashboard",
+                state=AgentTaskState.FAILED,
+                queued_at="2026-06-02T00:00:00+00:00",
+                started_at="2026-06-02T00:00:00+00:00",
+                completed_at="2026-06-02T00:00:00+00:00",
+                duration_seconds=None,
+                returncode=1,
+                error="Validation failed",
+                metadata={"role": "cross-check", "task_type": "validation"},
+            ),
+            AgentTaskTrace(
+                task_id="task-3",
+                agent="claude",
+                workspace="workspace-os",
+                prompt="Follow up on the dashboard",
+                state=AgentTaskState.RUNNING,
+                queued_at="2026-06-03T00:00:00+00:00",
+                started_at="2026-06-03T00:00:00+00:00",
+                metadata={"role": "observer", "task_type": "routing"},
+            ),
+        ]
+    )
+
+    report = tracker.performance_report()
+
+    assert report.total_tasks == 3
+    assert report.completed_tasks == 1
+    assert report.failed_tasks == 1
+    assert report.success_rate == 0.5
+    assert report.average_duration_seconds == 4.0
+    assert report.learning_velocity_per_day == 1.0
+    assert report.agent_summaries
+    by_agent = {summary.agent: summary for summary in report.agent_summaries}
+    assert by_agent["opencode"].success_rate == 1.0
+    assert by_agent["claude"].success_rate == 0.0
+    assert by_agent["claude"].task_type_counts[0] == ("routing", 1)
+    assert report.role_summaries
+    by_role = {summary.role: summary for summary in report.role_summaries}
+    assert by_role["primary"].success_rate == 1.0
+    assert by_role["cross-check"].success_rate == 0.0
+    assert report.specialization_patterns[0][0] == "validation"
+    assert "Agent Performance Report" in report.render()

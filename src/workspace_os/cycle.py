@@ -31,6 +31,7 @@ from workspace_os.collaborative_learning import (
     PatternExtractor,
 )
 from workspace_os.debug_logger import create_debug_logger, OperationType
+from workspace_os.notifications import format_cycle_notification, load_slack_events, load_slack_webhook_url, send_slack_notification
 import subprocess
 
 
@@ -189,11 +190,16 @@ class CycleNextAction:
 
 
 def start_cycle(memory_store: WorkspaceMemoryStore, label: str, objective: str, started_at: str | None = None) -> int:
-    return memory_store.start_cycle(label, objective, started_at=started_at)
+    cycle_id = memory_store.start_cycle(label, objective, started_at=started_at)
+    _notify_cycle_event(memory_store, "start", cycle_id=cycle_id, objective=objective)
+    return cycle_id
 
 
 def stop_cycle(memory_store: WorkspaceMemoryStore, ended_at: str | None = None) -> dict[str, str | None] | None:
-    return memory_store.finish_active_cycle(ended_at=ended_at)
+    cycle = memory_store.finish_active_cycle(ended_at=ended_at)
+    if cycle is not None:
+        _notify_cycle_event(memory_store, "complete", cycle_id=int(cycle["id"]), ended_at=cycle.get("ended_at"))
+    return cycle
 
 
 def active_cycle_report(memory_store: WorkspaceMemoryStore) -> CycleReport | None:
@@ -753,6 +759,8 @@ def _build_cycle_work_prompt(
         role=role,
         work_item_id=f"issue-{assigned_issue['number']}" if assigned_issue and "number" in assigned_issue else None,
         agent_name=role,
+        issue_data=assigned_issue,
+        code_context=analysis_text,
     )
 
     # Add recent work context from other agents (squad awareness)
@@ -876,7 +884,7 @@ def record_cycle_checkpoint(
     cycle_id: int | None = None,
     created_at: str | None = None,
 ) -> int:
-    return memory_store.record_cycle_checkpoint(
+    checkpoint_id = memory_store.record_cycle_checkpoint(
         label=label,
         iteration_number=iteration_number,
         report=evaluation.to_dict(),
@@ -884,6 +892,51 @@ def record_cycle_checkpoint(
         cycle_id=cycle_id,
         created_at=created_at,
     )
+    active_cycle_id = cycle_id
+    if active_cycle_id is None:
+        active = memory_store.active_cycle()
+        active_cycle_id = int(active["id"]) if active else None
+    if active_cycle_id is not None:
+        _notify_cycle_event(
+            memory_store,
+            "checkpoint",
+            cycle_id=active_cycle_id,
+            iteration_number=iteration_number,
+            label=label,
+            passed=evaluation.overall_ok(),
+        )
+        if not evaluation.overall_ok():
+            _notify_cycle_event(
+                memory_store,
+                "failure",
+                cycle_id=active_cycle_id,
+                iteration_number=iteration_number,
+                label=label,
+                summary="checkpoint had failing gates",
+            )
+    return checkpoint_id
+
+
+def _notify_cycle_event(memory_store: WorkspaceMemoryStore, event: str, **details: object) -> None:
+    webhook_url = load_slack_webhook_url()
+    if not webhook_url:
+        return
+    if event not in load_slack_events():
+        return
+
+    cycle_id = details.get("cycle_id")
+    cycle: dict[str, object] | None = None
+    if isinstance(cycle_id, int):
+        fetched = memory_store.get_cycle(cycle_id)
+        if fetched is not None:
+            cycle = fetched
+    if cycle is None:
+        active = memory_store.active_cycle()
+        if active is not None:
+            cycle = active
+
+    text = format_cycle_notification(event, cycle, **details)
+    send_slack_notification(text, webhook_url=webhook_url)
 
 
 def _record_questioning_outcome(
@@ -978,6 +1031,113 @@ def run_cycle_plan(
             latest_checkpoint=report["latest_checkpoint"],
         ),
     )
+
+
+def resume_cycle(
+    memory_store: WorkspaceMemoryStore,
+    sources: list[Source],
+    cycle_id: int,
+    iterations: int | None = None,
+    duration_minutes: float | None = None,
+    note: str | None = None,
+    stop_on_failure: bool = False,
+) -> CycleRunResult:
+    """Resume an interrupted cycle from its last checkpoint.
+
+    Args:
+        memory_store: Workspace memory store
+        sources: Source repositories
+        cycle_id: ID of cycle to resume
+        iterations: Number of additional iterations to run (mutually exclusive with duration_minutes)
+        duration_minutes: Duration to run (mutually exclusive with iterations)
+        note: Optional note prefix for checkpoints
+        stop_on_failure: Stop on first failing checkpoint
+
+    Returns:
+        CycleRunResult with resumed cycle information
+
+    Raises:
+        ValueError: If cycle not found or both/neither iterations and duration_minutes specified
+    """
+    # Validate cycle exists
+    cycle_data = memory_store.cycle_report(cycle_id)
+    if cycle_data is None:
+        raise ValueError(f"Cycle {cycle_id} not found.")
+
+    # Check if cycle is already finished
+    if cycle_data['cycle'].get('ended_at'):
+        raise ValueError(f"Cycle {cycle_id} is already complete. Use 'workspace cycle start' to create a new cycle.")
+
+    # Validate arguments
+    if iterations is not None and duration_minutes is not None:
+        raise ValueError("Cannot specify both iterations and duration_minutes.")
+
+    if iterations is None and duration_minutes is None:
+        iterations = 1  # Default to 1 iteration
+
+    # Get current checkpoint count to continue numbering
+    current_checkpoint_count = int(cycle_data['checkpoint_count'])
+
+    # Resume based on mode
+    if duration_minutes is not None:
+        # Time-based resume
+        return run_cycle_window(
+            memory_store,
+            sources,
+            duration_minutes=duration_minutes,
+            note=note or "resumed",
+            stop_on_failure=stop_on_failure,
+        )
+    else:
+        # Iteration-based resume
+        assert iterations is not None  # Type guard
+        if iterations < 1:
+            raise ValueError("Iterations must be at least 1.")
+
+        iteration_results: list[CycleIterationResult] = []
+        for i in range(1, iterations + 1):
+            iteration_number = current_checkpoint_count + i
+            evaluation = run_cycle_evaluation(sources, memory_store)
+            checkpoint_label = _iteration_label(note or "resumed", iteration_number)
+            checkpoint_id = record_cycle_checkpoint(
+                memory_store,
+                evaluation,
+                checkpoint_label,
+                iteration_number=iteration_number,
+                note=(note or "resumed").strip() if note else "resumed",
+                cycle_id=cycle_id,
+            )
+            iteration_results.append(
+                CycleIterationResult(
+                    iteration_number=iteration_number,
+                    checkpoint_id=checkpoint_id,
+                    label=checkpoint_label,
+                    evaluation=evaluation,
+                )
+            )
+            if stop_on_failure and not evaluation.overall_ok():
+                break
+
+        # Get updated report
+        report = memory_store.cycle_report(cycle_id)
+        if report is None:
+            raise ValueError("Cycle report could not be generated.")
+
+        return CycleRunResult(
+            cycle_id=cycle_id,
+            started_cycle=False,  # We're resuming, not starting
+            iterations_completed=len(iteration_results),
+            iteration_results=tuple(iteration_results),
+            report=CycleReport(
+                cycle=report["cycle"],
+                checkpoint_count=int(report["checkpoint_count"]),
+                health_pass_rate=float(report["health_pass_rate"]),
+                stability_pass_rate=float(report["stability_pass_rate"]),
+                security_pass_rate=float(report["security_pass_rate"]),
+                quality_pass_rate=float(report["quality_pass_rate"]),
+                latest_checkpoint=report["latest_checkpoint"],
+            ),
+        )
 
 
 def run_cycle_window(
@@ -1843,6 +2003,7 @@ def run_cycle_work_window_continuous(
                                     workspace_name=workspace_name,
                                     workspace_root=workspace_root,
                                     memory_store=memory_store,
+                                    config_path=args.config,
                                     agent_type="claude",
                                     agent_runner=executor,
                                     enable_user_approval=True

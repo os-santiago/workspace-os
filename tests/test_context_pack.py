@@ -60,6 +60,28 @@ class ContextPackTests(unittest.TestCase):
         self.assertIn("## Recent Memory", rendered)
         self.assertIn("[preference] tone: concise", rendered)
 
+    def test_context_pack_includes_semantic_memory_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doctrine = root / "doctrine"
+            doctrine.mkdir()
+            (doctrine / "ADEV.md").write_text("# ADEV\n", encoding="utf-8")
+            memory_path = root / "memory.sqlite3"
+            store = WorkspaceMemoryStore(memory_path)
+            store.ensure_schema()
+            store.record_context_snapshot(
+                "workspace",
+                "semantic-review",
+                "Coordinate context sharing with similarity search and memory reuse.",
+                "Semantic context sharing helps reuse prior work that is not recent.",
+            )
+            source = Source("adev", "doctrine", "Doctrine.", doctrine)
+
+            rendered = build_context_pack([source], "semantic context sharing and memory reuse", max_matches=5, memory_path=memory_path).render_markdown()
+
+        self.assertIn("## Semantic Memory", rendered)
+        self.assertIn("semantic-review", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

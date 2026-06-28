@@ -35,6 +35,18 @@ workspace --help
 
 You should see the Workspace OS command-line interface help output.
 
+## API Documentation
+
+The public Python API is documented with Sphinx under `docs/api/`.
+
+```bash
+pip install -e ".[dev]"
+sphinx-build -b html docs/api docs/api/_build/html
+```
+
+That build auto-discovers the public `workspace_os` modules, generates the API
+pages, and includes usage examples for the CLI and the Python tracker API.
+
 ## Initialize Your Workspace
 
 ### 1. Create Your Configuration
@@ -132,6 +144,8 @@ workspace --config config/workspace.sources.local.json context "setting up CI/CD
 ### From evidence (scanales-kb)
 - GitHub Actions preferred for CI/CD automation
 - Pre-commit hooks reduce pipeline failures
+
+The context pack also includes semantically similar memory entries from prior work when the local memory store has relevant summaries, so older but related iterations can still influence the starting prompt.
 ```
 
 ### 4. Classify Content
@@ -246,7 +260,8 @@ Once comfortable with the basics, explore:
 - **Cycle Management**: `workspace cycle --help`
 - **Memory Store**: `workspace memory --help`
 - **Batch Tracking**: `workspace batch --help`
-- **Shell Mode**: `workspace shell`
+- **Shell Mode**: `workspace shell` (runs the onboarding tutorial on first use; add `--skip-onboarding` to bypass it)
+- **Onboarding**: `workspace onboarding`
 
 ## Common Patterns
 

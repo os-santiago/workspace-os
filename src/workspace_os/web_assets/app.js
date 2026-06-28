@@ -5,6 +5,7 @@ const state = {
   learningCount: 0,
   contextCount: 0,
   handoffCount: 0,
+  cycleMonitorConnected: false,
   chatContextExpanded: false,
   conscienceExpanded: false,
   chatVerbose: false,
@@ -12,16 +13,24 @@ const state = {
   latestSuggestedActions: [],
   latestNextAction: null,
   latestAnalysis: null,
+  latestCycleMonitor: null,
   latestAgentUtilization: null,
+  latestLocalMetrics: null,
+  latestAgentPerformance: null,
+  latestPerformanceRegression: null,
   latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
   latestQuestioningMetrics: null,
+  cycleMonitorSocket: null,
+  cycleMonitorReconnectTimer: null,
+  cycleMonitorPollTimer: null,
 };
 
 const CHAT_CONTEXT_STORAGE_KEY = "workspace-os.chat-context-expanded";
 const CONSCIENCE_STORAGE_KEY = "workspace-os.conscience-expanded";
 const CHAT_VERBOSE_STORAGE_KEY = "workspace-os.chat-verbose";
+const CYCLE_MONITOR_REFRESH_MS = 5000;
 
 const getJson = async (url) => {
   const response = await fetch(url, { cache: "no-store" });
@@ -135,6 +144,72 @@ const renderHandoff = (data) => {
   }
   state.handoffCount += 1;
   output.textContent = data.markdown || "No handoff available.";
+};
+
+const renderCycleMonitor = (data = null) => {
+  const output = qs("#cycleMonitorOutput");
+  const status = qs("#cycleMonitorStatus");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load cycle monitor.";
+    status.textContent = "Offline";
+    status.style.color = "var(--tp-red)";
+    return;
+  }
+  const monitor = data.monitor || {};
+  state.latestCycleMonitor = monitor;
+  const cycle = monitor.cycle;
+  const summary = monitor.summary || {};
+  const utilization = monitor.utilization || {};
+  const checkpoints = monitor.checkpoints || [];
+  const lines = [];
+  if (!cycle) {
+    lines.push("No cycle is currently active.", "", monitor.next_action || "Start a cycle to begin monitoring.");
+    status.textContent = "Idle";
+    status.style.color = "var(--tp-gray)";
+    output.textContent = lines.join("\n");
+    return;
+  }
+  status.textContent = monitor.active ? "Live" : "Idle";
+  status.style.color = monitor.active ? "var(--tp-cyan)" : "var(--tp-gray)";
+  lines.push(
+    `Cycle: ${cycle.label}`,
+    `State: ${monitor.active ? "active" : "idle"}`,
+    `Objective: ${cycle.objective}`,
+    `Started: ${cycle.started_at}`,
+    `Ended: ${cycle.ended_at || "n/a"}`,
+    "",
+    `Checkpoint count: ${summary.checkpoint_count ?? 0}`,
+    `Health pass rate: ${formatPercent(summary.health_pass_rate)}`,
+    `Stability pass rate: ${formatPercent(summary.stability_pass_rate)}`,
+    `Security pass rate: ${formatPercent(summary.security_pass_rate)}`,
+    `Quality pass rate: ${formatPercent(summary.quality_pass_rate)}`,
+    "",
+    "Recent checkpoints:",
+  );
+  if (checkpoints.length > 0) {
+    lines.push(
+      ...checkpoints.map(
+        (item) =>
+          `- #${item.iteration_number} ${item.label} | H=${item.health_ok ? "PASS" : "FAIL"} S=${item.stability_ok ? "PASS" : "FAIL"} Sec=${item.security_ok ? "PASS" : "FAIL"} Q=${item.quality_ok ? "PASS" : "FAIL"} | ${item.created_at}`,
+      ),
+    );
+  } else {
+    lines.push("- none recorded yet");
+  }
+  lines.push(
+    "",
+    "Agent utilization:",
+    `- configured_max_parallel=${utilization.max_parallel ?? 0}`,
+    `- observed_peak_parallel=${utilization.observed_peak_parallel ?? 0}`,
+    `- recommended_max_parallel=${utilization.recommended_max_parallel ?? 0}`,
+    `- idle_ratio=${Number(utilization.idle_ratio || 0).toFixed(2)}`,
+    "",
+    "Next action:",
+    monitor.next_action || "No next action available.",
+    "",
+    `Updated: ${monitor.updated_at || "n/a"}`,
+  );
+  output.textContent = lines.join("\n").trim();
 };
 
 const renderContext = (data, selector = "#contextOutput", expanded = false) => {
@@ -274,9 +349,15 @@ const renderQuestioningMetrics = (data = null) => {
     return;
   }
   state.latestQuestioningMetrics = data.report || null;
-  const summary = data.report?.summary || {};
+  const metrics = data.report?.metrics || {};
+  const summary = metrics.summary || {};
   const recent = data.report?.recent || [];
   const suggestions = data.report?.suggestions || [];
+  const sources = metrics.answer_sources || {};
+  const patterns = metrics.question_patterns || [];
+  const withQna = metrics.with_qna || {};
+  const withoutQna = metrics.without_qna || {};
+  const semantic = metrics.semantic || {};
   const lines = [
     `Context focus: ${data.report?.context || "n/a"}`,
     `Total Q&A: ${summary.total || 0}`,
@@ -284,13 +365,35 @@ const renderQuestioningMetrics = (data = null) => {
     `Unique questions: ${summary.unique_questions || 0}`,
     `Recent 7 days: ${summary.recent_7_days || 0}`,
     `Latest recorded: ${summary.latest_created_at || "n/a"}`,
+    `Learning velocity/day: ${(metrics.learning_velocity || 0).toFixed(2)}`,
+    `Estimated time invested (min): ${(metrics.estimated_time_invested_minutes || 0).toFixed(1)}`,
+    `Estimated rework savings (min): ${(metrics.estimated_rework_savings_minutes || 0).toFixed(1)}`,
+    `Success w/ Q&A: ${(withQna.success_rate || 0).toFixed(2)}`,
+    `Success w/o Q&A: ${(withoutQna.success_rate || 0).toFixed(2)}`,
+    `Semantic top score: ${(semantic.top_score || 0).toFixed(2)}`,
+    `Semantic hit count: ${semantic.hit_count || 0}`,
     "",
     "Recent Q&A:",
     ...(recent.length > 0
       ? recent.map((item) => `- ${item.created_at} | ${item.agent} | ${item.question}`)
       : ["- none recorded yet"]),
     "",
+    "Answer sources:",
+    ...(Object.keys(sources).length > 0
+      ? Object.entries(sources)
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([source, count]) => `- ${source}: ${count}`)
+      : ["- none recorded yet"]),
+    "",
     "Question patterns:",
+    ...(patterns.length > 0 ? patterns.map((item) => `- ${item.question} (asked ${item.count}x)`) : ["- none recorded yet"]),
+    "",
+    "Semantic memory:",
+    ...(Array.isArray(data.report?.semantic_hits) && data.report.semantic_hits.length > 0
+      ? data.report.semantic_hits.map((item) => `- ${item.created_at} | ${item.source} | ${item.title} | score=${Number(item.score || 0).toFixed(2)}`)
+      : ["- none recorded yet"]),
+    "",
+    "Suggestions:",
     ...(suggestions.length > 0
       ? suggestions.map(
           (item) => `- ${item.question} (asked ${item.frequency}x, relevance=${Number(item.relevance_score || 0).toFixed(2)})`,
@@ -318,6 +421,12 @@ const renderAgentUtilization = (data = null) => {
   }
   state.latestAgentUtilization = data.report || null;
   const report = data.report || {};
+  const formatHourList = (values) => {
+    const hours = Array.isArray(values) ? values : [];
+    if (hours.length === 0) return "none";
+    return hours.map((hour) => String(hour).padStart(2, "0")).join(", ");
+  };
+  const recommendations = Array.isArray(report.recommendations) ? report.recommendations : [];
   const lines = [
     `Configured max_parallel: ${report.max_parallel ?? 0}`,
     `Observed peak_parallel: ${report.observed_peak_parallel ?? 0}`,
@@ -332,6 +441,84 @@ const renderAgentUtilization = (data = null) => {
     "Agent heatmaps:",
     ...((report.agent_summaries || []).map((summary) =>
       `${String(summary.agent || "agent").slice(0, 5).padEnd(5)} ${renderHeatmapRow(summary.hourly_activity || [])} | util=${formatPercent(summary.utilization_ratio)} peak=${summary.peak_concurrent ?? 0} tasks=${summary.task_count ?? 0}`)),
+    "",
+    "Idle / bottleneck hours:",
+    `- idle=${formatHourList(report.idle_hours || [])}`,
+    `- bottleneck=${formatHourList(report.bottleneck_hours || [])}`,
+    `- peak=${formatHourList(report.peak_hours || [])}`,
+    "",
+    "Recommendations:",
+    ...(recommendations.length > 0 ? recommendations.map((item) => `- ${item}`) : ["- none"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const renderPerformanceRegression = (data = null) => {
+  const output = qs("#regressionOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load regression report.";
+    return;
+  }
+  state.latestPerformanceRegression = data.report || null;
+  const report = data.report || {};
+  const measurements = Array.isArray(report.measurements) ? report.measurements : [];
+  const alerts = Array.isArray(report.alerts) ? report.alerts : [];
+  const lines = [
+    `Baseline: ${report.baseline_path || "n/a"}`,
+    `Baseline available: ${report.baseline_available ? "yes" : "no"}`,
+    `Threshold: ${formatPercent(report.threshold_ratio)}`,
+    `Benchmarks: ${report.benchmark_count ?? 0}`,
+    `Regressions: ${report.regression_count ?? 0}`,
+    `Missing baselines: ${report.missing_baseline_count ?? 0}`,
+    "",
+    "Measurements:",
+    ...((measurements.length > 0
+      ? measurements.map(
+          (item) =>
+            `- ${item.name}: ${item.status} median=${Number(item.median_seconds || 0).toFixed(6)}s avg=${Number(item.average_seconds || 0).toFixed(6)}s slowdown=${item.slowdown_ratio == null ? "n/a" : formatPercent(item.slowdown_ratio)}`,
+        )
+      : ["- none recorded yet"])),
+    "",
+    "Alerts:",
+    ...(alerts.length > 0 ? alerts.map((name) => `- ${name}`) : ["- none"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const renderAgentPerformance = (data = null) => {
+  const output = qs("#performanceOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load performance dashboard.";
+    return;
+  }
+  state.latestAgentPerformance = data.report || null;
+  const report = data.report || {};
+  const agentSummaries = Array.isArray(report.agent_summaries) ? report.agent_summaries : [];
+  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+  const lines = [
+    `Agents: ${report.agent_count ?? 0}`,
+    `Queue depth: ${report.queue_depth ?? 0}`,
+    `Average success rate: ${Number(report.average_success_rate || 0).toFixed(2)}`,
+    `Average duration: ${(report.average_duration_seconds || 0).toFixed(1)}s`,
+    "",
+    "Highlights:",
+    ...(highlights.length > 0 ? highlights.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "Per-agent performance:",
+    ...agentSummaries.flatMap((summary) => {
+      const roleSummaries = Array.isArray(summary.role_summaries) ? summary.role_summaries : [];
+      const linesForAgent = [
+        `- ${summary.agent}: tasks=${summary.task_count ?? 0} success=${Number(summary.success_rate || 0).toFixed(2)} avg=${(summary.avg_duration_seconds || 0).toFixed(1)}s learning=${Number(summary.learning_velocity || 0).toFixed(2)}`,
+        `  roles: primary=${summary.primary_count ?? 0} cross-check=${summary.cross_check_count ?? 0} observer=${summary.observer_count ?? 0}`,
+        `  specialization: ${summary.specialization_note || "n/a"} | top_task_type=${summary.top_task_type || "general"}`,
+      ];
+      for (const roleSummary of roleSummaries) {
+        linesForAgent.push(
+          `  - ${roleSummary.role}: tasks=${roleSummary.task_count ?? 0} success=${Number(roleSummary.success_rate || 0).toFixed(2)} avg=${(roleSummary.avg_duration_seconds || 0).toFixed(1)}s`,
+        );
+      }
+      return linesForAgent;
+    }),
   ];
   output.textContent = lines.join("\n").trim();
 };
@@ -346,6 +533,9 @@ const renderSecurity = (data = null) => {
   const report = data.report || {};
   const summary = report.summary || {};
   const reports = report.reports || {};
+  const policy = report.policy || {};
+  const policySummary = policy.summary || {};
+  const findings = Array.isArray(policy.findings) ? policy.findings : [];
   const lines = [
     `Project root: ${report.project_root || "n/a"}`,
     `Report dir: ${report.report_dir || "n/a"}`,
@@ -363,10 +553,22 @@ const renderSecurity = (data = null) => {
     `- bandit_medium=${summary.bandit_medium ?? 0}`,
     `- bandit_low=${summary.bandit_low ?? 0}`,
     "",
+    "Policy:",
+    `- compliance_rate=${formatPercent(policySummary.compliance_rate ?? 0)}`,
+    `- declared_dependencies_total=${policySummary.declared_dependencies_total ?? 0}`,
+    `- declared_dependencies_disallowed=${policySummary.declared_dependencies_disallowed ?? 0}`,
+    `- banned_pattern_rules_failed=${policySummary.banned_pattern_rules_failed ?? 0}`,
+    `- header_rules_failed=${policySummary.header_rules_failed ?? 0}`,
+    `- encryption_rules_failed=${policySummary.encryption_rules_failed ?? 0}`,
+    "",
+    "Findings:",
+    ...(findings.length > 0 ? findings.slice(0, 5).map((finding) => `- ${finding}`) : ["- none"]),
+    "",
     "Reports:",
     `- pip-audit=${reports.pip_audit ? "present" : "missing"}`,
     `- safety=${reports.safety ? "present" : "missing"}`,
     `- bandit=${reports.bandit ? "present" : "missing"}`,
+    `- policy=${reports.policy ? "present" : "missing"}`,
   ];
   output.textContent = lines.join("\n").trim();
 };
@@ -431,6 +633,11 @@ const loadHandoff = async () => {
   renderHandoff(data);
 };
 
+const loadCycleMonitor = async () => {
+  const data = await getJson("/api/cycle-monitor");
+  renderCycleMonitor(data);
+};
+
 const loadConscienceMetrics = async () => {
   const data = await getJson("/api/conscience?limit=10");
   renderConscienceMetrics(data);
@@ -456,6 +663,70 @@ const loadAgentUtilization = async () => {
   renderAgentUtilization(data);
 };
 
+const renderLocalMetrics = (data = null) => {
+  const output = qs("#metricsOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load local metrics.";
+    return;
+  }
+  state.latestLocalMetrics = data.report || null;
+  const report = data.report || {};
+  const indicators = Array.isArray(report.blockage_indicators) ? report.blockage_indicators : [];
+  const exporters = Array.isArray(report.available_exporters) ? report.available_exporters : [];
+  const lines = [
+    `Cycle: ${report.cycle_label || "n/a"}`,
+    `Objective: ${report.cycle_objective || "n/a"}`,
+    `Cycle duration: ${(report.cycle_duration_seconds || 0).toFixed(1)}s`,
+    `Checkpoint count: ${report.checkpoint_count ?? 0}`,
+    `Latest checkpoint: ${report.latest_checkpoint_label || "n/a"}`,
+    "",
+    "Outcomes:",
+    `- total=${report.task_outcome_total ?? 0}`,
+    `- success_rate=${Number(report.success_rate || 0).toFixed(2)}`,
+    `- failure_rate=${Number(report.failure_rate || 0).toFixed(2)}`,
+    `- partial_rate=${Number(report.partial_rate || 0).toFixed(2)}`,
+    "",
+    "Queue / utilization:",
+    `- queue_depth=${report.queue_depth ?? 0}`,
+    `- queued=${report.queued_count ?? 0}`,
+    `- running=${report.running_count ?? 0}`,
+    `- agent_utilization=${Number(report.agent_utilization_ratio || 0).toFixed(2)}`,
+    `- observed_peak_parallel=${report.observed_peak_parallel ?? 0}`,
+    `- recommended_max_workers=${report.recommended_max_parallel ?? 0}`,
+    "",
+    "Blockage indicators:",
+    ...(indicators.length > 0 ? indicators.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "Exporters:",
+    ...(exporters.length > 0 ? exporters.map((item) => `- ${item}`) : ["- none configured"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const loadLocalMetrics = async () => {
+  const data = await getJson("/api/metrics");
+  renderLocalMetrics(data);
+};
+
+const loadAgentPerformance = async () => {
+  const data = await getJson("/api/agent-performance");
+  renderAgentPerformance(data);
+};
+
+const loadPerformanceRegression = async () => {
+  const data = await getJson("/api/performance-regression");
+  renderPerformanceRegression(data);
+};
+
+const capturePerformanceBaseline = async () => {
+  const data = await postJson("/api/performance-regression/baseline", {
+    samples: 5,
+    iterations: 25,
+    threshold: 0.1,
+  });
+  renderPerformanceRegression(data);
+};
+
 const loadSecurity = async () => {
   const data = await getJson("/api/security");
   renderSecurity(data);
@@ -464,6 +735,67 @@ const loadSecurity = async () => {
 const loadAnalysis = async () => {
   const data = await getJson("/api/analysis");
   renderAnalysis(data);
+};
+
+const stopCycleMonitorTimers = () => {
+  if (state.cycleMonitorPollTimer) {
+    window.clearInterval(state.cycleMonitorPollTimer);
+    state.cycleMonitorPollTimer = null;
+  }
+  if (state.cycleMonitorReconnectTimer) {
+    window.clearTimeout(state.cycleMonitorReconnectTimer);
+    state.cycleMonitorReconnectTimer = null;
+  }
+};
+
+const startCycleMonitorPolling = () => {
+  stopCycleMonitorTimers();
+  state.cycleMonitorPollTimer = window.setInterval(() => {
+    loadCycleMonitor().catch((error) => {
+      qs("#cycleMonitorOutput").textContent = error.message;
+    });
+  }, CYCLE_MONITOR_REFRESH_MS);
+};
+
+const connectCycleMonitor = () => {
+  stopCycleMonitorTimers();
+  if (!("WebSocket" in window)) {
+    state.cycleMonitorConnected = false;
+    startCycleMonitorPolling();
+    return;
+  }
+  try {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${protocol}//${window.location.host}/api/cycle-monitor/ws`);
+    state.cycleMonitorSocket = socket;
+    socket.addEventListener("open", () => {
+      state.cycleMonitorConnected = true;
+      qs("#cycleMonitorStatus").textContent = "Live";
+    });
+    socket.addEventListener("message", (event) => {
+      try {
+        renderCycleMonitor(JSON.parse(event.data));
+      } catch (error) {
+        qs("#cycleMonitorOutput").textContent = error.message;
+      }
+    });
+    socket.addEventListener("close", () => {
+      state.cycleMonitorConnected = false;
+      qs("#cycleMonitorStatus").textContent = "Polling";
+      startCycleMonitorPolling();
+      state.cycleMonitorReconnectTimer = window.setTimeout(() => {
+        connectCycleMonitor();
+      }, CYCLE_MONITOR_REFRESH_MS);
+    });
+    socket.addEventListener("error", () => {
+      state.cycleMonitorConnected = false;
+      qs("#cycleMonitorStatus").textContent = "Polling";
+      startCycleMonitorPolling();
+    });
+  } catch {
+    state.cycleMonitorConnected = false;
+    startCycleMonitorPolling();
+  }
 };
 
 const loadContext = async () => {
@@ -681,6 +1013,14 @@ const init = async () => {
   qs("#handoffDownload").addEventListener("click", () => {
     window.location.href = "/api/handoff.md?launch_limit=3";
   });
+  qs("#cycleMonitorRefresh").addEventListener("click", async () => {
+    qs("#cycleMonitorOutput").textContent = "Loading cycle monitor...";
+    try {
+      await loadCycleMonitor();
+    } catch (error) {
+      qs("#cycleMonitorOutput").textContent = error.message;
+    }
+  });
   qs("#chatContextToggle").addEventListener("click", toggleChatContext);
   qs("#conscienceToggle").addEventListener("click", toggleConscience);
   qs("#conscienceRefresh").addEventListener("click", () => {
@@ -740,6 +1080,47 @@ const init = async () => {
   qs("#utilizationDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-utilization.md";
   });
+  qs("#metricsRefresh").addEventListener("click", async () => {
+    qs("#metricsOutput").textContent = "Loading metrics...";
+    try {
+      await loadLocalMetrics();
+    } catch (error) {
+      qs("#metricsOutput").textContent = error.message;
+    }
+  });
+  qs("#metricsDownload").addEventListener("click", () => {
+    window.location.href = "/api/metrics.md";
+  });
+  qs("#performanceRefresh").addEventListener("click", async () => {
+    qs("#performanceOutput").textContent = "Loading performance report...";
+    try {
+      await loadAgentPerformance();
+    } catch (error) {
+      qs("#performanceOutput").textContent = error.message;
+    }
+  });
+  qs("#performanceDownload").addEventListener("click", () => {
+    window.location.href = "/api/agent-performance.md";
+  });
+  qs("#regressionBaseline").addEventListener("click", async () => {
+    qs("#regressionOutput").textContent = "Capturing baseline...";
+    try {
+      await capturePerformanceBaseline();
+    } catch (error) {
+      qs("#regressionOutput").textContent = error.message;
+    }
+  });
+  qs("#regressionRefresh").addEventListener("click", async () => {
+    qs("#regressionOutput").textContent = "Loading regression report...";
+    try {
+      await loadPerformanceRegression();
+    } catch (error) {
+      qs("#regressionOutput").textContent = error.message;
+    }
+  });
+  qs("#regressionDownload").addEventListener("click", () => {
+    window.location.href = "/api/performance-regression.md";
+  });
   qs("#securityRefresh").addEventListener("click", async () => {
     qs("#securityOutput").textContent = "Loading security report...";
     try {
@@ -779,10 +1160,15 @@ const init = async () => {
   await loadSidebar();
   setChatContextExpanded(readChatContextPreference(), false);
   setConscienceExpanded(readConsciencePreference(), false);
+  await loadCycleMonitor();
+  connectCycleMonitor();
   await loadContext();
   await loadAnalysis();
   await loadNextAction();
   await loadAgentUtilization();
+  await loadLocalMetrics();
+  await loadAgentPerformance();
+  await loadPerformanceRegression();
   await loadSecurity();
   await loadHandoff();
   await loadConscienceRecommendation();
