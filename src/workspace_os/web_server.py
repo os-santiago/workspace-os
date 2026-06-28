@@ -1171,8 +1171,6 @@ def _performance_regression_baseline_payload(
         iterations_per_sample=iterations_per_sample,
     )
     return {"ok": True, "report": report.to_dict()}
-
-
 def _conscience_recommendation_payload(
     memory_path: Path | None = None,
     query: dict[str, list[str]] | None = None,

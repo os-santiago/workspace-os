@@ -23,10 +23,10 @@ from workspace_os.web_server import (
     _conscience_metrics_payload,
     _conscience_recommendation_markdown_payload,
     _conscience_recommendation_payload,
-    _agent_utilization_markdown_payload,
-    _agent_utilization_payload,
     _agent_performance_markdown_payload,
     _agent_performance_payload,
+    _agent_utilization_markdown_payload,
+    _agent_utilization_payload,
     _local_metrics_export_payload,
     _local_metrics_markdown_payload,
     _local_metrics_payload,
@@ -49,6 +49,7 @@ from workspace_os.web_server import (
     _recent_software_payload,
     _roots_markdown_payload,
     _roots_payload,
+    _build_handler,
     STATIC_ROOT,
     _write_response_body,
 )
@@ -512,6 +513,66 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Highlights", markdown["text"])
         self.assertIn("Per-agent performance:", markdown["text"])
         self.assertIn("best fit:", markdown["text"])
+
+    def test_agent_performance_payload_renders_role_and_agent_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.agent_queue import AgentQueueTracker
+
+            tracker = AgentQueueTracker(memory.parent)
+            tracker.enqueue("task-1", "opencode", "workspace-os", "Validate the dashboard", metadata={"role": "primary", "task_type": "validation"})
+            tracker.start("task-1")
+            tracker.complete("task-1", returncode=0, duration_seconds=4.0)
+            tracker.enqueue("task-2", "claude", "workspace-os", "Review the dashboard", metadata={"role": "cross-check", "task_type": "validation"})
+            tracker.start("task-2")
+            tracker.fail("task-2", error="Validation failed")
+
+            result = _agent_performance_payload(memory)
+            markdown = _agent_performance_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(2, result["report"]["agent_count"])
+        self.assertEqual(0, result["report"]["queue_depth"])
+        self.assertEqual(1, result["report"]["completed_count"])
+        self.assertEqual(1, result["report"]["failed_count"])
+        self.assertTrue(result["report"]["agent_summaries"])
+        self.assertTrue(result["report"]["highlights"])
+        self.assertIn("Agent Performance Dashboard", markdown["text"])
+        self.assertIn("Highlights:", markdown["text"])
+        self.assertIn("Per-agent performance:", markdown["text"])
+
+    def test_agent_performance_http_routes_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.agent_queue import AgentQueueTracker
+            from http.server import ThreadingHTTPServer
+
+            tracker = AgentQueueTracker(memory.parent)
+            tracker.enqueue("task-1", "opencode", "workspace-os", "Validate the dashboard")
+            tracker.start("task-1")
+            tracker.complete("task-1", returncode=0, duration_seconds=2.0)
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), _build_handler([], root, memory, None))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_address[1]}"
+                with urllib.request.urlopen(f"{base_url}/api/agent-performance") as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                with urllib.request.urlopen(f"{base_url}/api/agent-performance.md") as response:
+                    markdown = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Agent Performance Dashboard", markdown)
+        self.assertIn("agent_count", result["report"])
 
     def test_cycle_monitor_payload_renders_active_cycle_summary(self):
         with tempfile.TemporaryDirectory() as directory:
