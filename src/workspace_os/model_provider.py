@@ -136,7 +136,7 @@ class OpenAICompatibleProvider:
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.name = name
-        self.base_url = base_url.rstrip("/")
+        self.base_url = _normalize_http_base_url(base_url)
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
@@ -171,7 +171,6 @@ class OpenAICompatibleProvider:
             endpoint_path = f"/{endpoint_path}"
         if parsed.query:
             endpoint_path = f"{endpoint_path}?{parsed.query}"
-
         headers = {"Content-Type": "application/json", **self.extra_headers}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -357,7 +356,10 @@ def _build_provider(profile: ModelProfile) -> ModelProvider | None:
         api_key = _resolve_setting(profile.api_key, profile.api_key_env)
         if not base_url or not model:
             return None
-        return OpenAICompatibleProvider(profile.name, base_url, model, api_key=api_key)
+        try:
+            return OpenAICompatibleProvider(profile.name, base_url, model, api_key=api_key)
+        except ModelProviderError:
+            return None
 
     raise ValueError(f"Unsupported model profile kind '{profile.kind}' for profile '{profile.name}'.")
 
@@ -448,6 +450,17 @@ def _read_optional_str(raw: Any) -> str | None:
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     return None
+
+
+def _normalize_http_base_url(base_url: str) -> str:
+    parsed = urlparse(base_url.strip())
+    if parsed.scheme not in {"http", "https"}:
+        raise ModelProviderError("Model provider base_url must use http or https.")
+    if not parsed.netloc:
+        raise ModelProviderError("Model provider base_url must include a host.")
+    if parsed.query or parsed.fragment:
+        raise ModelProviderError("Model provider base_url must not include query or fragment parts.")
+    return base_url.strip().rstrip("/")
 
 
 def _dedupe(values: list[str]) -> tuple[str, ...]:

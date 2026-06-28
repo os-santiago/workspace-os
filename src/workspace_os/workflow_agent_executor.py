@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from workspace_os.agent_adapter import run_agent
+from workspace_os.model_provider import ModelRouter
 from workspace_os.memory import WorkspaceMemoryStore
 from workspace_os.model_provider import ModelRouter
 
