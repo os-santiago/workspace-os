@@ -131,6 +131,10 @@ class AgentUtilizationReport:
     window_start: str | None
     window_end: str | None
     hourly_totals: tuple[int, ...]
+    idle_hours: tuple[int, ...]
+    bottleneck_hours: tuple[int, ...]
+    peak_hours: tuple[int, ...]
+    recommendations: tuple[str, ...]
     agent_summaries: tuple[AgentUtilizationSummary, ...]
 
     def to_dict(self) -> dict[str, Any]:
@@ -144,6 +148,10 @@ class AgentUtilizationReport:
             "window_start": self.window_start,
             "window_end": self.window_end,
             "hourly_totals": list(self.hourly_totals),
+            "idle_hours": list(self.idle_hours),
+            "bottleneck_hours": list(self.bottleneck_hours),
+            "peak_hours": list(self.peak_hours),
+            "recommendations": list(self.recommendations),
             "agent_summaries": [summary.to_dict() for summary in self.agent_summaries],
         }
 
@@ -162,6 +170,9 @@ class AgentUtilizationReport:
             lines.append("Hourly totals:")
             lines.append(_render_hour_header())
             lines.append(f"total  {_render_hour_heatmap(self.hourly_totals)}")
+            lines.append(f"Idle hours: {_render_hour_list(self.idle_hours)}")
+            lines.append(f"Bottleneck hours: {_render_hour_list(self.bottleneck_hours)}")
+            lines.append(f"Peak hours: {_render_hour_list(self.peak_hours)}")
         if self.agent_summaries:
             lines.append("")
             lines.append("Agent heatmaps:")
@@ -169,6 +180,10 @@ class AgentUtilizationReport:
             for summary in self.agent_summaries:
                 label = summary.agent[:5].ljust(5)
                 lines.append(f"{label} {_render_hour_heatmap(summary.hourly_activity)} | util={summary.utilization_ratio:.2f} peak={summary.peak_concurrent}")
+        if self.recommendations:
+            lines.append("")
+            lines.append("Recommendations:")
+            lines.extend(f"- {item}" for item in self.recommendations)
         return "\n".join(lines) + "\n"
 
 
@@ -384,6 +399,10 @@ class AgentQueueTracker:
                 window_start=None,
                 window_end=None,
                 hourly_totals=tuple(0 for _ in range(24)),
+                idle_hours=tuple(range(24)),
+                bottleneck_hours=(),
+                peak_hours=(),
+                recommendations=("No utilization data is available yet.",),
                 agent_summaries=(),
             )
 
@@ -422,6 +441,10 @@ class AgentQueueTracker:
                 total_active_seconds += (ended - started).total_seconds()
 
         observed_peak = _peak_concurrency(events)
+        peak_load = max(hourly_totals) if hourly_totals else 0
+        idle_hours = tuple(hour for hour, value in enumerate(hourly_totals) if value == 0)
+        bottleneck_hours = tuple(hour for hour, value in enumerate(hourly_totals) if value > self.max_parallel)
+        peak_hours = tuple(hour for hour, value in enumerate(hourly_totals) if value == peak_load and peak_load > 0)
         window_seconds = 0.0
         if window_start is not None and window_end is not None:
             window_seconds = max(0.0, (window_end - window_start).total_seconds())
@@ -429,6 +452,15 @@ class AgentQueueTracker:
         overall_utilization = 0.0 if capacity_seconds <= 0 else min(1.0, total_active_seconds / capacity_seconds)
         idle_ratio = 1.0 - overall_utilization
         recommended_max_parallel = _recommend_max_parallel(self.max_parallel, observed_peak, overall_utilization)
+        recommendations = _build_utilization_recommendations(
+            max_parallel=self.max_parallel,
+            observed_peak_parallel=observed_peak,
+            recommended_max_parallel=recommended_max_parallel,
+            overall_utilization_ratio=overall_utilization,
+            idle_hours=idle_hours,
+            bottleneck_hours=bottleneck_hours,
+            peak_hours=peak_hours,
+        )
 
         agent_summaries = []
         for agent, agent_tasks in sorted(by_agent.items()):
@@ -496,6 +528,10 @@ class AgentQueueTracker:
             window_start=window_start.isoformat() if window_start else None,
             window_end=window_end.isoformat() if window_end else None,
             hourly_totals=tuple(hourly_totals),
+            idle_hours=idle_hours,
+            bottleneck_hours=bottleneck_hours,
+            peak_hours=peak_hours,
+            recommendations=tuple(recommendations),
             agent_summaries=tuple(agent_summaries),
         )
 
@@ -747,8 +783,46 @@ def _recommend_max_parallel(max_parallel: int, observed_peak_parallel: int, util
     return max_parallel
 
 
+def _build_utilization_recommendations(
+    *,
+    max_parallel: int,
+    observed_peak_parallel: int,
+    recommended_max_parallel: int,
+    overall_utilization_ratio: float,
+    idle_hours: tuple[int, ...],
+    bottleneck_hours: tuple[int, ...],
+    peak_hours: tuple[int, ...],
+) -> tuple[str, ...]:
+    recommendations: list[str] = []
+    if overall_utilization_ratio < 0.35:
+        recommendations.append("Utilization is low; consider reducing max_workers or batching work more aggressively.")
+    elif overall_utilization_ratio > 0.85 and observed_peak_parallel >= max_parallel:
+        recommendations.append("Utilization is saturated; increase max_workers if the queue stays backed up.")
+    else:
+        recommendations.append("Utilization is balanced; keep the current max_workers setting and monitor the peak hours.")
+
+    if bottleneck_hours:
+        recommendations.append(f"Bottleneck hours: {_render_hour_list(bottleneck_hours)} exceed the configured max_workers limit.")
+    elif peak_hours:
+        recommendations.append(f"Peak hours cluster around {_render_hour_list(peak_hours)}; align heavier work there when possible.")
+
+    if idle_hours:
+        recommendations.append(f"Idle hours: {_render_hour_list(idle_hours)} are available for delayed or background work.")
+
+    if recommended_max_parallel != max_parallel:
+        recommendations.append(f"Suggested max_workers adjustment: {recommended_max_parallel}.")
+    return tuple(recommendations)
+
+
 def _render_hour_header() -> str:
     return "       00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23"
+
+
+def _render_hour_list(values: tuple[int, ...] | list[int]) -> str:
+    series = [int(value) for value in values]
+    if not series:
+        return "none"
+    return ", ".join(f"{value:02d}" for value in series)
 
 
 def _render_hour_heatmap(values: tuple[int, ...] | list[int]) -> str:

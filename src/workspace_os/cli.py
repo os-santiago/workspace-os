@@ -422,6 +422,10 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_work.add_argument("--sequential", action="store_true", help="Use sequential mode (default is continuous for better throughput).")
     cycle_work.add_argument("--debug", action="store_true", help="Enable detailed debug logging to .workspace-os/debug-logs/")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
+    cycle_resume = cycle_subparsers.add_parser("resume", help="Resume an interrupted cycle from last checkpoint.")
+    cycle_resume.add_argument("--id", type=int, help="Cycle ID to resume (defaults to most recent incomplete cycle).")
+    cycle_resume.add_argument("--duration-minutes", type=float, help="Continue for this duration.")
+    cycle_resume.add_argument("--iterations", type=int, help="Continue for this many iterations.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
     cycle_report = cycle_subparsers.add_parser("report", help="Render the active or selected cycle report.")
@@ -1347,6 +1351,70 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
         if report is not None:
             print(_render_cycle_report(report))
         return 0
+
+    if command == "resume":
+        try:
+            from workspace_os.cycle import resume_cycle
+
+            cycle_id = args.id
+
+            # If no ID provided, find the most recent incomplete cycle
+            if cycle_id is None:
+                cycles = store.cycle_history(limit=10)
+                for cycle in cycles:
+                    if cycle['ended_at'] is None:
+                        cycle_id = int(cycle['id'])
+                        break
+
+                if cycle_id is None:
+                    print("No incomplete cycles found to resume.")
+                    print("Use 'workspace cycle history' to see available cycles.")
+                    return 1
+
+            # Check if cycle exists
+            cycle_data = store.cycle_report(cycle_id)
+            if cycle_data is None:
+                print(f"Cycle {cycle_id} not found.")
+                return 1
+
+            print(f"Resuming cycle {cycle_id}: {cycle_data['cycle']['label']}")
+            print(f"Previous checkpoints: {cycle_data['checkpoint_count']}")
+
+            # Resume based on mode
+            if args.duration_minutes is not None:
+                result = resume_cycle(
+                    store,
+                    sources,
+                    cycle_id,
+                    duration_minutes=args.duration_minutes
+                )
+            elif args.iterations is not None:
+                result = resume_cycle(
+                    store,
+                    sources,
+                    cycle_id,
+                    iterations=args.iterations
+                )
+            else:
+                # Default: resume with 1 iteration
+                result = resume_cycle(
+                    store,
+                    sources,
+                    cycle_id,
+                    iterations=1
+                )
+
+            print(f"cycle_id={result.cycle_id}")
+            print(f"iterations_completed={result.iterations_completed}")
+            for iteration in result.iteration_results:
+                print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                print(render_cycle_evaluation(iteration.evaluation), end="")
+            print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+            return 0
+
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     if command == "status":
         report = active_cycle_report(store)

@@ -15,7 +15,9 @@ const state = {
   latestAnalysis: null,
   latestCycleMonitor: null,
   latestAgentUtilization: null,
+  latestLocalMetrics: null,
   latestAgentPerformance: null,
+  latestPerformanceRegression: null,
   latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
@@ -419,6 +421,12 @@ const renderAgentUtilization = (data = null) => {
   }
   state.latestAgentUtilization = data.report || null;
   const report = data.report || {};
+  const formatHourList = (values) => {
+    const hours = Array.isArray(values) ? values : [];
+    if (hours.length === 0) return "none";
+    return hours.map((hour) => String(hour).padStart(2, "0")).join(", ");
+  };
+  const recommendations = Array.isArray(report.recommendations) ? report.recommendations : [];
   const lines = [
     `Configured max_parallel: ${report.max_parallel ?? 0}`,
     `Observed peak_parallel: ${report.observed_peak_parallel ?? 0}`,
@@ -433,6 +441,46 @@ const renderAgentUtilization = (data = null) => {
     "Agent heatmaps:",
     ...((report.agent_summaries || []).map((summary) =>
       `${String(summary.agent || "agent").slice(0, 5).padEnd(5)} ${renderHeatmapRow(summary.hourly_activity || [])} | util=${formatPercent(summary.utilization_ratio)} peak=${summary.peak_concurrent ?? 0} tasks=${summary.task_count ?? 0}`)),
+    "",
+    "Idle / bottleneck hours:",
+    `- idle=${formatHourList(report.idle_hours || [])}`,
+    `- bottleneck=${formatHourList(report.bottleneck_hours || [])}`,
+    `- peak=${formatHourList(report.peak_hours || [])}`,
+    "",
+    "Recommendations:",
+    ...(recommendations.length > 0 ? recommendations.map((item) => `- ${item}`) : ["- none"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const renderPerformanceRegression = (data = null) => {
+  const output = qs("#regressionOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load regression report.";
+    return;
+  }
+  state.latestPerformanceRegression = data.report || null;
+  const report = data.report || {};
+  const measurements = Array.isArray(report.measurements) ? report.measurements : [];
+  const alerts = Array.isArray(report.alerts) ? report.alerts : [];
+  const lines = [
+    `Baseline: ${report.baseline_path || "n/a"}`,
+    `Baseline available: ${report.baseline_available ? "yes" : "no"}`,
+    `Threshold: ${formatPercent(report.threshold_ratio)}`,
+    `Benchmarks: ${report.benchmark_count ?? 0}`,
+    `Regressions: ${report.regression_count ?? 0}`,
+    `Missing baselines: ${report.missing_baseline_count ?? 0}`,
+    "",
+    "Measurements:",
+    ...((measurements.length > 0
+      ? measurements.map(
+          (item) =>
+            `- ${item.name}: ${item.status} median=${Number(item.median_seconds || 0).toFixed(6)}s avg=${Number(item.average_seconds || 0).toFixed(6)}s slowdown=${item.slowdown_ratio == null ? "n/a" : formatPercent(item.slowdown_ratio)}`,
+        )
+      : ["- none recorded yet"])),
+    "",
+    "Alerts:",
+    ...(alerts.length > 0 ? alerts.map((name) => `- ${name}`) : ["- none"]),
   ];
   output.textContent = lines.join("\n").trim();
 };
@@ -440,40 +488,37 @@ const renderAgentUtilization = (data = null) => {
 const renderAgentPerformance = (data = null) => {
   const output = qs("#performanceOutput");
   if (!data || !data.ok) {
-    output.textContent = data?.error || "Unable to load performance report.";
+    output.textContent = data?.error || "Unable to load performance dashboard.";
     return;
   }
   state.latestAgentPerformance = data.report || null;
   const report = data.report || {};
+  const agentSummaries = Array.isArray(report.agent_summaries) ? report.agent_summaries : [];
+  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
   const lines = [
-    `Window: ${report.window_start || "n/a"} -> ${report.window_end || "n/a"}`,
-    `Total tasks: ${report.total_tasks ?? 0}`,
-    `Completed tasks: ${report.completed_tasks ?? 0}`,
-    `Failed tasks: ${report.failed_tasks ?? 0}`,
-    `Success rate: ${formatPercent(report.success_rate)}`,
-    `Learning velocity/day: ${Number(report.learning_velocity_per_day || 0).toFixed(2)}`,
-    `Average duration: ${Number(report.average_duration_seconds || 0).toFixed(1)}s`,
+    `Agents: ${report.agent_count ?? 0}`,
+    `Queue depth: ${report.queue_depth ?? 0}`,
+    `Average success rate: ${Number(report.average_success_rate || 0).toFixed(2)}`,
+    `Average duration: ${(report.average_duration_seconds || 0).toFixed(1)}s`,
     "",
-    "Role performance:",
-    ...((report.role_summaries || []).length > 0
-      ? report.role_summaries.map(
-          (role) =>
-            `- ${role.role}: tasks=${role.task_count ?? 0} success_rate=${formatPercent(role.success_rate)} avg_duration=${Number(role.avg_duration_seconds || 0).toFixed(1)}s`,
-        )
-      : ["- none recorded yet"]),
+    "Highlights:",
+    ...(highlights.length > 0 ? highlights.map((item) => `- ${item}`) : ["- none"]),
     "",
-    "Agent summaries:",
-    ...((report.agent_summaries || []).length > 0
-      ? report.agent_summaries.map(
-          (summary) =>
-            `- ${summary.agent}: tasks=${summary.total_tasks ?? 0} success_rate=${formatPercent(summary.success_rate)} avg_duration=${Number(summary.avg_duration_seconds || 0).toFixed(1)}s`,
-        )
-      : ["- none recorded yet"]),
-    "",
-    "Specialization patterns:",
-    ...((report.specialization_patterns || []).length > 0
-      ? report.specialization_patterns.map((item) => `- ${item.pattern}: ${item.count}`)
-      : ["- none recorded yet"]),
+    "Per-agent performance:",
+    ...agentSummaries.flatMap((summary) => {
+      const roleSummaries = Array.isArray(summary.role_summaries) ? summary.role_summaries : [];
+      const linesForAgent = [
+        `- ${summary.agent}: tasks=${summary.task_count ?? 0} success=${Number(summary.success_rate || 0).toFixed(2)} avg=${(summary.avg_duration_seconds || 0).toFixed(1)}s learning=${Number(summary.learning_velocity || 0).toFixed(2)}`,
+        `  roles: primary=${summary.primary_count ?? 0} cross-check=${summary.cross_check_count ?? 0} observer=${summary.observer_count ?? 0}`,
+        `  specialization: ${summary.specialization_note || "n/a"} | top_task_type=${summary.top_task_type || "general"}`,
+      ];
+      for (const roleSummary of roleSummaries) {
+        linesForAgent.push(
+          `  - ${roleSummary.role}: tasks=${roleSummary.task_count ?? 0} success=${Number(roleSummary.success_rate || 0).toFixed(2)} avg=${(roleSummary.avg_duration_seconds || 0).toFixed(1)}s`,
+        );
+      }
+      return linesForAgent;
+    }),
   ];
   output.textContent = lines.join("\n").trim();
 };
@@ -618,9 +663,68 @@ const loadAgentUtilization = async () => {
   renderAgentUtilization(data);
 };
 
+const renderLocalMetrics = (data = null) => {
+  const output = qs("#metricsOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load local metrics.";
+    return;
+  }
+  state.latestLocalMetrics = data.report || null;
+  const report = data.report || {};
+  const indicators = Array.isArray(report.blockage_indicators) ? report.blockage_indicators : [];
+  const exporters = Array.isArray(report.available_exporters) ? report.available_exporters : [];
+  const lines = [
+    `Cycle: ${report.cycle_label || "n/a"}`,
+    `Objective: ${report.cycle_objective || "n/a"}`,
+    `Cycle duration: ${(report.cycle_duration_seconds || 0).toFixed(1)}s`,
+    `Checkpoint count: ${report.checkpoint_count ?? 0}`,
+    `Latest checkpoint: ${report.latest_checkpoint_label || "n/a"}`,
+    "",
+    "Outcomes:",
+    `- total=${report.task_outcome_total ?? 0}`,
+    `- success_rate=${Number(report.success_rate || 0).toFixed(2)}`,
+    `- failure_rate=${Number(report.failure_rate || 0).toFixed(2)}`,
+    `- partial_rate=${Number(report.partial_rate || 0).toFixed(2)}`,
+    "",
+    "Queue / utilization:",
+    `- queue_depth=${report.queue_depth ?? 0}`,
+    `- queued=${report.queued_count ?? 0}`,
+    `- running=${report.running_count ?? 0}`,
+    `- agent_utilization=${Number(report.agent_utilization_ratio || 0).toFixed(2)}`,
+    `- observed_peak_parallel=${report.observed_peak_parallel ?? 0}`,
+    `- recommended_max_workers=${report.recommended_max_parallel ?? 0}`,
+    "",
+    "Blockage indicators:",
+    ...(indicators.length > 0 ? indicators.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "Exporters:",
+    ...(exporters.length > 0 ? exporters.map((item) => `- ${item}`) : ["- none configured"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const loadLocalMetrics = async () => {
+  const data = await getJson("/api/metrics");
+  renderLocalMetrics(data);
+};
+
 const loadAgentPerformance = async () => {
   const data = await getJson("/api/agent-performance");
   renderAgentPerformance(data);
+};
+
+const loadPerformanceRegression = async () => {
+  const data = await getJson("/api/performance-regression");
+  renderPerformanceRegression(data);
+};
+
+const capturePerformanceBaseline = async () => {
+  const data = await postJson("/api/performance-regression/baseline", {
+    samples: 5,
+    iterations: 25,
+    threshold: 0.1,
+  });
+  renderPerformanceRegression(data);
 };
 
 const loadSecurity = async () => {
@@ -976,6 +1080,17 @@ const init = async () => {
   qs("#utilizationDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-utilization.md";
   });
+  qs("#metricsRefresh").addEventListener("click", async () => {
+    qs("#metricsOutput").textContent = "Loading metrics...";
+    try {
+      await loadLocalMetrics();
+    } catch (error) {
+      qs("#metricsOutput").textContent = error.message;
+    }
+  });
+  qs("#metricsDownload").addEventListener("click", () => {
+    window.location.href = "/api/metrics.md";
+  });
   qs("#performanceRefresh").addEventListener("click", async () => {
     qs("#performanceOutput").textContent = "Loading performance report...";
     try {
@@ -986,6 +1101,25 @@ const init = async () => {
   });
   qs("#performanceDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-performance.md";
+  });
+  qs("#regressionBaseline").addEventListener("click", async () => {
+    qs("#regressionOutput").textContent = "Capturing baseline...";
+    try {
+      await capturePerformanceBaseline();
+    } catch (error) {
+      qs("#regressionOutput").textContent = error.message;
+    }
+  });
+  qs("#regressionRefresh").addEventListener("click", async () => {
+    qs("#regressionOutput").textContent = "Loading regression report...";
+    try {
+      await loadPerformanceRegression();
+    } catch (error) {
+      qs("#regressionOutput").textContent = error.message;
+    }
+  });
+  qs("#regressionDownload").addEventListener("click", () => {
+    window.location.href = "/api/performance-regression.md";
   });
   qs("#securityRefresh").addEventListener("click", async () => {
     qs("#securityOutput").textContent = "Loading security report...";
@@ -1032,7 +1166,9 @@ const init = async () => {
   await loadAnalysis();
   await loadNextAction();
   await loadAgentUtilization();
+  await loadLocalMetrics();
   await loadAgentPerformance();
+  await loadPerformanceRegression();
   await loadSecurity();
   await loadHandoff();
   await loadConscienceRecommendation();

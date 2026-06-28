@@ -9,6 +9,7 @@ from unittest.mock import patch
 from workspace_os.model_provider import (
     ModelMessage,
     ModelProfile,
+    ModelProviderError,
     ModelRequest,
     ModelRouter,
     ModelRoutingConfig,
@@ -146,6 +147,27 @@ class ModelProviderTests(unittest.TestCase):
         self.assertEqual("test-model", body["model"])
         self.assertEqual("review", request_payload.task_type)
 
+    def test_openai_compatible_provider_rejects_non_http_base_url(self) -> None:
+        with self.assertRaises(ModelProviderError):
+            OpenAICompatibleProvider(
+                name="remote_reasoner",
+                base_url="file:///tmp/model",
+                model="test-model",
+            )
+
+    def test_openai_compatible_provider_rejects_query_or_fragment_in_base_url(self) -> None:
+        for base_url in (
+            "https://api.example.invalid/v1?token=abc",
+            "https://api.example.invalid/v1#fragment",
+        ):
+            with self.subTest(base_url=base_url):
+                with self.assertRaises(ModelProviderError):
+                    OpenAICompatibleProvider(
+                        name="remote_reasoner",
+                        base_url=base_url,
+                        model="test-model",
+                    )
+
     def test_build_model_router_defaults_to_no_model_when_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "workspace.json"
@@ -199,3 +221,7 @@ class ModelProviderTests(unittest.TestCase):
         self.assertEqual("none", result.provider)
         self.assertTrue(result.used_fallback)
         self.assertEqual(("none",), result.candidate_chain)
+
+
+if __name__ == "__main__":
+    unittest.main()
