@@ -23,6 +23,7 @@ from workspace_os.conscience_report import build_conscience_recommendation_text,
 from workspace_os.cycle import build_cycle_next_action
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
+from workspace_os.local_metrics import build_local_metrics_report, render_local_metrics_markdown, render_metrics_export
 from workspace_os.performance_regression import (
     build_performance_regression_report,
     capture_performance_baseline,
@@ -227,6 +228,22 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     "text/markdown; charset=utf-8",
                     filename="agent-performance.md",
                 )
+                return
+            if parsed.path == "/api/metrics":
+                self._send_json(_local_metrics_payload(memory_path, query))
+                return
+            if parsed.path == "/api/metrics.md":
+                self._send_text(
+                    _local_metrics_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="metrics.md",
+                )
+                return
+            if parsed.path == "/api/metrics/export":
+                exporter = _first(query, "format") or _first(query, "exporter")
+                payload = _local_metrics_export_payload(memory_path, exporter)
+                content_type = str(payload.get("content_type", "text/plain; charset=utf-8"))
+                self._send_text(payload, content_type, filename=str(payload.get("filename", "metrics-export.txt")))
                 return
             if parsed.path == "/api/performance-regression":
                 self._send_json(_performance_regression_payload(memory_path, workspace_root, query))
@@ -1054,6 +1071,45 @@ def _agent_performance_markdown_payload(
         return {"ok": False, "text": "Memory path is required."}
     report = build_agent_performance_dashboard(memory_path)
     return {"ok": True, "text": report.render()}
+
+
+def _local_metrics_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    report = build_local_metrics_report(memory_path)
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _local_metrics_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    report = build_local_metrics_report(memory_path)
+    return {"ok": True, "text": render_local_metrics_markdown(report)}
+
+
+def _local_metrics_export_payload(
+    memory_path: Path | None = None,
+    exporter: str | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    if not exporter:
+        return {"ok": False, "text": "Export format is required."}
+    report = build_local_metrics_report(memory_path)
+    normalized = exporter.strip().lower()
+    try:
+        text = render_metrics_export(report, normalized)
+    except ValueError as exc:
+        return {"ok": False, "text": str(exc)}
+    content_type = "application/json; charset=utf-8" if normalized == "grafana-json" else "text/plain; charset=utf-8"
+    filename = f"metrics.{ 'json' if normalized == 'grafana-json' else 'prometheus' }"
+    return {"ok": True, "text": text, "content_type": content_type, "filename": filename}
 
 
 def _performance_regression_payload(

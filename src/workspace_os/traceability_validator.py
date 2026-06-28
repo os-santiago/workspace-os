@@ -6,20 +6,32 @@ enforcement. It verifies that work items properly link to GitHub issues and PRs,
 validates closing keywords, checks quality gate compliance, and generates compliance reports.
 
 Usage:
-    # Validate PR linking for a work item
-    result = validate_pr_links_to_issue(
-        workspace_root=Path("/path/to/repo"),
-        issue_number=123,
-        work_item_number=5,
-        agent_type="claude"
-    )
+    .. code-block:: python
 
-    # Run full traceability validation
-    validator = TraceabilityValidator(workspace_root=Path("/path/to/repo"))
-    report = validator.validate_cycle_traceability(cycle_id=2)
+       # Validate PR linking for a work item
+       result = validate_pr_links_to_issue(
+           workspace_root=Path("/path/to/repo"),
+           issue_number=123,
+           work_item_number=5,
+           agent_type="claude",
+       )
 
-    # Check quality gate compliance
-    gate_result = validator.validate_quality_gates(checkpoint_data)
+       # Run full traceability validation
+       memory_db_path = Path("/path/to/memory.db")
+       validator = TraceabilityValidator(workspace_root=Path("/path/to/repo"))
+       report = validator.validate_cycle_traceability(
+           memory_db_path=memory_db_path,
+           cycle_id=2,
+       )
+
+       # Check quality gate compliance
+       checkpoint_data = {
+           "health_ok": True,
+           "stability_ok": True,
+           "security_ok": True,
+           "quality_ok": True,
+       }
+       gate_result = validator.validate_quality_gates(checkpoint_data)
 """
 
 import json
