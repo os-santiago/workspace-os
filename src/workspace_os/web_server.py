@@ -24,6 +24,7 @@ from workspace_os.cycle import build_cycle_next_action
 from workspace_os.delegation import build_hardened_delegate_prompt
 from workspace_os.config import Source, load_sources, load_workspace_memory_path, load_workspace_root
 from workspace_os.conversation import build_workspace_reply
+from workspace_os.agent_performance_dashboard import build_agent_performance_dashboard
 from workspace_os.learning import suggest_questions_for_work
 from workspace_os.oce_extensions import load_configured_oce_extensions
 from workspace_os.context_pack import build_context_pack
@@ -211,6 +212,16 @@ def _build_handler(sources: list[Source], workspace_root: Path, memory_path: Pat
                     _agent_utilization_markdown_payload(memory_path, query),
                     "text/markdown; charset=utf-8",
                     filename="agent-utilization.md",
+                )
+                return
+            if parsed.path == "/api/agent-performance":
+                self._send_json(_agent_performance_payload(memory_path, query))
+                return
+            if parsed.path == "/api/agent-performance.md":
+                self._send_text(
+                    _agent_performance_markdown_payload(memory_path, query),
+                    "text/markdown; charset=utf-8",
+                    filename="agent-performance.md",
                 )
                 return
 
@@ -1005,6 +1016,26 @@ def _agent_utilization_markdown_payload(
         return {"ok": False, "text": "Memory path is required."}
     tracker = AgentQueueTracker(memory_path.parent)
     report = tracker.utilization_report()
+    return {"ok": True, "text": report.render()}
+
+
+def _agent_performance_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "error": "Memory path is required."}
+    report = build_agent_performance_dashboard(memory_path)
+    return {"ok": True, "report": report.to_dict()}
+
+
+def _agent_performance_markdown_payload(
+    memory_path: Path | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
+    if memory_path is None:
+        return {"ok": False, "text": "Memory path is required."}
+    report = build_agent_performance_dashboard(memory_path)
     return {"ok": True, "text": report.render()}
 
 

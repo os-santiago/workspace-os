@@ -15,6 +15,7 @@ const state = {
   latestAnalysis: null,
   latestCycleMonitor: null,
   latestAgentUtilization: null,
+  latestAgentPerformance: null,
   latestSecurity: null,
   latestConscienceMetrics: null,
   latestConscienceRecommendation: null,
@@ -434,6 +435,49 @@ const renderAgentUtilization = (data = null) => {
       `${String(summary.agent || "agent").slice(0, 5).padEnd(5)} ${renderHeatmapRow(summary.hourly_activity || [])} | util=${formatPercent(summary.utilization_ratio)} peak=${summary.peak_concurrent ?? 0} tasks=${summary.task_count ?? 0}`)),
   ];
   output.textContent = lines.join("\n").trim();
+};
+
+const renderAgentPerformance = (data = null) => {
+  const output = qs("#performanceOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load performance dashboard.";
+    return;
+  }
+  state.latestAgentPerformance = data.report || null;
+  const report = data.report || {};
+  const agentSummaries = Array.isArray(report.agent_summaries) ? report.agent_summaries : [];
+  const highlights = Array.isArray(report.highlights) ? report.highlights : [];
+  const lines = [
+    `Agents: ${report.agent_count ?? 0}`,
+    `Queue depth: ${report.queue_depth ?? 0}`,
+    `Average success rate: ${Number(report.average_success_rate || 0).toFixed(2)}`,
+    `Average duration: ${(report.average_duration_seconds || 0).toFixed(1)}s`,
+    "",
+    "Highlights:",
+    ...(highlights.length > 0 ? highlights.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "Per-agent performance:",
+    ...agentSummaries.flatMap((summary) => {
+      const roleSummaries = Array.isArray(summary.role_summaries) ? summary.role_summaries : [];
+      const linesForAgent = [
+        `- ${summary.agent}: tasks=${summary.task_count ?? 0} success=${Number(summary.success_rate || 0).toFixed(2)} avg=${(summary.avg_duration_seconds || 0).toFixed(1)}s learning=${Number(summary.learning_velocity || 0).toFixed(2)}`,
+        `  roles: primary=${summary.primary_count ?? 0} cross-check=${summary.cross_check_count ?? 0} observer=${summary.observer_count ?? 0}`,
+        `  specialization: ${summary.specialization_note || "n/a"} | top_task_type=${summary.top_task_type || "general"}`,
+      ];
+      for (const roleSummary of roleSummaries) {
+        linesForAgent.push(
+          `  - ${roleSummary.role}: tasks=${roleSummary.task_count ?? 0} success=${Number(roleSummary.success_rate || 0).toFixed(2)} avg=${(roleSummary.avg_duration_seconds || 0).toFixed(1)}s`,
+        );
+      }
+      return linesForAgent;
+    }),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const loadAgentPerformance = async () => {
+  const data = await getJson("/api/agent-performance");
+  renderAgentPerformance(data);
 };
 
 const renderSecurity = (data = null) => {
@@ -929,6 +973,17 @@ const init = async () => {
   qs("#utilizationDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-utilization.md";
   });
+  qs("#performanceRefresh").addEventListener("click", async () => {
+    qs("#performanceOutput").textContent = "Loading performance...";
+    try {
+      await loadAgentPerformance();
+    } catch (error) {
+      qs("#performanceOutput").textContent = error.message;
+    }
+  });
+  qs("#performanceDownload").addEventListener("click", () => {
+    window.location.href = "/api/agent-performance.md";
+  });
   qs("#securityRefresh").addEventListener("click", async () => {
     qs("#securityOutput").textContent = "Loading security report...";
     try {
@@ -974,6 +1029,7 @@ const init = async () => {
   await loadAnalysis();
   await loadNextAction();
   await loadAgentUtilization();
+  await loadAgentPerformance();
   await loadSecurity();
   await loadHandoff();
   await loadConscienceRecommendation();
