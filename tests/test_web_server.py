@@ -1,5 +1,6 @@
 import unittest
 import json
+from unittest.mock import patch
 import threading
 import urllib.request
 
@@ -24,6 +25,9 @@ from workspace_os.web_server import (
     _conscience_recommendation_payload,
     _agent_utilization_markdown_payload,
     _agent_utilization_payload,
+    _local_metrics_export_payload,
+    _local_metrics_markdown_payload,
+    _local_metrics_payload,
     _build_handler,
     _performance_regression_baseline_payload,
     _performance_regression_markdown_payload,
@@ -90,6 +94,9 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("utilizationRefresh", index)
         self.assertIn("utilizationOutput", index)
         self.assertIn("utilizationDownload", index)
+        self.assertIn("metricsRefresh", index)
+        self.assertIn("metricsOutput", index)
+        self.assertIn("metricsDownload", index)
         self.assertIn("performanceRefresh", index)
         self.assertIn("performanceOutput", index)
         self.assertIn("performanceDownload", index)
@@ -119,6 +126,7 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestConscienceRecommendation", app)
         self.assertIn("latestQuestioningMetrics", app)
         self.assertIn("latestAgentUtilization", app)
+        self.assertIn("latestLocalMetrics", app)
         self.assertIn("latestAgentPerformance", app)
         self.assertIn("latestPerformanceRegression", app)
         self.assertIn("latestSecurity", app)
@@ -353,6 +361,58 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("Recommended max workers", markdown["text"])
         self.assertIn("Idle hours:", markdown["text"])
         self.assertIn("Recommendations:", markdown["text"])
+
+    def test_local_metrics_payload_renders_local_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            cycle_id = store.start_cycle("Cycle 01", "Improve WOS", started_at="2026-06-27T14:00:00+00:00")
+            store.record_cycle_checkpoint(
+                "checkpoint-1",
+                1,
+                {"health_ok": True, "stability_ok": True, "security_ok": True, "quality_ok": True},
+                cycle_id=cycle_id,
+                created_at="2026-06-27T14:05:00+00:00",
+            )
+            store.record_task_outcome("cycle", "success-1", "success", created_at="2026-06-27T14:01:00+00:00")
+            store.record_task_outcome("cycle", "failure-1", "failure", created_at="2026-06-27T14:02:00+00:00")
+
+            result = _local_metrics_payload(memory)
+            markdown = _local_metrics_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(1, result["report"]["checkpoint_count"])
+        self.assertEqual(2, result["report"]["task_outcome_total"])
+        self.assertIn("blockage_indicators", result["report"])
+        self.assertIn("WOS Local Metrics", markdown["text"])
+        self.assertIn("Blockage indicators:", markdown["text"])
+
+    def test_local_metrics_export_requires_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            cycle_id = store.start_cycle("Cycle 01", "Improve WOS", started_at="2026-06-27T14:00:00+00:00")
+            store.record_cycle_checkpoint(
+                "checkpoint-1",
+                1,
+                {"health_ok": True, "stability_ok": True, "security_ok": True, "quality_ok": True},
+                cycle_id=cycle_id,
+                created_at="2026-06-27T14:05:00+00:00",
+            )
+
+            with patch.dict("os.environ", {"WOS_METRICS_EXPORTERS": ""}, clear=True):
+                result = _local_metrics_export_payload(memory, "prometheus")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("not enabled", result["text"])
 
     def test_performance_regression_payload_renders_benchmark_summary(self):
         with tempfile.TemporaryDirectory() as directory:

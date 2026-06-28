@@ -15,6 +15,7 @@ const state = {
   latestAnalysis: null,
   latestCycleMonitor: null,
   latestAgentUtilization: null,
+  latestLocalMetrics: null,
   latestAgentPerformance: null,
   latestPerformanceRegression: null,
   latestSecurity: null,
@@ -665,6 +666,51 @@ const loadAgentUtilization = async () => {
   renderAgentUtilization(data);
 };
 
+const renderLocalMetrics = (data = null) => {
+  const output = qs("#metricsOutput");
+  if (!data || !data.ok) {
+    output.textContent = data?.error || "Unable to load local metrics.";
+    return;
+  }
+  state.latestLocalMetrics = data.report || null;
+  const report = data.report || {};
+  const indicators = Array.isArray(report.blockage_indicators) ? report.blockage_indicators : [];
+  const exporters = Array.isArray(report.available_exporters) ? report.available_exporters : [];
+  const lines = [
+    `Cycle: ${report.cycle_label || "n/a"}`,
+    `Objective: ${report.cycle_objective || "n/a"}`,
+    `Cycle duration: ${(report.cycle_duration_seconds || 0).toFixed(1)}s`,
+    `Checkpoint count: ${report.checkpoint_count ?? 0}`,
+    `Latest checkpoint: ${report.latest_checkpoint_label || "n/a"}`,
+    "",
+    "Outcomes:",
+    `- total=${report.task_outcome_total ?? 0}`,
+    `- success_rate=${Number(report.success_rate || 0).toFixed(2)}`,
+    `- failure_rate=${Number(report.failure_rate || 0).toFixed(2)}`,
+    `- partial_rate=${Number(report.partial_rate || 0).toFixed(2)}`,
+    "",
+    "Queue / utilization:",
+    `- queue_depth=${report.queue_depth ?? 0}`,
+    `- queued=${report.queued_count ?? 0}`,
+    `- running=${report.running_count ?? 0}`,
+    `- agent_utilization=${Number(report.agent_utilization_ratio || 0).toFixed(2)}`,
+    `- observed_peak_parallel=${report.observed_peak_parallel ?? 0}`,
+    `- recommended_max_workers=${report.recommended_max_parallel ?? 0}`,
+    "",
+    "Blockage indicators:",
+    ...(indicators.length > 0 ? indicators.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "Exporters:",
+    ...(exporters.length > 0 ? exporters.map((item) => `- ${item}`) : ["- none configured"]),
+  ];
+  output.textContent = lines.join("\n").trim();
+};
+
+const loadLocalMetrics = async () => {
+  const data = await getJson("/api/metrics");
+  renderLocalMetrics(data);
+};
+
 const loadAgentPerformance = async () => {
   const data = await getJson("/api/agent-performance");
   renderAgentPerformance(data);
@@ -1037,6 +1083,17 @@ const init = async () => {
   qs("#utilizationDownload").addEventListener("click", () => {
     window.location.href = "/api/agent-utilization.md";
   });
+  qs("#metricsRefresh").addEventListener("click", async () => {
+    qs("#metricsOutput").textContent = "Loading metrics...";
+    try {
+      await loadLocalMetrics();
+    } catch (error) {
+      qs("#metricsOutput").textContent = error.message;
+    }
+  });
+  qs("#metricsDownload").addEventListener("click", () => {
+    window.location.href = "/api/metrics.md";
+  });
   qs("#performanceRefresh").addEventListener("click", async () => {
     qs("#performanceOutput").textContent = "Loading performance report...";
     try {
@@ -1112,6 +1169,7 @@ const init = async () => {
   await loadAnalysis();
   await loadNextAction();
   await loadAgentUtilization();
+  await loadLocalMetrics();
   await loadAgentPerformance();
   await loadPerformanceRegression();
   await loadSecurity();

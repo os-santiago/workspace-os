@@ -129,6 +129,20 @@
 
         <section class="rail-section handoff-section">
           <div class="rail-header">
+            <h2>Metrics</h2>
+            <div class="rail-actions">
+              <button class="rail-action" id="metricsDownload" type="button">Download</button>
+              <button class="rail-action" id="metricsRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="handoff-body">
+            <p class="handoff-note">Local cycle metrics, queue depth, and optional exporters when configured.</p>
+            <pre class="handoff-output" id="metricsOutput">Loading metrics...</pre>
+          </div>
+        </section>
+
+        <section class="rail-section handoff-section">
+          <div class="rail-header">
             <h2>Performance</h2>
             <div class="rail-actions">
               <button class="rail-action" id="performanceDownload" type="button">Download</button>
