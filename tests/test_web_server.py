@@ -1,5 +1,8 @@
 import unittest
 import json
+from unittest.mock import patch
+import threading
+import urllib.request
 
 from pathlib import Path
 import tempfile
@@ -11,6 +14,8 @@ from workspace_os.web_server import (
     _analysis_payload,
     _capture_preview_payload,
     _chat_payload,
+    _cycle_monitor_markdown_payload,
+    _cycle_monitor_payload,
     _context_snapshot_markdown_payload,
     _context_snapshot_payload,
     _conscience_preview_payload,
@@ -20,6 +25,15 @@ from workspace_os.web_server import (
     _conscience_recommendation_payload,
     _agent_utilization_markdown_payload,
     _agent_utilization_payload,
+    _agent_performance_markdown_payload,
+    _agent_performance_payload,
+    _local_metrics_export_payload,
+    _local_metrics_markdown_payload,
+    _local_metrics_payload,
+    _build_handler,
+    _performance_regression_baseline_payload,
+    _performance_regression_markdown_payload,
+    _performance_regression_payload,
     _security_markdown_payload,
     _security_payload,
     _delegate_launch_payload,
@@ -82,11 +96,24 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("utilizationRefresh", index)
         self.assertIn("utilizationOutput", index)
         self.assertIn("utilizationDownload", index)
+        self.assertIn("metricsRefresh", index)
+        self.assertIn("metricsOutput", index)
+        self.assertIn("metricsDownload", index)
+        self.assertIn("performanceRefresh", index)
+        self.assertIn("performanceOutput", index)
+        self.assertIn("performanceDownload", index)
+        self.assertIn("regressionBaseline", index)
+        self.assertIn("regressionOutput", index)
+        self.assertIn("regressionRefresh", index)
+        self.assertIn("regressionDownload", index)
         self.assertIn("securityRefresh", index)
         self.assertIn("securityOutput", index)
         self.assertIn("securityDownload", index)
         self.assertIn("analysisRefresh", index)
         self.assertIn("analysisOutput", index)
+        self.assertIn("cycleMonitorRefresh", index)
+        self.assertIn("cycleMonitorOutput", index)
+        self.assertIn("cycleMonitorStatus", index)
         self.assertIn("chatContextToggle", index)
         self.assertIn("chatContextRefresh", index)
         self.assertIn("chatContextOutput", index)
@@ -101,8 +128,13 @@ Batch 02 [NEXT] Web pilot
         self.assertIn("latestConscienceRecommendation", app)
         self.assertIn("latestQuestioningMetrics", app)
         self.assertIn("latestAgentUtilization", app)
+        self.assertIn("latestLocalMetrics", app)
+        self.assertIn("latestAgentPerformance", app)
+        self.assertIn("latestPerformanceRegression", app)
         self.assertIn("latestSecurity", app)
         self.assertIn("latestNextAction", app)
+        self.assertIn("latestCycleMonitor", app)
+        self.assertIn("cycleMonitorSocket", app)
         self.assertIn("conscienceExpanded", app)
         self.assertIn("workspace-os.conscience-expanded", app)
         self.assertIn("chatContextExpanded", app)
@@ -269,6 +301,12 @@ Batch 02 [NEXT] Web pilot
             store = WorkspaceMemoryStore(memory)
             store.ensure_schema()
             store.record_context_snapshot("global", "questioning-test", "issue 80 dashboard", "issue 80 dashboard")
+            store.record_context_snapshot(
+                "workspace",
+                "semantic-review",
+                "Coordinate context sharing with similarity search and memory reuse.",
+                "Semantic context sharing helps reuse prior work that is not recent.",
+            )
             store.record_qa(
                 "How do we validate a dashboard change?",
                 "Run focused tests and inspect the dashboard payload.",
@@ -284,18 +322,23 @@ Batch 02 [NEXT] Web pilot
                 agent_name="claude",
             )
 
-            result = _questioning_payload(memory, {"limit": ["1"]})
-            markdown = _questioning_markdown_payload(memory, {"limit": ["1"]})
+            result = _questioning_payload(memory, {"limit": ["1"], "context": ["issue 80 dashboard"]})
+            markdown = _questioning_markdown_payload(memory, {"limit": ["1"], "context": ["issue 80 dashboard"]})
 
         self.assertTrue(result["ok"])
         self.assertEqual("issue 80 dashboard", result["report"]["context"])
-        self.assertEqual(2, result["report"]["summary"]["total"])
+        self.assertEqual(2, result["report"]["metrics"]["summary"]["total"])
         self.assertEqual(1, len(result["report"]["recent"]))
         self.assertEqual("claude", result["report"]["recent"][0]["agent"])
         self.assertTrue(result["report"]["suggestions"])
+        self.assertTrue(result["report"]["semantic_hits"])
         self.assertIn("Questioning dashboard", markdown["text"])
         self.assertIn("recent_7_days=2", markdown["text"])
+        self.assertIn("Semantic memory:", markdown["text"])
         self.assertIn("How do we validate a dashboard change?", markdown["text"])
+        self.assertIn("Answer sources:", markdown["text"])
+        self.assertIn("Question patterns:", markdown["text"])
+        self.assertIn("learning_velocity_per_day", markdown["text"])
 
     def test_agent_utilization_payload_renders_heatmap_report(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -313,14 +356,206 @@ Batch 02 [NEXT] Web pilot
 
         self.assertTrue(result["ok"])
         self.assertEqual(24, len(result["report"]["hourly_totals"]))
+        self.assertIn("idle_hours", result["report"])
+        self.assertIn("bottleneck_hours", result["report"])
+        self.assertIn("recommendations", result["report"])
         self.assertIn("Agent Utilization Report", markdown["text"])
         self.assertIn("Recommended max workers", markdown["text"])
+        self.assertIn("Idle hours:", markdown["text"])
+        self.assertIn("Recommendations:", markdown["text"])
+
+    def test_local_metrics_payload_renders_local_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            cycle_id = store.start_cycle("Cycle 01", "Improve WOS", started_at="2026-06-27T14:00:00+00:00")
+            store.record_cycle_checkpoint(
+                "checkpoint-1",
+                1,
+                {"health_ok": True, "stability_ok": True, "security_ok": True, "quality_ok": True},
+                cycle_id=cycle_id,
+                created_at="2026-06-27T14:05:00+00:00",
+            )
+            store.record_task_outcome("cycle", "success-1", "success", created_at="2026-06-27T14:01:00+00:00")
+            store.record_task_outcome("cycle", "failure-1", "failure", created_at="2026-06-27T14:02:00+00:00")
+
+            result = _local_metrics_payload(memory)
+            markdown = _local_metrics_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(1, result["report"]["checkpoint_count"])
+        self.assertEqual(2, result["report"]["task_outcome_total"])
+        self.assertIn("blockage_indicators", result["report"])
+        self.assertIn("WOS Local Metrics", markdown["text"])
+        self.assertIn("Blockage indicators:", markdown["text"])
+
+    def test_local_metrics_export_requires_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            cycle_id = store.start_cycle("Cycle 01", "Improve WOS", started_at="2026-06-27T14:00:00+00:00")
+            store.record_cycle_checkpoint(
+                "checkpoint-1",
+                1,
+                {"health_ok": True, "stability_ok": True, "security_ok": True, "quality_ok": True},
+                cycle_id=cycle_id,
+                created_at="2026-06-27T14:05:00+00:00",
+            )
+
+            with patch.dict("os.environ", {"WOS_METRICS_EXPORTERS": ""}, clear=True):
+                result = _local_metrics_export_payload(memory, "prometheus")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("not enabled", result["text"])
+
+    def test_performance_regression_payload_renders_benchmark_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+
+            result = _performance_regression_payload(memory, root, {"samples": ["1"], "iterations": ["1"]})
+            markdown = _performance_regression_markdown_payload(memory, root, {"samples": ["1"], "iterations": ["1"]})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(3, result["report"]["benchmark_count"])
+        self.assertFalse(result["report"]["baseline_available"])
+        self.assertIn("Performance Regression Report", markdown["text"])
+        self.assertIn("Baseline available: no", markdown["text"])
+
+    def test_performance_regression_baseline_is_saved_locally(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            baseline = _performance_regression_baseline_payload(
+                memory,
+                root,
+                {"threshold": 0.1, "samples": 1, "iterations": 1},
+            )
+            baseline_path = root / ".workspace-os" / "performance-baselines.json"
+            self.assertTrue(baseline["ok"])
+            self.assertTrue(baseline["report"]["baseline_available"])
+            self.assertTrue(baseline_path.exists())
+
+    def test_performance_regression_http_routes_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from http.server import ThreadingHTTPServer
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), _build_handler([], root, memory, None))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_address[1]}"
+                with urllib.request.urlopen(f"{base_url}/api/performance-regression?samples=1&iterations=1", timeout=5) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                with urllib.request.urlopen(f"{base_url}/api/performance-regression.md?samples=1&iterations=1", timeout=5) as response:
+                    markdown = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+                request = urllib.request.Request(
+                    f"{base_url}/api/performance-regression/baseline",
+                    data=b"{}",
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    baseline = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Performance Regression Report", markdown)
+        self.assertTrue(baseline["ok"])
+
+    def test_agent_performance_payload_renders_dashboard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.agent_queue import AgentQueueTracker
+
+            tracker = AgentQueueTracker(memory.parent)
+            for index in range(6):
+                role = ["primary", "cross-check", "observer"][index % 3]
+                task_id = f"cycle-work-{index + 1}-{role}"
+                tracker.enqueue(task_id, "opencode", "workspace-os", f"Task {index + 1}", metadata={"role": role})
+                tracker.start(task_id)
+                tracker.complete(task_id, returncode=0 if index >= 3 else 1, duration_seconds=2.0 + index)
+            for index in range(2):
+                role = "cross-check" if index == 0 else "observer"
+                task_id = f"review-{index + 1}-{role}"
+                tracker.enqueue(task_id, "claude", "workspace-os", f"Review {index + 1}", metadata={"role": role})
+                tracker.start(task_id)
+                tracker.complete(task_id, returncode=0, duration_seconds=5.0 + index)
+
+            result = _agent_performance_payload(memory)
+            markdown = _agent_performance_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(2, result["report"]["agent_count"])
+        self.assertEqual(0, result["report"]["queue_depth"])
+        self.assertEqual(5, result["report"]["completed_count"])
+        self.assertEqual(3, result["report"]["failed_count"])
+        self.assertIn("opencode", {summary["agent"] for summary in result["report"]["agent_summaries"]})
+        self.assertIn("claude", {summary["agent"] for summary in result["report"]["agent_summaries"]})
+        self.assertIn("Highlights", markdown["text"])
+        self.assertIn("Per-agent performance:", markdown["text"])
+        self.assertIn("best fit:", markdown["text"])
+
+    def test_cycle_monitor_payload_renders_active_cycle_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory = root / "memory.sqlite3"
+            from workspace_os.memory import WorkspaceMemoryStore
+
+            store = WorkspaceMemoryStore(memory)
+            store.ensure_schema()
+            cycle_id = store.start_cycle("cycle-1", "monitor the cycle dashboard", started_at="2026-06-26T10:00:00+00:00")
+            store.record_cycle_checkpoint(
+                "iteration-1",
+                1,
+                {
+                    "health_ok": True,
+                    "stability_ok": True,
+                    "security_ok": True,
+                    "quality_ok": False,
+                },
+                note="first dashboard checkpoint",
+                cycle_id=cycle_id,
+                created_at="2026-06-26T10:05:00+00:00",
+            )
+
+            result = _cycle_monitor_payload(memory)
+            markdown = _cycle_monitor_markdown_payload(memory)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["monitor"]["active"])
+        self.assertEqual("cycle-1", result["monitor"]["cycle"]["label"])
+        self.assertEqual(1, result["monitor"]["summary"]["checkpoint_count"])
+        self.assertEqual(1, len(result["monitor"]["checkpoints"]))
+        self.assertIn("Cycle monitor dashboard", markdown["text"])
+        self.assertIn("monitor the cycle dashboard", markdown["text"])
+        self.assertIn("iteration-1", markdown["text"])
 
     def test_security_payload_renders_bandit_report_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             reports_dir = root / ".security-reports"
             reports_dir.mkdir()
+            config_dir = root / "config"
+            config_dir.mkdir()
+            (config_dir / "security-policy.yml").write_text("allowed_dependencies: []\n", encoding="utf-8")
             (reports_dir / "pip-audit.json").write_text(
                 json.dumps({
                     "dependencies": [
@@ -345,7 +580,9 @@ Batch 02 [NEXT] Web pilot
         self.assertTrue(result["ok"])
         self.assertEqual(2, result["report"]["summary"]["total"])
         self.assertEqual(2, result["report"]["summary"]["bandit_total"])
+        self.assertTrue(result["report"]["policy"]["passed"])
         self.assertIn("Security dashboard", markdown["text"])
+        self.assertIn("Policy summary", markdown["text"])
         self.assertIn("bandit_total=2", markdown["text"])
         self.assertIn("pip-audit=present", markdown["text"])
 
@@ -355,7 +592,6 @@ Batch 02 [NEXT] Web pilot
         self.assertEqual(command[:2], ["opencode", "run"])
         self.assertIn("--model", command)
         self.assertIn("opencode/deepseek-v4-flash-free", command)
-        self.assertIn("--dangerously-skip-permissions", command)
 
     def test_delegate_launch_passes_conscience_to_launcher(self):
         captured = {}

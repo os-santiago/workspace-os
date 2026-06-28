@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from workspace_os.agent_policy import normalize_agent_name
@@ -347,6 +348,7 @@ class QuestioningPrompt:
     answer_hints: tuple[str, ...]
     learned_count: int
     recorded_count: int
+    question_categories: tuple[str, ...] = ()
 
     def render_summary(self) -> str:
         return f"questions={len(self.questions)} learned={self.learned_count} recorded={self.recorded_count}"
@@ -366,10 +368,246 @@ class QuestioningPrompt:
             lines.append("- No clarifying questions needed.")
         else:
             for index, question in enumerate(self.questions, 1):
+                category = self.question_categories[index - 1] if index - 1 < len(self.question_categories) else "clarification"
                 lines.append(f"{index}. {question}")
+                lines.append(f"   Category: {category}")
                 if index - 1 < len(self.answer_hints) and self.answer_hints[index - 1]:
                     lines.append(f"   Squad Lead hint: {self.answer_hints[index - 1]}")
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class QuestioningProtocol:
+    """Formulate pre-execution questions and attach learned answers."""
+
+    memory_store: WorkspaceMemoryStore
+    answer_engine: SquadLeadAnswerEngine
+
+    def formulate(
+        self,
+        task_context: str,
+        limit: int = 3,
+        role: str = "primary",
+        work_item_id: str | None = None,
+        agent_name: str | None = None,
+        issue_data: dict[str, object] | None = None,
+        code_context: str = "",
+        related_issues: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
+    ) -> QuestioningPrompt:
+        suggestions = suggest_questions_for_work(self.memory_store, task_context, limit=limit)
+        questions: list[str] = []
+        answer_hints: list[str] = []
+        categories: list[str] = []
+        recorded_count = 0
+
+        def add_question(question: str, answer_hint: str, category: str, learned: bool) -> None:
+            nonlocal recorded_count
+            normalized = question.lower().strip()
+            if normalized in {existing.lower().strip() for existing in questions}:
+                return
+            questions.append(question)
+            answer_hints.append(answer_hint)
+            categories.append(category)
+            if not learned and answer_hint:
+                try:
+                    self.memory_store.record_qa(
+                        question,
+                        answer_hint,
+                        task_context,
+                        work_item_id=work_item_id,
+                        agent_name=agent_name or role,
+                    )
+                    recorded_count += 1
+                except Exception:
+                    pass
+
+        for suggestion in suggestions[:limit]:
+            add_question(
+                suggestion.question,
+                suggestion.previous_answer or "Use the learned answer from similar work.",
+                _classify_question_category(suggestion.question),
+                learned=True,
+            )
+
+        heuristics = _questioning_heuristics(task_context, role)
+        for question, answer_hint in heuristics:
+            if len(questions) >= limit:
+                break
+            answer_draft = self.answer_engine.answer_question(
+                task_context,
+                question,
+                issue_data=issue_data,
+                code_context=code_context,
+                related_issues=related_issues,
+                work_item_id=work_item_id,
+                agent_name=agent_name or role,
+            )
+            composed_answer = answer_draft.answer
+            if answer_draft.should_escalate:
+                composed_answer = f"Escalate to human: {composed_answer}"
+            if not composed_answer:
+                composed_answer = answer_hint
+            add_question(
+                question,
+                composed_answer,
+                _classify_question_category(question),
+                learned=True,
+            )
+            if not answer_draft.cache_hit:
+                recorded_count += 1
+
+        return QuestioningPrompt(
+            task_context=task_context,
+            questions=tuple(questions[:limit]),
+            answer_hints=tuple(answer_hints[:limit]),
+            learned_count=len(suggestions[:limit]),
+            recorded_count=recorded_count,
+            question_categories=tuple(categories[:limit]),
+        )
+
+
+@dataclass(frozen=True)
+class AnswerDraft:
+    question: str
+    answer: str
+    confidence: float
+    source_summary: str
+    cache_hit: bool
+    should_escalate: bool
+
+    def render_summary(self) -> str:
+        cache = "cache" if self.cache_hit else "fresh"
+        return f"confidence={self.confidence:.2f} source={self.source_summary} mode={cache}"
+
+
+class SquadLeadAnswerEngine:
+    """Resolve agent questions using issue context, code context, and learned Q&A."""
+
+    def __init__(self, memory_store: WorkspaceMemoryStore):
+        self.memory_store = memory_store
+
+    def answer_question(
+        self,
+        task_context: str,
+        question: str,
+        *,
+        issue_data: dict[str, object] | None = None,
+        code_context: str = "",
+        related_issues: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
+        work_item_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> AnswerDraft:
+        """Answer a Squad Lead question using cached Q&A and local context."""
+        normalized_question = _normalize_question(question)
+        cache_hit = self._find_cached_answer(task_context, normalized_question, work_item_id)
+        if cache_hit is not None:
+            return cache_hit
+
+        answer_parts: list[str] = []
+        evidence: list[str] = []
+        issue_number = int(issue_data.get("number", 0)) if issue_data else 0
+        issue_title = str(issue_data.get("title", "")) if issue_data else ""
+        acceptance_criteria = _extract_acceptance_criteria(issue_data)
+        code_hint = _summarize_code_context(code_context)
+
+        if _contains_any_text(normalized_question, ("source of truth", "issue", "scope")):
+            if issue_number:
+                answer_parts.append(
+                    f"Use issue #{issue_number}: {issue_title or 'the referenced issue'} as the authoritative scope."
+                )
+                evidence.append("issue")
+            if acceptance_criteria:
+                answer_parts.append(f"Acceptance criteria: {acceptance_criteria[0]}")
+                evidence.append("acceptance_criteria")
+
+        if _contains_any_text(normalized_question, ("validation", "test", "prove", "verify")):
+            validation_hint = _extract_validation_hint(code_context, issue_data)
+            if validation_hint:
+                answer_parts.append(validation_hint)
+                evidence.append("validation")
+            elif acceptance_criteria:
+                answer_parts.append(f"Validate against the recorded acceptance criteria: {acceptance_criteria[0]}")
+                evidence.append("acceptance_criteria")
+
+        if _contains_any_text(normalized_question, ("dependency", "integration", "constraint", "edge case")):
+            if code_hint:
+                answer_parts.append(code_hint)
+                evidence.append("code_context")
+            related_hint = _summarize_related_issues(related_issues)
+            if related_hint:
+                answer_parts.append(related_hint)
+                evidence.append("related_issues")
+
+        if not answer_parts:
+            answer_parts.append("Use the issue description, acceptance criteria, and nearby code context to answer before changing behavior.")
+
+        source_summary = ",".join(evidence) if evidence else "fallback"
+        confidence = _score_answer_confidence(evidence, cache_hit=False, question=normalized_question, task_context=task_context)
+        answer = " ".join(answer_parts).strip()
+        draft = AnswerDraft(
+            question=question.strip(),
+            answer=answer,
+            confidence=confidence,
+            source_summary=source_summary,
+            cache_hit=False,
+            should_escalate=confidence < 0.6,
+        )
+        self._record_answer(task_context, draft, work_item_id=work_item_id, agent_name=agent_name)
+        return draft
+
+    def _find_cached_answer(
+        self,
+        task_context: str,
+        normalized_question: str,
+        work_item_id: str | None,
+    ) -> AnswerDraft | None:
+        if work_item_id:
+            for item in self.memory_store.get_qa_for_work_item(work_item_id):
+                if _normalize_question(item["question"]) == normalized_question:
+                    return AnswerDraft(
+                        question=item["question"],
+                        answer=item["answer"],
+                        confidence=0.96,
+                        source_summary="work_item_cache",
+                        cache_hit=True,
+                        should_escalate=False,
+                    )
+
+        for item in self.memory_store.get_similar_questions(task_context, limit=20):
+            if _normalize_question(item["question"]) == normalized_question:
+                return AnswerDraft(
+                    question=item["question"],
+                    answer=item["answer"],
+                    confidence=0.9,
+                    source_summary="task_context_cache",
+                    cache_hit=True,
+                    should_escalate=False,
+                )
+        return None
+
+    def _record_answer(
+        self,
+        task_context: str,
+        draft: AnswerDraft,
+        *,
+        work_item_id: str | None,
+        agent_name: str | None,
+    ) -> None:
+        try:
+            self.memory_store.record_qa(
+                draft.question,
+                draft.answer,
+                task_context,
+                work_item_id=work_item_id,
+                agent_name=agent_name,
+            )
+        except Exception:
+            pass
+
+
+def build_squad_lead_answer_engine(memory_store: WorkspaceMemoryStore) -> SquadLeadAnswerEngine:
+    """Create the Squad Lead answer engine for a given memory store."""
+    return SquadLeadAnswerEngine(memory_store)
 
 
 def suggest_questions_for_work(
@@ -392,6 +630,19 @@ def suggest_questions_for_work(
         List of proactive question suggestions ordered by relevance
     """
     similar_qa = memory_store.get_similar_questions(task_context, limit=20)
+    semantic_hits = memory_store.semantic_search(task_context, limit=20)
+    for hit in semantic_hits:
+        if hit.kind != "qa":
+            continue
+        similar_qa.append(
+            {
+                "question": hit.title,
+                "answer": hit.body.split("|", 1)[0].strip() if hit.body else "",
+                "context": hit.body,
+                "agent": hit.source,
+                "created_at": hit.created_at,
+            }
+        )
 
     if not similar_qa:
         return []
@@ -459,51 +710,24 @@ def build_questioning_prompt(
     role: str = "primary",
     work_item_id: str | None = None,
     agent_name: str | None = None,
+    issue_data: dict[str, object] | None = None,
+    code_context: str = "",
+    related_issues: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
 ) -> QuestioningPrompt:
-    suggestions = suggest_questions_for_work(memory_store, task_context, limit=limit)
-    questions: list[str] = []
-    answer_hints: list[str] = []
-    recorded_count = 0
-
-    def add_question(question: str, answer_hint: str, learned: bool) -> None:
-        nonlocal recorded_count
-        normalized = question.lower().strip()
-        if normalized in {existing.lower().strip() for existing in questions}:
-            return
-        questions.append(question)
-        answer_hints.append(answer_hint)
-        if not learned:
-            try:
-                memory_store.record_qa(
-                    question,
-                    answer_hint,
-                    task_context,
-                    work_item_id=work_item_id,
-                    agent_name=agent_name or role,
-                )
-                recorded_count += 1
-            except Exception:
-                pass
-
-    for suggestion in suggestions[:limit]:
-        add_question(
-            suggestion.question,
-            suggestion.previous_answer or "Use the learned answer from similar work.",
-            learned=True,
-        )
-
-    heuristics = _questioning_heuristics(task_context, role)
-    for question, answer_hint in heuristics:
-        if len(questions) >= limit:
-            break
-        add_question(question, answer_hint, learned=False)
-
-    return QuestioningPrompt(
-        task_context=task_context,
-        questions=tuple(questions[:limit]),
-        answer_hints=tuple(answer_hints[:limit]),
-        learned_count=len(suggestions[:limit]),
-        recorded_count=recorded_count,
+    """Build the questioning phase prompt and seed it with learned answers."""
+    protocol = QuestioningProtocol(
+        memory_store=memory_store,
+        answer_engine=build_squad_lead_answer_engine(memory_store),
+    )
+    return protocol.formulate(
+        task_context,
+        limit=limit,
+        role=role,
+        work_item_id=work_item_id,
+        agent_name=agent_name,
+        issue_data=issue_data,
+        code_context=code_context,
+        related_issues=related_issues,
     )
 
 
@@ -547,3 +771,105 @@ def _questioning_heuristics(task_context: str, role: str) -> list[tuple[str, str
         )
 
     return heuristics[:3]
+
+
+def _classify_question_category(question: str) -> str:
+    normalized = question.lower()
+    if "validation" in normalized or "verify" in normalized or "test" in normalized:
+        return "constraints"
+    if "dependency" in normalized or "integration" in normalized:
+        return "dependencies"
+    if "edge" in normalized or "case" in normalized:
+        return "edge_cases"
+    if "source of truth" in normalized or "issue" in normalized or "scope" in normalized:
+        return "scope"
+    return "clarification"
+
+
+def _normalize_question(question: str) -> str:
+    return " ".join(question.lower().strip().split())
+
+
+def _extract_acceptance_criteria(issue_data: dict[str, object] | None) -> list[str]:
+    if not issue_data:
+        return []
+    body = str(issue_data.get("body", "") or "")
+    lines = body.splitlines()
+    criteria: list[str] = []
+    capture = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if capture and criteria:
+                break
+            continue
+        if stripped.casefold().startswith("## acceptance"):
+            capture = True
+            continue
+        if capture and stripped.startswith("## "):
+            break
+        if capture and stripped[:2] in {"- ", "* "}:
+            criteria.append(stripped[2:].strip())
+    return criteria
+
+
+def _extract_validation_hint(code_context: str, issue_data: dict[str, object] | None) -> str:
+    snippets: list[str] = []
+    if issue_data:
+        criteria = _extract_acceptance_criteria(issue_data)
+        if criteria:
+            snippets.append(f"Validate the acceptance criteria: {criteria[0]}")
+    if code_context:
+        tests = re.findall(r"tests?/[A-Za-z0-9_./-]*test_[A-Za-z0-9_./-]*\\.py", code_context, flags=re.IGNORECASE)
+        if tests:
+            snippets.append(f"Start with the narrowest test surface: {tests[0]}")
+    if not snippets and code_context:
+        snippets.append(f"Use the code context to identify the narrowest meaningful validation path: {_summarize_code_context(code_context)}")
+    return " ".join(snippets).strip()
+
+
+def _summarize_code_context(code_context: str) -> str:
+    text = " ".join(code_context.strip().split())
+    if not text:
+        return ""
+    return text[:200]
+
+
+def _summarize_related_issues(related_issues: list[dict[str, object]] | tuple[dict[str, object], ...]) -> str:
+    if not related_issues:
+        return ""
+    fragments: list[str] = []
+    for item in related_issues[:3]:
+        number = item.get("number")
+        title = str(item.get("title", "")).strip()
+        if number and title:
+            fragments.append(f"#{number} {title}")
+        elif number:
+            fragments.append(f"#{number}")
+        elif title:
+            fragments.append(title)
+    if not fragments:
+        return ""
+    return f"Check related issues for precedent: {', '.join(fragments)}"
+
+
+def _score_answer_confidence(
+    evidence: list[str],
+    *,
+    cache_hit: bool,
+    question: str,
+    task_context: str,
+) -> float:
+    score = 0.25 + (0.2 * len(evidence))
+    if cache_hit:
+        score += 0.35
+    if _contains_any_text(question, ("source of truth", "issue", "validation", "test", "dependency", "integration")):
+        score += 0.1
+    if task_context.strip():
+        score += 0.05
+    return max(0.0, min(score, 0.98))
+
+
+def _contains_any_text(value: str, patterns: tuple[str, ...]) -> bool:
+    normalized = value.lower()
+    return any(pattern in normalized for pattern in patterns)

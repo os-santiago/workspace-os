@@ -9,10 +9,10 @@ from unittest.mock import patch
 from workspace_os.model_provider import (
     ModelMessage,
     ModelProfile,
+    ModelProviderError,
     ModelRequest,
     ModelRouter,
     ModelRoutingConfig,
-    ModelProviderError,
     NoModelProvider,
     OpenAICompatibleProvider,
     build_model_router,
@@ -21,21 +21,16 @@ from workspace_os.model_provider import (
 
 
 class _FakeHTTPResponse:
-    def __init__(self, payload: dict[str, object]):
+    def __init__(self, payload: dict[str, object], status: int = 200):
         self._payload = payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
+        self.status = status
 
     def read(self) -> bytes:
         return json.dumps(self._payload).encode("utf-8")
 
 
 class ModelProviderTests(unittest.TestCase):
-    def test_no_model_provider_returns_deterministic_fallback(self):
+    def test_no_model_provider_returns_deterministic_fallback(self) -> None:
         provider = NoModelProvider()
         request_payload = ModelRequest(
             task_type="planning",
@@ -50,7 +45,7 @@ class ModelProviderTests(unittest.TestCase):
         self.assertIn("No external model configured", result.content)
         self.assertIn("task_type=planning", result.content)
 
-    def test_model_router_falls_back_when_preferred_provider_is_missing(self):
+    def test_model_router_falls_back_when_preferred_provider_is_missing(self) -> None:
         config = ModelRoutingConfig(
             enabled=True,
             default_profile="remote",
@@ -76,7 +71,7 @@ class ModelProviderTests(unittest.TestCase):
         self.assertIn("remote", result.candidate_chain)
         self.assertIn("none", result.candidate_chain)
 
-    def test_load_modeling_config_resolves_env_backed_profile(self):
+    def test_load_modeling_config_resolves_env_backed_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "workspace.json"
             config_path.write_text(
@@ -120,7 +115,7 @@ class ModelProviderTests(unittest.TestCase):
         self.assertEqual("test-model", config.profiles["remote_reasoner"].model)
         self.assertEqual("secret", config.profiles["remote_reasoner"].api_key)
 
-    def test_openai_compatible_provider_posts_chat_completion_request(self):
+    def test_openai_compatible_provider_posts_chat_completion_request(self) -> None:
         provider = OpenAICompatibleProvider(
             name="remote_reasoner",
             base_url="https://api.example.invalid/v1",
@@ -129,21 +124,30 @@ class ModelProviderTests(unittest.TestCase):
         )
         request_payload = ModelRequest.from_prompt("Summarize the cycle.", task_type="review")
 
-        with patch("workspace_os.model_provider.request.urlopen", return_value=_FakeHTTPResponse({"choices": [{"message": {"content": "summary"}}]})) as mocked:
+        with patch("workspace_os.model_provider.http.client.HTTPSConnection") as connection_cls:
+            connection = connection_cls.return_value
+            connection.getresponse.return_value = _FakeHTTPResponse(
+                {"choices": [{"message": {"content": "summary"}}]},
+                status=200,
+            )
+
             result = provider.generate(request_payload)
 
-        http_request = mocked.call_args.args[0]
-        body = json.loads(http_request.data.decode("utf-8"))
+        connection_cls.assert_called_once_with("api.example.invalid", timeout=30.0)
+        connection.request.assert_called_once()
+        method, path = connection.request.call_args.args[:2]
+        self.assertEqual("POST", method)
+        self.assertEqual("/v1/chat/completions", path)
+        body = json.loads(connection.request.call_args.kwargs["body"].decode("utf-8"))
 
         self.assertEqual("remote_reasoner", result.provider)
         self.assertEqual("test-model", result.model)
         self.assertEqual("summary", result.content)
-        self.assertEqual("https://api.example.invalid/v1/chat/completions", http_request.full_url)
-        self.assertEqual("Bearer secret-token", http_request.get_header("Authorization"))
+        self.assertEqual("Bearer secret-token", connection.request.call_args.kwargs["headers"]["Authorization"])
         self.assertEqual("test-model", body["model"])
         self.assertEqual("review", request_payload.task_type)
 
-    def test_openai_compatible_provider_rejects_non_http_base_url(self):
+    def test_openai_compatible_provider_rejects_non_http_base_url(self) -> None:
         with self.assertRaises(ModelProviderError):
             OpenAICompatibleProvider(
                 name="remote_reasoner",
@@ -151,7 +155,7 @@ class ModelProviderTests(unittest.TestCase):
                 model="test-model",
             )
 
-    def test_build_model_router_defaults_to_no_model_when_unconfigured(self):
+    def test_build_model_router_defaults_to_no_model_when_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "workspace.json"
             config_path.write_text("{}", encoding="utf-8")
@@ -163,7 +167,7 @@ class ModelProviderTests(unittest.TestCase):
         self.assertTrue(result.used_fallback)
         self.assertIn("no external model configured", result.fallback_reason or "")
 
-    def test_disabled_modeling_ignores_environment_providers(self):
+    def test_disabled_modeling_ignores_environment_providers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "workspace.json"
             config_path.write_text(

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import shutil
 import sys
 
 from workspace_os.capture import build_capture_draft, write_capture
@@ -21,6 +23,7 @@ from workspace_os.context_pack import build_context_pack
 from workspace_os.git_status import inspect_source
 from workspace_os.housekeeping import find_temporary_artifacts
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.onboarding import run_onboarding_tutorial
 from workspace_os.overview import build_workspace_handoff, build_workspace_next_action, build_workspace_overview, default_workspace_context_path, default_workspace_handoff_path, render_latest_workspace_context_text, render_workspace_analysis_text, render_workspace_handoff_text, render_workspace_next_action_text, render_workspace_roots_text, write_workspace_context_snapshot, write_workspace_handoff
 from workspace_os.promotion import build_promotion_proposal
 from workspace_os.profile import load_profile
@@ -85,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"conscience", "oce"}:
         return _conscience(memory_path, args.conscience_command, args)
     if args.command == "shell":
-        return _shell(sources, memory_path, args.session_id)
+        return _shell(sources, memory_path, args.session_id, args.skip_onboarding)
+    if args.command == "onboarding":
+        return _onboarding(memory_path, args.skip_onboarding)
     if args.command == "batch":
         return _batch(sources, memory_path, args.batch_command, args)
     if args.command == "process":
@@ -96,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         return _journal(sources, memory_path, args.journal_command, args)
     if args.command == "web":
         return _web(args.config, args.host, args.port)
+    if args.command == "agents":
+        return _agents(args.agents_command, args)
 
     parser.print_help()
     return 2
@@ -321,6 +328,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Open the terminal-first Workspace OS shell.",
     )
     shell_parser.add_argument("--session-id", default="shell", help="Memory session identifier.")
+    shell_parser.add_argument("--skip-onboarding", action="store_true", help="Skip the first-run onboarding tutorial.")
+
+    onboarding_parser = subparsers.add_parser(
+        "onboarding",
+        help="Run the interactive first-run onboarding tutorial.",
+    )
+    onboarding_parser.add_argument(
+        "--skip-onboarding",
+        action="store_true",
+        help="Mark onboarding complete without running the interactive tutorial.",
+    )
 
     batch_parser = subparsers.add_parser(
         "batch",
@@ -404,6 +422,10 @@ def _build_parser() -> argparse.ArgumentParser:
     cycle_work.add_argument("--sequential", action="store_true", help="Use sequential mode (default is continuous for better throughput).")
     cycle_work.add_argument("--debug", action="store_true", help="Enable detailed debug logging to .workspace-os/debug-logs/")
     cycle_subparsers.add_parser("stop", help="Stop the active cycle.")
+    cycle_resume = cycle_subparsers.add_parser("resume", help="Resume an interrupted cycle from last checkpoint.")
+    cycle_resume.add_argument("--id", type=int, help="Cycle ID to resume (defaults to most recent incomplete cycle).")
+    cycle_resume.add_argument("--duration-minutes", type=float, help="Continue for this duration.")
+    cycle_resume.add_argument("--iterations", type=int, help="Continue for this many iterations.")
     cycle_status = cycle_subparsers.add_parser("status", help="Show the active cycle.")
     cycle_next = cycle_subparsers.add_parser("next", help="Recommend the next cycle action.")
     cycle_report = cycle_subparsers.add_parser("report", help="Render the active or selected cycle report.")
@@ -431,6 +453,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     web_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
     web_parser.add_argument("--port", type=int, default=8765, help="Bind port.")
+
+    agents_parser = subparsers.add_parser(
+        "agents",
+        help="Check agent availability and configuration.",
+    )
+    agents_subparsers = agents_parser.add_subparsers(dest="agents_command", required=True)
+    agents_status = agents_subparsers.add_parser("status", help="Show available agents and their configuration.")
+    agents_status.add_argument("--verbose", action="store_true", help="Show detailed agent information.")
+    agents_test = agents_subparsers.add_parser("test", help="Test agent command construction.")
 
     return parser
 
@@ -468,7 +499,7 @@ def _search(sources: list[Source], query: str, source_type: str | None, max_resu
         max_results=max_results,
     )
     for match in matches:
-        print(f"{match.source_name}:{match.path}:{match.line_number}: {sanitize_text(match.line)}")
+        print(f"{match.source_name}:{match.path.as_posix()}:{match.line_number}: {sanitize_text(match.line)}")
     if not matches:
         print("No matches found.")
     return 0
@@ -839,12 +870,30 @@ def _conscience(memory_path: Path, command: str, args: argparse.Namespace) -> in
     return 2
 
 
-def _shell(sources: list[Source], memory_path: Path, session_id: str) -> int:
-    shell = WorkspaceShell(sources=sources, memory_path=memory_path, session_id=session_id)
+def _shell(sources: list[Source], memory_path: Path, session_id: str, skip_onboarding: bool = False) -> int:
+    shell = WorkspaceShell(
+        sources=sources,
+        memory_path=memory_path,
+        session_id=session_id,
+        skip_onboarding=skip_onboarding,
+    )
     try:
         shell.cmdloop()
     except KeyboardInterrupt:
         print("")
+    return 0
+
+
+def _onboarding(memory_path: Path, skip_onboarding: bool) -> int:
+    store = WorkspaceMemoryStore(memory_path)
+    store.ensure_schema()
+    if skip_onboarding:
+        store.record_preference("onboarding_completed", "true")
+        print("Onboarding marked complete.")
+        return 0
+    result = run_onboarding_tutorial(store)
+    if result.already_completed:
+        print("Onboarding already completed.")
     return 0
 
 
@@ -1067,6 +1116,58 @@ def _web(config_path: Path, host: str, port: int) -> int:
     return 0
 
 
+def _agents(command: str, args: argparse.Namespace) -> int:
+    from workspace_os.agent_policy import SUPPORTED_WORK_AGENTS, agent_is_available, available_work_agents
+
+    if command == "status":
+        print("🤖 WOS Agent Status\n")
+
+        for agent in SUPPORTED_WORK_AGENTS:
+            available = agent_is_available(agent)
+            status_icon = "✓" if available else "✗"
+            status_text = "AVAILABLE" if available else "NOT FOUND"
+
+            # Show path if available
+            path = shutil.which(agent)
+            if not path:
+                # Check for .cmd or .ps1 variants
+                path = shutil.which(f"{agent}.cmd") or shutil.which(f"{agent}.ps1")
+
+            location = f" ({path})" if path else ""
+
+            print(f"{status_icon} {agent}: {status_text}{location}")
+
+            # Show additional info in verbose mode
+            if getattr(args, "verbose", False) and available:
+                if agent == "antigravity":
+                    custom_cmd = os.environ.get("WOS_ANTIGRAVITY_COMMAND")
+                    if custom_cmd:
+                        print(f"  └─ Custom command: {custom_cmd[:60]}...")
+
+        active = available_work_agents()
+        print(f"\nActive pool: {', '.join(active)} ({len(active)} agent{'s' if len(active) != 1 else ''})")
+
+        return 0
+
+    if command == "test":
+        print("🧪 Testing agent execution...\n")
+
+        from workspace_os.agent_adapter import build_agent_command
+
+        for agent in available_work_agents():
+            try:
+                cmd = build_agent_command(agent, Path.cwd(), "test prompt")
+                cmd_preview = ' '.join(str(c) for c in cmd[:3])
+                print(f"✓ {agent}: {cmd_preview}...")
+            except Exception as e:
+                print(f"✗ {agent}: {e}")
+
+        return 0
+
+    print(f"error: unsupported agents command '{command}'", file=sys.stderr)
+    return 2
+
+
 def _cycle(sources: list[Source], memory_path: Path, command: str, args: argparse.Namespace) -> int:
     store = WorkspaceMemoryStore(memory_path)
     store.ensure_schema()
@@ -1250,6 +1351,70 @@ def _cycle(sources: list[Source], memory_path: Path, command: str, args: argpars
         if report is not None:
             print(_render_cycle_report(report))
         return 0
+
+    if command == "resume":
+        try:
+            from workspace_os.cycle import resume_cycle
+
+            cycle_id = args.id
+
+            # If no ID provided, find the most recent incomplete cycle
+            if cycle_id is None:
+                cycles = store.cycle_history(limit=10)
+                for cycle in cycles:
+                    if cycle['ended_at'] is None:
+                        cycle_id = int(cycle['id'])
+                        break
+
+                if cycle_id is None:
+                    print("No incomplete cycles found to resume.")
+                    print("Use 'workspace cycle history' to see available cycles.")
+                    return 1
+
+            # Check if cycle exists
+            cycle_data = store.cycle_report(cycle_id)
+            if cycle_data is None:
+                print(f"Cycle {cycle_id} not found.")
+                return 1
+
+            print(f"Resuming cycle {cycle_id}: {cycle_data['cycle']['label']}")
+            print(f"Previous checkpoints: {cycle_data['checkpoint_count']}")
+
+            # Resume based on mode
+            if args.duration_minutes is not None:
+                result = resume_cycle(
+                    store,
+                    sources,
+                    cycle_id,
+                    duration_minutes=args.duration_minutes
+                )
+            elif args.iterations is not None:
+                result = resume_cycle(
+                    store,
+                    sources,
+                    cycle_id,
+                    iterations=args.iterations
+                )
+            else:
+                # Default: resume with 1 iteration
+                result = resume_cycle(
+                    store,
+                    sources,
+                    cycle_id,
+                    iterations=1
+                )
+
+            print(f"cycle_id={result.cycle_id}")
+            print(f"iterations_completed={result.iterations_completed}")
+            for iteration in result.iteration_results:
+                print(f"saved checkpoint {iteration.checkpoint_id} ({iteration.label})")
+                print(render_cycle_evaluation(iteration.evaluation), end="")
+            print(_render_cycle_report(_cycle_report_to_dict(result.report)), end="")
+            return 0
+
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     if command == "status":
         report = active_cycle_report(store)

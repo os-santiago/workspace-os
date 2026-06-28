@@ -98,7 +98,20 @@ At each checkpoint, WOS:
 
 **Implementation**: `update_agent_performance_from_queue()` in `learning.py`
 
-### 6. Agent Questioning Protocol
+### 6. Questioning Metrics Dashboard
+
+The questioning dashboard tracks the impact of the protocol:
+
+- Q&A volume and recent activity
+- success rate with and without questioning
+- answer sources used by Squad Lead
+- top repeated question patterns
+- estimated learning velocity
+- estimated time invested versus rework savings
+
+These numbers are local heuristics, not external telemetry. They exist to show whether the protocol is improving execution quality inside the workspace.
+
+### 7. Agent Questioning Protocol
 
 Before execution, WOS inserts a questioning phase into the cycle prompt:
 
@@ -106,10 +119,14 @@ Before execution, WOS inserts a questioning phase into the cycle prompt:
 - Questions focus on clarification, scope, edge cases, dependencies, and constraints.
 - Squad Lead context and prior Q&A can answer repeated questions from learning history.
 - New questions are recorded in the learning module so later cycles can reuse them.
+- Squad Lead now uses an answer engine that combines issue context, acceptance criteria, code context, and related issues to produce confidence-scored answers.
+- Low-confidence answers are escalated back to the operator instead of being presented as certain.
+- The questioning protocol now emits categorized questions so the prompt can distinguish scope, constraints, dependencies, edge cases, and general clarification.
+- Question and answer text is normalized for display so repeated Q&A stays readable in the dashboard and prompt context.
 
 This keeps ambiguity visible early instead of turning into rework later.
 
-### 7. Squad-Aware Logging
+### 8. Squad-Aware Logging
 
 Enhanced logging shows team coordination:
 

@@ -68,7 +68,7 @@ Automated scanning on:
 
 **Module**: `src/workspace_os/security/`
 
-Integrated with `wos validate`:
+Integrated with `wos validate` and cycle quality checks:
 
 ```bash
 # Run validation including security
@@ -76,7 +76,12 @@ wos validate
 
 # Skip security scan
 wos validate --skip-security-scan
+
+# Bandit runs automatically in cycle checkpoints
+workspace cycle work --duration-minutes 30 --objective "development"
 ```
+
+**Note**: Bandit SAST is automatically integrated into cycle quality gates. See [bandit-sast.md](./bandit-sast.md) for details.
 
 ### 4. Security Policy
 
@@ -87,6 +92,20 @@ Defines:
 - Severity levels and remediation timelines
 - Exception process
 - Compliance requirements
+
+### 5. Policy as Code
+
+**File**: `config/security-policy.yml`
+
+Declares the repository security policy used by `SecurityValidator`:
+- Allowed dependencies from `pyproject.toml`
+- Banned code patterns such as unsafe YAML loading and `shell=True`
+- Required headers for security package modules and security validator tests
+- Environment-backed secret handling for model provider configuration
+
+The security dashboard exposes the resulting compliance summary through:
+- `GET /api/security`
+- `GET /api/security.md`
 
 ### 5. Exception Management
 

@@ -37,6 +37,7 @@ Issues = "https://github.com/os-santiago/workspace-os/issues"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-benchmark>=4.0.0",
     "pytest-cov>=4.0.0",
     "bandit>=1.7.0",
     "black>=26.3.1",
@@ -47,6 +48,7 @@ dev = [
     "python-dotenv>=1.2.2",
     "requests>=2.33.0",
     "sentry-sdk>=2.8.0",
+    "sphinx>=8.0.0",
     "starlette>=1.3.1",
     "torch>=2.7.1",
 ]

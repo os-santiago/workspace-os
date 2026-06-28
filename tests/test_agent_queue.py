@@ -97,7 +97,10 @@ def test_agent_queue_utilization_report(temp_memory):
     assert report.observed_peak_parallel >= 1
     assert report.recommended_max_parallel >= 1
     assert len(report.hourly_totals) == 24
+    assert isinstance(report.idle_hours, tuple)
+    assert isinstance(report.recommendations, tuple)
     assert report.agent_summaries
     assert any(summary.agent == "opencode" for summary in report.agent_summaries)
     assert "Agent Utilization Report" in report.render()
     assert "Recommended max workers" in report.render()
+    assert "Recommendations:" in report.render()

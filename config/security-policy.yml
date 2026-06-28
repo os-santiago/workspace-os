@@ -1,0 +1,65 @@
+allowed_dependencies:
+  - aiohttp
+  - ansible
+  - bandit
+  - black
+  - cyclonedx-bom
+  - cryptography
+  - pillow
+  - pip-audit
+  - pyyaml
+  - pytest
+  - pytest-cov
+  - python-dotenv
+  - requests
+  - rich
+  - safety
+  - sentry-sdk
+  - starlette
+  - torch
+
+banned_patterns:
+  - name: unsafe_yaml_loader
+    pattern: '\byaml\.load\('
+    paths:
+      - src/**/*.py
+      - tests/**/*.py
+      - config/**/*.json
+      - config/**/*.yml
+      - config/**/*.yaml
+      - config/**/*.toml
+  - name: shell_injection_flag
+    pattern: 'shell=True'
+    paths:
+      - src/**/*.py
+      - tests/**/*.py
+  - name: dynamic_eval_usage
+    pattern: '\beval\('
+    paths:
+      - src/**/*.py
+      - tests/**/*.py
+
+required_headers:
+  - name: security_package_headers
+    paths:
+      - src/workspace_os/security/*.py
+    lines:
+      - '# Copyright 2026 Sergio Canales'
+      - '# SPDX-License-Identifier: Apache-2.0'
+  - name: security_validator_tests_headers
+    paths:
+      - tests/test_security_validator.py
+    lines:
+      - '# Copyright 2026 Sergio Canales'
+      - '# SPDX-License-Identifier: Apache-2.0'
+
+encryption_requirements:
+  - name: modeling_secrets_env_backed
+    config_path: config/workspace.sources.example.json
+    enabled_profile_kind: openai_compatible
+    required_fields:
+      - base_url_env
+      - api_key_env
+      - model_env
+    forbidden_fields:
+      - api_key

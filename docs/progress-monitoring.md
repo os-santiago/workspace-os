@@ -2,6 +2,17 @@
 
 Beautiful real-time visualization of WOS cycle progress with animated terminal dashboard.
 
+## Web Dashboard
+
+The local web app now exposes a live cycle monitor at `/api/cycle-monitor` and a WebSocket feed at `/api/cycle-monitor/ws`.
+
+- Shows the active or latest cycle
+- Streams checkpoint history and pass/fail gate status
+- Surfaces agent utilization, idle and bottleneck hours, and the next recommended action
+- Falls back to polling if WebSocket support is unavailable
+
+Open the main UI and keep the cycle monitor panel visible to watch a run in real time.
+
 ## Features
 
 ### 🎨 Animated Dashboard
@@ -29,6 +40,8 @@ Beautiful real-time visualization of WOS cycle progress with animated terminal d
    - Active agents (X/Y)
    - Queue utilization percentage
    - Visual utilization bar
+   - Idle and bottleneck hour summaries
+   - Max_workers tuning recommendations
 
 4. **Quality Gates**
    - Checkpoints completed

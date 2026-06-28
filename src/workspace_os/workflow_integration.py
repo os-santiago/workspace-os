@@ -13,6 +13,7 @@ from workspace_os.architecture_decision import ArchitectureDecision
 from workspace_os.complex_issue_workflow import ComplexIssueWorkflow, ComplexIssueWorkflowResult
 from workspace_os.issue_complexity import ComplexityClassification, ComplexityLevel
 from workspace_os.memory import WorkspaceMemoryStore
+from workspace_os.model_provider import build_model_router
 from workspace_os.workflow_agent_executor import create_workflow_agent_executor
 from workspace_os.workflow_approval import prompt_user_for_architecture_approval
 
@@ -39,6 +40,7 @@ def execute_complex_workflow_for_issue(
     workspace_name: str,
     workspace_root: Path,
     memory_store: WorkspaceMemoryStore,
+    config_path: Path | None = None,
     agent_type: str = "claude",
     agent_runner: Callable[..., object] | None = None,
     enable_user_approval: bool = True,
@@ -70,6 +72,11 @@ def execute_complex_workflow_for_issue(
     if complexity.detected_dependencies:
         print(f"[workflow]   📦 Dependencies: {', '.join(complexity.detected_dependencies)}")
 
+    model_router = build_model_router(config_path) if config_path is not None else None
+    if model_router is not None:
+        selected_provider = model_router.select_provider("planning")
+        print(f"[workflow] model_provider={selected_provider.name}")
+
     # Create agent executor
     agent_executor = create_workflow_agent_executor(
         workspace_name=workspace_name,
@@ -77,6 +84,7 @@ def execute_complex_workflow_for_issue(
         memory_store=memory_store,
         agent_type=agent_type,
         agent_runner=agent_runner,
+        model_router=model_router,
     )
 
     # Execute workflow

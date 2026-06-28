@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import http.client
 import json
 import os
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
-from urllib import error, request
-from urllib.parse import urlsplit
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -163,23 +163,40 @@ class OpenAICompatibleProvider:
         if request_payload.extra_body:
             payload.update(request_payload.extra_body)
 
-        url = f"{self.base_url}/chat/completions"
+        parsed = urlparse(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ModelProviderError(f"Provider '{self.name}' has an invalid base URL.")
+        endpoint_path = parsed.path.rstrip("/") + "/chat/completions"
+        if not endpoint_path.startswith("/"):
+            endpoint_path = f"/{endpoint_path}"
+        if parsed.query:
+            endpoint_path = f"{endpoint_path}?{parsed.query}"
         headers = {"Content-Type": "application/json", **self.extra_headers}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         body = json.dumps(payload).encode("utf-8")
-        http_request = request.Request(url, data=body, headers=headers, method="POST")
+        connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        connection = connection_cls(parsed.netloc, timeout=self.timeout_seconds)
 
         try:
-            with request.urlopen(http_request, timeout=self.timeout_seconds) as response:  # nosec B310 - validated http(s) base URL
-                data = json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            raise ModelProviderError(f"Provider '{self.name}' returned HTTP {exc.code}.") from exc
-        except error.URLError as exc:
-            raise ModelProviderError(f"Provider '{self.name}' is unavailable: {exc.reason}.") from exc
+            connection.request("POST", endpoint_path, body=body, headers=headers)
+            response = connection.getresponse()
+            response_body = response.read().decode("utf-8")
+            if not 200 <= int(getattr(response, "status", 200)) < 300:
+                raise ModelProviderError(f"Provider '{self.name}' returned HTTP {getattr(response, 'status', 'n/a')}.")
+            data = json.loads(response_body)
+        except http.client.HTTPException as exc:
+            raise ModelProviderError(f"Provider '{self.name}' failed: {exc}.") from exc
+        except TimeoutError as exc:
+            raise ModelProviderError(f"Provider '{self.name}' timed out.") from exc
         except json.JSONDecodeError as exc:
             raise ModelProviderError(f"Provider '{self.name}' returned invalid JSON.") from exc
+        finally:
+            try:
+                connection.close()
+            except OSError:
+                pass
 
         choices = data.get("choices", [])
         if not choices:
@@ -436,7 +453,7 @@ def _read_optional_str(raw: Any) -> str | None:
 
 
 def _normalize_http_base_url(base_url: str) -> str:
-    parsed = urlsplit(base_url.strip())
+    parsed = urlparse(base_url.strip())
     if parsed.scheme not in {"http", "https"}:
         raise ModelProviderError("Model provider base_url must use http or https.")
     if not parsed.netloc:
