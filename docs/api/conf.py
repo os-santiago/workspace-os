@@ -12,7 +12,7 @@ sys.path.insert(0, str(EXT))
 
 project = "workspace-os"
 author = "Sergio Canales"
-copyright = "2026, Sergio Canales"
+copyright = "2026, Sergio Canales"  # noqa: A001
 
 extensions = [
     "sphinx.ext.autodoc",

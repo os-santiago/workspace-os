@@ -40,6 +40,7 @@ You should see the Workspace OS command-line interface help output.
 The public Python API is documented with Sphinx under `docs/api/`.
 
 ```bash
+pip install -e ".[dev]"
 sphinx-build -b html docs/api docs/api/_build/html
 ```
 

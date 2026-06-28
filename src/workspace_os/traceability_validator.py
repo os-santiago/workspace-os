@@ -17,10 +17,20 @@ Usage:
        )
 
        # Run full traceability validation
+       memory_db_path = Path("/path/to/memory.db")
        validator = TraceabilityValidator(workspace_root=Path("/path/to/repo"))
-       report = validator.validate_cycle_traceability(cycle_id=2)
+       report = validator.validate_cycle_traceability(
+           memory_db_path=memory_db_path,
+           cycle_id=2,
+       )
 
        # Check quality gate compliance
+       checkpoint_data = {
+           "health_ok": True,
+           "stability_ok": True,
+           "security_ok": True,
+           "quality_ok": True,
+       }
        gate_result = validator.validate_quality_gates(checkpoint_data)
 """
 

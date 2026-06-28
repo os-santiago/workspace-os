@@ -34,3 +34,14 @@ def test_generate_api_docs_writes_index_and_module_pages(tmp_path):
     assert "workspace_os/agent_queue" in index_text
     assert "workspace_os/web_server" in index_text
     assert "workspace_os" in module_names
+
+
+def test_generate_api_docs_removes_stale_rst_files(tmp_path):
+    stale_dir = tmp_path / "workspace_os"
+    stale_dir.mkdir(parents=True)
+    stale_file = stale_dir / "obsolete.rst"
+    stale_file.write_text("stale", encoding="utf-8")
+
+    generate_api_docs(tmp_path)
+
+    assert not stale_file.exists()

@@ -58,6 +58,8 @@ def _render_modules_index(modules: list[DiscoveredModule]) -> str:
 
 def generate_api_docs(output_dir: Path, package_name: str = "workspace_os") -> list[DiscoveredModule]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    for existing in output_dir.rglob("*.rst"):
+        existing.unlink()
     modules = discover_public_modules(package_name)
     for module in modules:
         module_path = output_dir / Path(*module.name.split("."))
